@@ -87,6 +87,8 @@ const PLACEHOLDER_STYLE_LOCKED_KINDS: &[&str] = &[
 ];
 const MAX_PRIVACY_ALLOWLIST_RULES: usize = 128;
 const MAX_PRIVACY_ALLOWLIST_VALUE_CHARS: usize = 256;
+// Core's contract.MaxPurgeSessionIDs: one sessions purge names at most this many.
+const MAX_PURGE_SESSION_IDS: usize = 1000;
 #[cfg(target_os = "linux")]
 const LINUX_ONNX_RUNTIME_PATH_ENV: &str = "ASTRLINK_ONNX_RUNTIME_PATH";
 #[cfg(target_os = "linux")]
@@ -5072,7 +5074,7 @@ fn validate_purge_request_records_input(
         .ok_or_else(|| "request purge input must be an object".to_string())?;
     for key in object.keys() {
         match key.as_str() {
-            "scope" | "confirm" | "before" => {}
+            "scope" | "confirm" | "before" | "session_ids" => {}
             other => {
                 return Err(format!("request purge input contains unknown key {other}"));
             }
@@ -5113,7 +5115,38 @@ fn validate_purge_request_records_input(
                 return Err("request purge input has missing or unexpected fields".to_string());
             }
         }
-        _ => return Err("request purge input scope must be all or before".to_string()),
+        "sessions" => {
+            if object.contains_key("before") {
+                return Err(
+                    "request purge input before is forbidden when scope is sessions".to_string(),
+                );
+            }
+            let ids = object
+                .get("session_ids")
+                .and_then(|value| value.as_array())
+                .ok_or_else(|| {
+                    "request purge input session_ids is required when scope is sessions".to_string()
+                })?;
+            if ids.is_empty() || ids.len() > MAX_PURGE_SESSION_IDS {
+                return Err(format!(
+                    "request purge input session_ids must name 1 to {MAX_PURGE_SESSION_IDS} sessions"
+                ));
+            }
+            let mut seen = HashSet::with_capacity(ids.len());
+            for id in ids {
+                let id = id
+                    .as_str()
+                    .ok_or_else(|| "request purge input session_ids must be strings".to_string())?;
+                validate_resource_id(id)?;
+                if !seen.insert(id) {
+                    return Err("request purge input session_ids must not repeat".to_string());
+                }
+            }
+            if object.len() != 3 {
+                return Err("request purge input has missing or unexpected fields".to_string());
+            }
+        }
+        _ => return Err("request purge input scope must be all, before or sessions".to_string()),
     }
     Ok(input.clone())
 }
@@ -6160,6 +6193,42 @@ mod tests {
             "extra": true
         }))
         .is_err());
+        assert!(validate_purge_request_records_input(&serde_json::json!({
+            "scope": "sessions",
+            "confirm": true,
+            "session_ids": ["session_a", "req_bbbbbbbb"]
+        }))
+        .is_ok());
+        for input in [
+            serde_json::json!({ "scope": "sessions", "confirm": true }),
+            serde_json::json!({ "scope": "sessions", "confirm": true, "session_ids": [] }),
+            serde_json::json!({
+                "scope": "sessions",
+                "confirm": true,
+                "session_ids": ["session_a", "session_a"]
+            }),
+            serde_json::json!({ "scope": "sessions", "confirm": true, "session_ids": ["../x"] }),
+            serde_json::json!({ "scope": "sessions", "confirm": true, "session_ids": [7] }),
+            serde_json::json!({
+                "scope": "sessions",
+                "confirm": true,
+                "session_ids": ["session_a"],
+                "before": "2026-07-01T00:00:00Z"
+            }),
+            serde_json::json!({ "scope": "all", "confirm": true, "session_ids": ["session_a"] }),
+            serde_json::json!({
+                "scope": "sessions",
+                "confirm": true,
+                "session_ids": (0..=MAX_PURGE_SESSION_IDS)
+                    .map(|index| format!("session_{index}"))
+                    .collect::<Vec<_>>()
+            }),
+        ] {
+            assert!(
+                validate_purge_request_records_input(&input).is_err(),
+                "{input}"
+            );
+        }
     }
 
     #[test]

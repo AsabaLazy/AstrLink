@@ -859,18 +859,27 @@ func ClampRunes(value string, maxRunes int) string {
 type PurgeScope string
 
 const (
-	PurgeScopeAll    PurgeScope = "all"
-	PurgeScopeBefore PurgeScope = "before"
+	PurgeScopeAll      PurgeScope = "all"
+	PurgeScopeBefore   PurgeScope = "before"
+	PurgeScopeSessions PurgeScope = "sessions"
 )
 
+// MaxPurgeSessionIDs bounds one sessions purge; the desktop sends the
+// conversations an operator selected in the list it has loaded.
+const MaxPurgeSessionIDs = 1000
+
 func (scope PurgeScope) Valid() bool {
-	return scope == PurgeScopeAll || scope == PurgeScopeBefore
+	return scope == PurgeScopeAll || scope == PurgeScopeBefore || scope == PurgeScopeSessions
 }
 
 type PurgeRequest struct {
-	Scope   PurgeScope `json:"scope"`
-	Before  *time.Time `json:"before,omitempty"`
-	Confirm bool       `json:"confirm"`
+	Scope  PurgeScope `json:"scope"`
+	Before *time.Time `json:"before,omitempty"`
+	// SessionIDs names the conversations a sessions purge deletes, as the
+	// session list identifies them: a root without a session id is its own
+	// conversation, named by its request id.
+	SessionIDs []SessionID `json:"session_ids,omitempty"`
+	Confirm    bool        `json:"confirm"`
 }
 
 func (request PurgeRequest) Validate() error {
@@ -880,6 +889,9 @@ func (request PurgeRequest) Validate() error {
 	if !request.Confirm {
 		return fmt.Errorf("confirm must be true")
 	}
+	if request.Scope != PurgeScopeSessions && len(request.SessionIDs) > 0 {
+		return fmt.Errorf("session_ids must be omitted unless scope is sessions")
+	}
 	switch request.Scope {
 	case PurgeScopeBefore:
 		if request.Before == nil || request.Before.IsZero() {
@@ -888,6 +900,26 @@ func (request PurgeRequest) Validate() error {
 	case PurgeScopeAll:
 		if request.Before != nil {
 			return fmt.Errorf("before must be omitted when scope is all")
+		}
+	case PurgeScopeSessions:
+		if request.Before != nil {
+			return fmt.Errorf("before must be omitted when scope is sessions")
+		}
+		if len(request.SessionIDs) == 0 {
+			return fmt.Errorf("session_ids is required when scope is sessions")
+		}
+		if len(request.SessionIDs) > MaxPurgeSessionIDs {
+			return fmt.Errorf("session_ids must contain at most %d ids", MaxPurgeSessionIDs)
+		}
+		seen := make(map[SessionID]struct{}, len(request.SessionIDs))
+		for _, id := range request.SessionIDs {
+			if err := id.Validate(); err != nil {
+				return err
+			}
+			if _, repeated := seen[id]; repeated {
+				return fmt.Errorf("session_ids must not repeat %q", id)
+			}
+			seen[id] = struct{}{}
 		}
 	}
 	return nil

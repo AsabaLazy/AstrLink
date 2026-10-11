@@ -3817,15 +3817,16 @@ describe("RequestRecords", () => {
     );
   });
 
-  it("purges records through two in-app dialogs", async () => {
+  it("clears every record from the purge button's menu", async () => {
     await renderRecords();
     bridgeMocks.listRequestSessions.mockResolvedValue({
       items: [],
       next_cursor: null,
     });
 
-    await act(async () => exactButton("清理…").click());
-    await act(async () => exactButton("执行清理").click());
+    await act(async () =>
+      (await menuItem("更多清理方式", "清空全部记录及加密内容")).click(),
+    );
     expect(
       document.querySelector('[role="alertdialog"]')?.textContent,
     ).toContain("确定清空全部");
@@ -3842,6 +3843,301 @@ describe("RequestRecords", () => {
       "已删除 2 条记录、1 个加密内容块。",
     );
     expect(window.confirm).not.toHaveBeenCalled();
+  });
+
+  it("clears records before a chosen time from the purge button's menu", async () => {
+    await renderRecords();
+    await act(async () =>
+      (await menuItem("更多清理方式", "清除指定时间之前的记录")).click(),
+    );
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain("早于这个时间的请求记录");
+    expect(exactButton("执行清理").disabled).toBe(true);
+
+    const input = dialog?.querySelector<HTMLInputElement>(
+      'input[type="datetime-local"]',
+    );
+    if (!input) throw new Error("Missing cutoff input");
+    await typeInto(input, "2026-07-25T10:30");
+    await act(async () => exactButton("执行清理").click());
+    expect(
+      document.querySelector('[role="alertdialog"]')?.textContent,
+    ).toContain("之前的全部请求记录");
+    await act(async () => {
+      exactButton("确定清理").click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+
+    expect(bridgeMocks.purgeRequestRecords).toHaveBeenCalledWith({
+      scope: "before",
+      before: new Date("2026-07-25T10:30").toISOString(),
+    });
+  });
+
+  const sessionRow = (sessionId: string) => {
+    const row = container.querySelector<HTMLButtonElement>(
+      `[data-session-id="${sessionId}"]`,
+    );
+    if (!row) throw new Error(`Missing session row: ${sessionId}`);
+    return row;
+  };
+
+  const confirmDialogText = () =>
+    document.querySelector('[role="alertdialog"]')?.textContent ?? "";
+
+  async function confirmDelete() {
+    await act(async () => {
+      exactButton("确定删除").click();
+      await Promise.resolve();
+    });
+    await flush();
+  }
+
+  const selectionActions = () => {
+    const actions = container.querySelector<HTMLElement>(
+      '[data-testid="request-selection-actions"]',
+    );
+    if (!actions) throw new Error("Missing selection actions");
+    return actions;
+  };
+
+  it("selects sessions to delete from the purge button", async () => {
+    await renderRecords();
+    const purge = exactButton("清理");
+    await act(async () => purge.click());
+
+    // The selection actions take the header actions' place.
+    expect(selectionActions().textContent).toContain("已选 0 个会话");
+    expect(purge.closest(".invisible")).not.toBeNull();
+    expect(exactButton("删除", selectionActions()).disabled).toBe(true);
+    const failed = sessionRow(secondRecord.id);
+    expect(failed.getAttribute("role")).toBe("checkbox");
+    expect(failed.getAttribute("aria-checked")).toBe("false");
+    // The checkbox takes the client mark's cell, so nothing moves.
+    expect(failed.querySelector('[data-slot="checkbox-mark"]')).not.toBeNull();
+    expect(failed.querySelector('[role="img"][title^="客户端"]')).toBeNull();
+
+    // A row checks instead of opening its session.
+    await act(async () => failed.click());
+    expect(failed.getAttribute("aria-checked")).toBe("true");
+    expect(bridgeMocks.getRequestSession).not.toHaveBeenCalled();
+    expect(selectionActions().textContent).toContain("已选 1 个会话");
+
+    await act(async () => exactButton("删除", selectionActions()).click());
+    expect(confirmDialogText()).toContain("删除这个会话");
+    expect(confirmDialogText()).toContain(
+      "将永久删除 1 次调用和加密审计内容。",
+    );
+    await confirmDelete();
+
+    expect(bridgeMocks.purgeRequestRecords).toHaveBeenCalledWith({
+      scope: "sessions",
+      session_ids: [secondRecord.id],
+    });
+    expect(notifyMocks.success).toHaveBeenCalledWith("已删除 1 个会话。");
+    expect(
+      container.querySelector(`[data-session-id="${secondRecord.id}"]`),
+    ).toBeNull();
+    // Deleting ends selection mode.
+    expect(
+      container.querySelector('[data-testid="request-selection-actions"]'),
+    ).toBeNull();
+    expect(sessionRow(firstRecord.id).getAttribute("role")).toBeNull();
+    expect(window.confirm).not.toHaveBeenCalled();
+  });
+
+  it("checks every finished session on screen and leaves running ones alone", async () => {
+    const running: RequestRecord = {
+      ...firstRecord,
+      id: "req_cccccccccccccccccccccccccccccccc",
+      started_at: "2026-07-25T12:00:00Z",
+      completed_at: null,
+      status: "pending",
+      http_status: null,
+      latency_ms: null,
+    };
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [
+        sessionFromRecord(running),
+        sessionFromRecord(secondRecord),
+        sessionFromRecord(firstRecord, { call_count: 3 }),
+      ],
+      next_cursor: null,
+    });
+    await renderRecords();
+    await act(async () => exactButton("清理").click());
+
+    const runningRow = sessionRow(running.id);
+    expect(runningRow.getAttribute("aria-disabled")).toBe("true");
+    expect(runningRow.title).toBe("进行中的会话结束后才能删除");
+    await act(async () => runningRow.click());
+    expect(runningRow.getAttribute("aria-checked")).toBe("false");
+
+    const selectAll =
+      selectionActions().querySelector<HTMLButtonElement>('[role="checkbox"]')!;
+    await act(async () => selectAll.click());
+    expect(selectAll.getAttribute("data-state")).toBe("checked");
+    expect(sessionRow(secondRecord.id).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(sessionRow(firstRecord.id).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(runningRow.getAttribute("aria-checked")).toBe("false");
+    expect(selectionActions().textContent).toContain("已选 2 个会话");
+
+    await act(async () => sessionRow(firstRecord.id).click());
+    expect(selectAll.getAttribute("data-state")).toBe("unchecked");
+    await act(async () => selectAll.click());
+
+    await act(async () => exactButton("删除", selectionActions()).click());
+    expect(confirmDialogText()).toContain("删除 2 个会话");
+    expect(confirmDialogText()).toContain("将永久删除 4 次调用");
+    await act(async () =>
+      exactButton(
+        "取消",
+        document.querySelector('[role="alertdialog"]')!,
+      ).click(),
+    );
+    await flush();
+    expect(selectionActions().textContent).toContain("已选 2 个会话");
+
+    // The filters stay usable, and a row they hide is not deleted.
+    await chooseOption("状态筛选", "失败");
+    expect(selectionActions().textContent).toContain("已选 1 个会话");
+    await act(async () => exactButton("删除", selectionActions()).click());
+    await confirmDelete();
+    expect(bridgeMocks.purgeRequestRecords).toHaveBeenCalledWith({
+      scope: "sessions",
+      session_ids: [secondRecord.id],
+    });
+  });
+
+  it("holds new sessions back while selecting and leaves selection with Escape", async () => {
+    bridgeMocks.listRequestSessions.mockResolvedValueOnce({
+      items: [sessionFromRecord(firstRecord)],
+      next_cursor: null,
+    });
+    await renderRecords();
+    await act(async () => exactButton("清理").click());
+    const arriving: RequestRecord = {
+      ...firstRecord,
+      id: "req_arrivingffffffffffffffffffffffff",
+      started_at: "2026-07-25T10:02:00Z",
+    };
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [sessionFromRecord(arriving), sessionFromRecord(firstRecord)],
+      next_cursor: null,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    // Rows stay put under a pointer about to check one.
+    expect(
+      container.querySelector(`[data-session-id="${arriving.id}"]`),
+    ).toBeNull();
+    expect(buttonContaining("1 条新记录")).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="request-selection-actions"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector(`[data-session-id="${arriving.id}"]`),
+    ).not.toBeNull();
+  });
+
+  it("keeps a session open while deleting its calls one by one", async () => {
+    const sessionId = "session_client_retries";
+    const firstTry: RequestRecord = {
+      ...secondRecord,
+      id: "req_dddddddddddddddddddddddddddddddd",
+      session_id: sessionId,
+    };
+    const secondTry: RequestRecord = {
+      ...secondRecord,
+      id: "req_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      session_id: sessionId,
+      started_at: "2026-07-25T11:00:05Z",
+      completed_at: "2026-07-25T11:00:06Z",
+    };
+    const summary = sessionFromRecord(secondTry, {
+      started_at: firstTry.started_at,
+      call_count: 2,
+    });
+    let turns = [firstTry, secondTry];
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [summary, sessionFromRecord(firstRecord)],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockImplementation(async () => {
+      if (turns.length === 0) throw new Error("request record not found");
+      return { ...summary, call_count: turns.length, turns };
+    });
+    bridgeMocks.deleteRequestRecord.mockImplementation(async (id: string) => {
+      turns = turns.filter((turn) => turn.id !== id);
+    });
+    await renderRecords();
+    await act(async () => {
+      sessionRow(sessionId).click();
+      await Promise.resolve();
+    });
+    await flush();
+
+    await act(async () => (await menuItem("更多操作", "删除这次调用")).click());
+    expect(confirmDialogText()).toContain("删除请求记录");
+    await confirmDelete();
+
+    expect(bridgeMocks.deleteRequestRecord).toHaveBeenLastCalledWith(
+      secondTry.id,
+    );
+    expect(notifyMocks.success).toHaveBeenCalledWith("已删除该记录。");
+    expect(document.getElementById("request-detail-heading")).not.toBeNull();
+
+    // The remaining call is selected next, so it can go the same way.
+    await act(async () => (await menuItem("更多操作", "删除这次调用")).click());
+    await confirmDelete();
+    expect(bridgeMocks.deleteRequestRecord).toHaveBeenLastCalledWith(
+      firstTry.id,
+    );
+    expect(document.getElementById("request-detail-heading")).toBeNull();
+    expect(
+      container.querySelector(`[data-session-id="${sessionId}"]`),
+    ).toBeNull();
+    expect(
+      container.querySelector(`[data-session-id="${firstRecord.id}"]`),
+    ).not.toBeNull();
+  });
+
+  it("deletes a whole session from the detail and returns to the list", async () => {
+    await renderRecords();
+    await act(async () => {
+      sessionRow(secondRecord.id).click();
+      await Promise.resolve();
+    });
+    await flush();
+
+    await act(async () => (await menuItem("更多操作", "删除整个会话")).click());
+    expect(confirmDialogText()).toContain("删除这个会话");
+    expect(confirmDialogText()).toContain("将永久删除 1 次调用");
+    await confirmDelete();
+
+    expect(bridgeMocks.purgeRequestRecords).toHaveBeenCalledWith({
+      scope: "sessions",
+      session_ids: [secondRecord.id],
+    });
+    expect(bridgeMocks.deleteRequestRecord).not.toHaveBeenCalled();
+    expect(document.getElementById("request-detail-heading")).toBeNull();
+    expect(
+      container.querySelector(`[data-session-id="${secondRecord.id}"]`),
+    ).toBeNull();
+    expect(notifyMocks.success).toHaveBeenCalledWith("已删除 1 个会话。");
   });
 
   it("updates a pending detail in place while queuing new requests off-monitor", async () => {

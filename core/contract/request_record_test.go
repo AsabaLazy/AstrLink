@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -330,6 +331,46 @@ func TestPurgeRequestValidation(t *testing.T) {
 			name:    "rejects all scope with before",
 			request: PurgeRequest{Scope: PurgeScopeAll, Confirm: true, Before: &before},
 			wantErr: "before must be omitted",
+		},
+		{
+			name:    "sessions names the conversations",
+			request: PurgeRequest{Scope: PurgeScopeSessions, Confirm: true, SessionIDs: []SessionID{"session_a", "request_b"}},
+		},
+		{
+			name:    "rejects sessions scope without ids",
+			request: PurgeRequest{Scope: PurgeScopeSessions, Confirm: true},
+			wantErr: "session_ids is required",
+		},
+		{
+			name:    "rejects sessions scope with before",
+			request: PurgeRequest{Scope: PurgeScopeSessions, Confirm: true, Before: &before, SessionIDs: []SessionID{"session_a"}},
+			wantErr: "before must be omitted when scope is sessions",
+		},
+		{
+			name:    "rejects session ids on another scope",
+			request: PurgeRequest{Scope: PurgeScopeAll, Confirm: true, SessionIDs: []SessionID{"session_a"}},
+			wantErr: "session_ids must be omitted",
+		},
+		{
+			name:    "rejects a repeated session id",
+			request: PurgeRequest{Scope: PurgeScopeSessions, Confirm: true, SessionIDs: []SessionID{"session_a", "session_a"}},
+			wantErr: "must not repeat",
+		},
+		{
+			name:    "rejects an invalid session id",
+			request: PurgeRequest{Scope: PurgeScopeSessions, Confirm: true, SessionIDs: []SessionID{"x"}},
+			wantErr: "invalid session id",
+		},
+		{
+			name: "rejects too many session ids",
+			request: func() PurgeRequest {
+				ids := make([]SessionID, MaxPurgeSessionIDs+1)
+				for index := range ids {
+					ids[index] = SessionID(fmt.Sprintf("session_%04d", index))
+				}
+				return PurgeRequest{Scope: PurgeScopeSessions, Confirm: true, SessionIDs: ids}
+			}(),
+			wantErr: "at most",
 		},
 	}
 	for _, test := range tests {

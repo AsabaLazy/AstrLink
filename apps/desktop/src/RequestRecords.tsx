@@ -40,6 +40,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { StatusDot } from "@/components/StatusDot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox, CheckboxMark } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,7 +58,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -139,13 +139,19 @@ import {
   applyQueuedSessions,
   groupSessionsByDate,
   mergeLiveSessions,
+  removeSessions,
+  replaceSession,
   reuseUnchangedSessions,
   sessionMatchesFilters,
+  sessionRunning,
+  sessionSummary,
 } from "./session-live-model";
 import { protocolEntryPath } from "./service-presets";
 
 const PAGE_LIMIT = 50;
 const POLL_INTERVAL_MS = 1000;
+// Core's contract.MaxPurgeSessionIDs: one sessions purge names at most this many.
+const MAX_PURGE_SESSIONS = 1000;
 const AUDIT_CACHE_MAX_RECORDS = 5;
 const AUDIT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const STATUSES: SessionStatus[] = [
@@ -189,6 +195,8 @@ const DETAIL_TABS: readonly DetailTab[] = [
 type PendingConfirm =
   | { kind: "audit-risk"; patch: AuditSettingsPatch }
   | { kind: "delete"; requestId: string }
+  // Whole sessions, from the list selection or the open detail.
+  | { kind: "delete-sessions"; sessionIds: string[]; calls: number }
   | { kind: "purge-all" }
   | { kind: "purge-before"; before: string };
 
@@ -370,10 +378,14 @@ export function RequestRecords({
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
   const [purgeOpen, setPurgeOpen] = useState(false);
-  const [purgeMode, setPurgeMode] = useState<"all" | "before">("all");
   const [purgeBefore, setPurgeBefore] = useState("");
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Selection mode, started from the purge button, makes list rows checkboxes.
+  const [selecting, setSelecting] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(
     null,
   );
@@ -393,6 +405,7 @@ export function RequestRecords({
   const manualPollRef = useRef<(() => void) | null>(null);
   const atTopRef = useRef(true);
   const viewRef = useRef<RecordsView>("monitor");
+  const selectingRef = useRef(false);
   const monitorScrollRef = useRef<HTMLDivElement | null>(null);
   // The list's offset when a session opened. WKWebView drops the offset of a
   // size container hidden with display: none, so the list restores its own.
@@ -405,6 +418,7 @@ export function RequestRecords({
   const freshDetailRef = useRef<string | null>(null);
 
   viewRef.current = view;
+  selectingRef.current = selecting;
   selectedIdRef.current = selectedId;
   overlaySessionsRef.current = overlaySessions;
 
@@ -423,6 +437,19 @@ export function RequestRecords({
         .length,
     [filters, live.queued],
   );
+  // Only rows on screen count, so a filter change never deletes sessions the
+  // operator can no longer see.
+  const selectableItems = useMemo(
+    () => visibleItems.filter((session) => !sessionRunning(session)),
+    [visibleItems],
+  );
+  const checkedItems = useMemo(
+    () => selectableItems.filter((session) => checkedIds.has(session.id)),
+    [checkedIds, selectableItems],
+  );
+  const allChecked =
+    selectableItems.length > 0 &&
+    checkedItems.length === selectableItems.length;
   const selectedSession = useMemo(() => {
     if (!selectedId) return null;
     return (
@@ -579,6 +606,8 @@ export function RequestRecords({
     setSettingsNotice(null);
     setPurgeOpen(false);
     setPendingConfirm(null);
+    setSelecting(false);
+    setCheckedIds(new Set());
     setRawSealing(null);
     setRawSealingError(null);
     setRawDialog(null);
@@ -689,9 +718,11 @@ export function RequestRecords({
         });
         if (listGenerationRef.current !== generation) return;
         setLive((current) => {
+          // Rows must not shift under a pointer about to check one.
           const queueNew =
             current.queued.length > 0 ||
             viewRef.current !== "monitor" ||
+            selectingRef.current ||
             !atTopRef.current;
           const merged = mergeLiveSessions(
             current.items,
@@ -772,7 +803,11 @@ export function RequestRecords({
         setPurgeOpen(false);
         return;
       }
-      if (viewRef.current === "detail") returnToMonitor();
+      if (viewRef.current === "detail") {
+        returnToMonitor();
+        return;
+      }
+      if (selecting) exitSelection();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -1067,46 +1102,171 @@ export function RequestRecords({
     }
   };
 
+  /** Drops deleted conversations from the list without reloading its pages. */
+  const dropFromList = (gone: ReadonlySet<string>) => {
+    setLive((current) => {
+      const items = removeSessions(current.items, gone);
+      const queued = removeSessions(current.queued, gone);
+      return items === current.items && queued === current.queued
+        ? current
+        : { ...current, items, queued };
+    });
+  };
+
+  // Deleting one call keeps its conversation open while calls remain, so the
+  // next one can go without finding the conversation in the list again.
   const commitDelete = async (requestId: string) => {
     const generation = listGenerationRef.current;
+    const sessionId = selectedId;
+    const parentId =
+      selected?.id === requestId ? selected.parent_request_id : null;
     setDeleting(true);
-    setError(null);
     try {
       await deleteRequestRecord(requestId);
-      auditCacheRef.current.delete(requestId);
-      setOverlayRecords((current) =>
-        Object.fromEntries(
-          Object.entries(current).filter(
-            ([id, record]) =>
-              id !== requestId && record.parent_request_id !== requestId,
-          ),
-        ),
-      );
-      const page = await listRequestSessions({
-        limit: PAGE_LIMIT,
-        kind: kind === "all" ? undefined : kind,
-        local_access_token_ids: tokenFilter(),
-      });
-      if (listGenerationRef.current !== generation) return;
-      setLive({
-        items: page.items,
-        queued: [],
-        nextCursor: page.next_cursor,
-      });
-      if (selectedId) {
-        setOverlaySessions((current) => {
-          const next = { ...current };
-          delete next[selectedId];
-          return next;
-        });
-      }
-      returnToMonitor();
-      notify.success(i18n.t("records.deleted"));
     } catch (requestError: unknown) {
-      setError(messageOf(requestError, i18n.t("records.deleteFailed")));
+      setDeleting(false);
+      notify.error(messageOf(requestError, i18n.t("records.deleteFailed")));
+      return;
+    }
+    auditCacheRef.current.delete(requestId);
+    setOverlayRecords((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(
+          ([id, record]) =>
+            id !== requestId && record.parent_request_id !== requestId,
+        ),
+      ),
+    );
+    let remaining: RequestSessionDetail | null = null;
+    if (sessionId) {
+      try {
+        const detail = await getRequestSession(sessionId);
+        if (detail.turns.length > 0) remaining = detail;
+      } catch {
+        // The conversation went with its last call.
+      }
+    }
+    setDeleting(false);
+    if (sessionId) {
+      if (listGenerationRef.current === generation) {
+        if (remaining) {
+          const summary = sessionSummary(remaining);
+          setLive((current) => ({
+            ...current,
+            items: replaceSession(current.items, summary),
+            queued: replaceSession(current.queued, summary),
+          }));
+        } else {
+          dropFromList(new Set([sessionId]));
+        }
+      }
+      setOverlaySessions((current) => {
+        const next = { ...current };
+        if (remaining) next[sessionId] = remaining;
+        else delete next[sessionId];
+        return next;
+      });
+    }
+    if (remaining) {
+      const turns = remaining.turns;
+      setSelectedTurnId(
+        parentId !== null && turns.some((turn) => turn.id === parentId)
+          ? parentId
+          : (turns[turns.length - 1]?.id ?? null),
+      );
+    } else {
+      returnToMonitor();
+    }
+    notify.success(i18n.t("records.deleted"));
+  };
+
+  const commitDeleteSessions = async (sessionIds: string[]) => {
+    const generation = listGenerationRef.current;
+    // The detail deletes the session it shows and has nothing left to show.
+    const fromDetail = viewRef.current === "detail";
+    setDeleting(true);
+    setError(null);
+    let deleted = 0;
+    try {
+      for (
+        let start = 0;
+        start < sessionIds.length;
+        start += MAX_PURGE_SESSIONS
+      ) {
+        const chunk = sessionIds.slice(start, start + MAX_PURGE_SESSIONS);
+        await purgeRequestRecords({ scope: "sessions", session_ids: chunk });
+        deleted += chunk.length;
+        const gone = new Set(chunk);
+        if (listGenerationRef.current === generation) dropFromList(gone);
+        setOverlaySessions((current) =>
+          Object.fromEntries(
+            Object.entries(current).filter(([id]) => !gone.has(id)),
+          ),
+        );
+        if (selectedIdRef.current && gone.has(selectedIdRef.current)) {
+          setSelectedId(null);
+          setSelectedTurnId(null);
+        }
+      }
+      if (fromDetail) returnToMonitor();
+      else exitSelection();
+      notify.success(i18n.t("records.sessionsDeleted", { count: deleted }));
+    } catch (requestError: unknown) {
+      const message = messageOf(requestError, i18n.t("records.deleteFailed"));
+      if (fromDetail) notify.error(message);
+      else setError(message);
     } finally {
+      auditCacheRef.current.clear();
       setDeleting(false);
     }
+  };
+
+  const startSelection = () => {
+    setCheckedIds(new Set());
+    setSelecting(true);
+  };
+
+  const exitSelection = () => {
+    setSelecting(false);
+    setCheckedIds(new Set());
+    // Selection held new sessions back; at the top they arrive as usual.
+    if (atTopRef.current) {
+      setLive((current) =>
+        current.queued.length === 0
+          ? current
+          : {
+              ...current,
+              items: applyQueuedSessions(current.items, current.queued),
+              queued: [],
+            },
+      );
+    }
+  };
+
+  // Stable, so checking one row re-renders only that row.
+  const toggleChecked = useCallback((sessionId: string) => {
+    setCheckedIds((current) => {
+      const next = new Set(current);
+      if (!next.delete(sessionId)) next.add(sessionId);
+      return next;
+    });
+  }, []);
+
+  const toggleAllChecked = () => {
+    setCheckedIds(
+      allChecked
+        ? new Set()
+        : new Set(selectableItems.map((session) => session.id)),
+    );
+  };
+
+  const confirmDeleteChecked = () => {
+    if (checkedItems.length === 0) return;
+    setPendingConfirm({
+      kind: "delete-sessions",
+      sessionIds: checkedItems.map((session) => session.id),
+      calls: checkedItems.reduce((sum, session) => sum + session.call_count, 0),
+    });
   };
 
   const commitPurge = async (
@@ -1367,6 +1527,8 @@ export function RequestRecords({
       void commitSettings(pending.patch, i18n.t("records.captureOn"));
     } else if (pending.kind === "delete") {
       void commitDelete(pending.requestId);
+    } else if (pending.kind === "delete-sessions") {
+      void commitDeleteSessions(pending.sessionIds);
     } else if (pending.kind === "purge-all") {
       void commitPurge({ scope: "all" });
     } else {
@@ -1385,6 +1547,7 @@ export function RequestRecords({
           onValueChange={(value) => {
             setKind(value as RecordsKind);
             setFilters((current) => ({ ...current, protocol: "" }));
+            setCheckedIds(new Set());
             setError(null);
           }}
         >
@@ -1397,56 +1560,146 @@ export function RequestRecords({
                 {view === "monitor" ? (
                   <PageHeader
                     actions={
-                      <>
-                        <Label className="mr-2 inline-flex cursor-pointer items-center gap-2 text-xs font-normal text-text-secondary">
-                          <span>{t("records.captureTitle")}</span>
-                          {settings ? (
-                            <Switch
-                              aria-label={t("records.captureTitle")}
-                              checked={bodyCaptureEnabled}
-                              disabled={!isReady || settingsBusy}
-                              onCheckedChange={toggleBodyCapture}
-                              size="sm"
-                            />
-                          ) : (
-                            <span
-                              aria-hidden
-                              className="inline-block h-5 w-9"
-                            />
+                      // Selection takes the actions' place without changing
+                      // their size, so nothing on the page moves.
+                      <div className="relative">
+                        <div
+                          className={cn(
+                            "flex flex-wrap items-center justify-end gap-2",
+                            selecting && "invisible",
                           )}
-                        </Label>
-                        <Button
-                          variant="ghost"
-                          disabled={!isReady}
-                          onClick={() => setPurgeOpen(true)}
-                          size="sm"
-                          type="button"
                         >
-                          <Trash2 aria-hidden="true" />
-                          {t("records.purgeEllipsis")}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          disabled={!isReady}
-                          onClick={() => void openSettings()}
-                          size="sm"
-                          title={
-                            rawPasswordNeeded
-                              ? t("rawSealing.hint.unset")
-                              : undefined
-                          }
-                          type="button"
-                        >
-                          <Settings2 aria-hidden="true" />
-                          {t("records.auditSettings")}
-                          {rawPasswordNeeded ? (
-                            <StatusDot
-                              data-slot="raw-password-dot"
-                              tone="pending"
-                            />
-                          ) : null}
-                        </Button>
-                      </>
+                          <Label className="mr-2 inline-flex cursor-pointer items-center gap-2 text-xs font-normal text-text-secondary">
+                            <span>{t("records.captureTitle")}</span>
+                            {settings ? (
+                              <Switch
+                                aria-label={t("records.captureTitle")}
+                                checked={bodyCaptureEnabled}
+                                disabled={!isReady || settingsBusy}
+                                onCheckedChange={toggleBodyCapture}
+                                size="sm"
+                              />
+                            ) : (
+                              <span
+                                aria-hidden
+                                className="inline-block h-5 w-9"
+                              />
+                            )}
+                          </Label>
+                          <div className="inline-flex">
+                            <Button
+                              className="rounded-r-none"
+                              disabled={!isReady}
+                              onClick={startSelection}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              <Trash2 aria-hidden="true" />
+                              {t("records.cleanUp")}
+                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  aria-label={t("records.moreCleanup")}
+                                  className="-ml-px rounded-l-none px-1.5"
+                                  disabled={!isReady}
+                                  size="sm"
+                                  type="button"
+                                  variant="outline"
+                                >
+                                  <ChevronDown aria-hidden="true" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onSelect={() => setPurgeOpen(true)}
+                                >
+                                  {t("records.purgeBeforeOption")}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onSelect={() =>
+                                    setPendingConfirm({ kind: "purge-all" })
+                                  }
+                                  variant="destructive"
+                                >
+                                  {t("records.purgeAllOption")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                          <Button
+                            variant="outline"
+                            disabled={!isReady}
+                            onClick={() => void openSettings()}
+                            size="sm"
+                            title={
+                              rawPasswordNeeded
+                                ? t("rawSealing.hint.unset")
+                                : undefined
+                            }
+                            type="button"
+                          >
+                            <Settings2 aria-hidden="true" />
+                            {t("records.auditSettings")}
+                            {rawPasswordNeeded ? (
+                              <StatusDot
+                                data-slot="raw-password-dot"
+                                tone="pending"
+                              />
+                            ) : null}
+                          </Button>
+                        </div>
+                        {selecting ? (
+                          <div
+                            className="absolute inset-y-0 right-0 flex items-center gap-2 whitespace-nowrap"
+                            data-testid="request-selection-actions"
+                          >
+                            <span
+                              className="mr-1 text-xs tabular-nums text-muted-foreground"
+                              role="status"
+                            >
+                              {t("records.selectedSessions", {
+                                count: checkedItems.length,
+                              })}
+                            </span>
+                            <Label className="mr-1 inline-flex cursor-pointer items-center gap-2 text-xs font-normal text-text-secondary">
+                              <Checkbox
+                                checked={allChecked}
+                                disabled={
+                                  selectableItems.length === 0 || deleting
+                                }
+                                onCheckedChange={toggleAllChecked}
+                              />
+                              {t("records.selectAllSessions")}
+                            </Label>
+                            <Button
+                              disabled={deleting}
+                              onClick={exitSelection}
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              {t("common.cancel")}
+                            </Button>
+                            <Button
+                              disabled={checkedItems.length === 0 || deleting}
+                              onClick={confirmDeleteChecked}
+                              size="sm"
+                              type="button"
+                              variant={
+                                checkedItems.length > 0
+                                  ? "destructive"
+                                  : "outline"
+                              }
+                            >
+                              <Trash2 aria-hidden="true" />
+                              {t("common.delete")}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
                     }
                     className="mb-0 flex-wrap"
                     description={t("records.description")}
@@ -1693,7 +1946,8 @@ export function RequestRecords({
                 />
               ) : (
                 <SessionStream
-                  onOpen={openDetail}
+                  checkedIds={selecting ? checkedIds : null}
+                  onOpen={selecting ? toggleChecked : openDetail}
                   selectedId={openingId ?? selectedId}
                   services={servicesById}
                   sessions={visibleItems}
@@ -1741,6 +1995,13 @@ export function RequestRecords({
             }}
             onDelete={() =>
               setPendingConfirm({ kind: "delete", requestId: selected.id })
+            }
+            onDeleteSession={() =>
+              setPendingConfirm({
+                kind: "delete-sessions",
+                sessionIds: [selectedSession.id],
+                calls: selectedSession.call_count,
+              })
             }
             onLockRaw={() => void lockRawContent()}
             onRegisterRecords={(records) =>
@@ -1800,19 +2061,10 @@ export function RequestRecords({
         <PurgeDialog
           before={purgeBefore}
           busy={purgeBusy}
-          mode={purgeMode}
           onBeforeChange={setPurgeBefore}
           onCancel={() => setPurgeOpen(false)}
-          onModeChange={setPurgeMode}
           onSubmit={() => {
-            if (purgeMode === "all") {
-              setPendingConfirm({ kind: "purge-all" });
-              return;
-            }
-            if (!purgeBefore) {
-              setError(i18n.t("records.needCutoff"));
-              return;
-            }
+            if (!purgeBefore) return;
             setPendingConfirm({
               kind: "purge-before",
               before: new Date(purgeBefore).toISOString(),
@@ -1826,7 +2078,8 @@ export function RequestRecords({
           confirmLabel={
             pendingConfirm.kind === "audit-risk"
               ? t("records.confirmEnable")
-              : pendingConfirm.kind === "delete"
+              : pendingConfirm.kind === "delete" ||
+                  pendingConfirm.kind === "delete-sessions"
                 ? t("records.confirmDelete")
                 : t("records.confirmPurge")
           }
@@ -1851,7 +2104,13 @@ export function RequestRecords({
               ? t("records.enableCaptureTitle")
               : pendingConfirm.kind === "delete"
                 ? t("records.deleteTitle")
-                : t("records.purgeTitle")
+                : pendingConfirm.kind === "delete-sessions"
+                  ? pendingConfirm.sessionIds.length === 1
+                    ? t("records.deleteSessionTitle")
+                    : t("records.deleteSessionsTitle", {
+                        count: pendingConfirm.sessionIds.length,
+                      })
+                  : t("records.purgeTitle")
           }
         />
       ) : null}
@@ -1905,11 +2164,14 @@ function SessionStream({
   sessions,
   services,
   selectedId,
+  checkedIds,
   onOpen,
 }: {
   sessions: RequestSession[];
   services: RequestServiceMap;
   selectedId: string | null;
+  /** The checked rows in selection mode, where `onOpen` toggles a row. */
+  checkedIds: ReadonlySet<string> | null;
   onOpen: (sessionId: string) => void;
 }) {
   const t = i18n.t.bind(i18n);
@@ -1933,6 +2195,7 @@ function SessionStream({
             {rows.map((session) =>
               isModelDiscoveryProtocol(session.input_protocol) ? (
                 <DiscoveryRow
+                  checked={checkedIds?.has(session.id)}
                   key={session.id}
                   onOpen={onOpen}
                   selected={session.id === selectedId}
@@ -1941,6 +2204,7 @@ function SessionStream({
                 />
               ) : (
                 <SessionRow
+                  checked={checkedIds?.has(session.id)}
                   key={session.id}
                   onOpen={onOpen}
                   selected={session.id === selectedId}
@@ -1956,31 +2220,63 @@ function SessionStream({
   );
 }
 
+/**
+ * How a list row behaves: it opens its session, or in selection mode
+ * (`checked` defined) it is a checkbox. A running session cannot be checked;
+ * its records stay until it ends.
+ */
+function rowBehavior(
+  session: RequestSession,
+  checked: boolean | undefined,
+  selected: boolean,
+  onOpen: (sessionId: string) => void,
+  t: typeof i18n.t,
+) {
+  const selecting = checked !== undefined;
+  const locked = selecting && sessionRunning(session);
+  return {
+    locked,
+    props: {
+      "aria-checked": selecting ? checked : undefined,
+      "aria-current": !selecting && selected ? ("true" as const) : undefined,
+      "aria-disabled": locked || undefined,
+      onClick: () => {
+        if (!locked) onOpen(session.id);
+      },
+      role: selecting ? "checkbox" : undefined,
+      title: locked ? t("records.sessionRunningDelete") : undefined,
+    },
+  };
+}
+
 const DiscoveryRow = memo(function DiscoveryRow({
   session,
   services,
   selected,
+  checked,
   onOpen,
 }: {
   session: RequestSession;
   services: RequestServiceMap;
   selected: boolean;
+  /** Set in selection mode, where the row is a checkbox. */
+  checked: boolean | undefined;
   onOpen: (sessionId: string) => void;
 }) {
   const t = useT();
   const nowMs = useLiveClock(session.active_request_starts.length > 0);
   const service = requestServiceIdentity(session, services);
+  const behavior = rowBehavior(session, checked, selected, onOpen, t);
   return (
     <DataRow
       asChild
       className="grid grid-cols-[5rem_1.25rem_minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-3 py-2.5 @[680px]:grid-cols-[5rem_1.25rem_minmax(0,1fr)_5rem_6rem]"
     >
       <Button
-        aria-current={selected ? "true" : undefined}
-        className="h-auto w-full rounded-none bg-transparent text-left font-normal whitespace-normal text-foreground hover:bg-muted/60 focus-visible:bg-accent focus-visible:ring-inset aria-[current=true]:bg-accent"
+        {...behavior.props}
+        className="h-auto w-full rounded-none bg-transparent text-left font-normal whitespace-normal text-foreground hover:bg-muted/60 focus-visible:bg-accent focus-visible:ring-inset aria-checked:bg-accent aria-[current=true]:bg-accent"
         data-session-id={session.id}
         data-testid="request-session-row"
-        onClick={() => onOpen(session.id)}
         type="button"
         variant="ghost"
       >
@@ -1994,10 +2290,18 @@ const DiscoveryRow = memo(function DiscoveryRow({
         >
           {statusLabel(session.status)}
         </StatusBadge>
-        <ClientTypeIcon
-          className="col-start-2 row-start-1 mt-0.5"
-          clientType={session.client_type}
-        />
+        {checked === undefined ? (
+          <ClientTypeIcon
+            className="col-start-2 row-start-1 mt-0.5"
+            clientType={session.client_type}
+          />
+        ) : (
+          <CheckboxMark
+            checked={checked}
+            className="col-start-2 row-start-1 mt-1 justify-self-center"
+            disabled={behavior.locked}
+          />
+        )}
         <span className="col-start-3 row-start-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <span className="text-xs font-medium">
             {t("records.fetchModels")}
@@ -2028,11 +2332,14 @@ const SessionRow = memo(function SessionRow({
   session,
   services,
   selected,
+  checked,
   onOpen,
 }: {
   session: RequestSession;
   services: RequestServiceMap;
   selected: boolean;
+  /** Set in selection mode, where the row is a checkbox. */
+  checked: boolean | undefined;
   onOpen: (sessionId: string) => void;
 }) {
   // Memoized, so it subscribes to the language itself.
@@ -2041,17 +2348,17 @@ const SessionRow = memo(function SessionRow({
   // the smallest thing that can repaint it. Only active requests tick.
   const nowMs = useLiveClock(session.active_request_starts.length > 0);
   const service = requestServiceIdentity(session, services);
+  const behavior = rowBehavior(session, checked, selected, onOpen, t);
   return (
     <DataRow
       asChild
       className="grid grid-cols-[4.5rem_1.25rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 px-3 py-2.5"
     >
       <Button
-        aria-current={selected ? "true" : undefined}
-        className="h-auto w-full rounded-none bg-transparent text-left font-normal whitespace-normal text-foreground hover:bg-muted/60 focus-visible:bg-accent focus-visible:ring-inset aria-[current=true]:bg-accent"
+        {...behavior.props}
+        className="h-auto w-full rounded-none bg-transparent text-left font-normal whitespace-normal text-foreground hover:bg-muted/60 focus-visible:bg-accent focus-visible:ring-inset aria-checked:bg-accent aria-[current=true]:bg-accent"
         data-session-id={session.id}
         data-testid="request-session-row"
-        onClick={() => onOpen(session.id)}
         type="button"
         variant="ghost"
       >
@@ -2065,10 +2372,18 @@ const SessionRow = memo(function SessionRow({
         >
           {statusLabel(session.status)}
         </StatusBadge>
-        <ClientTypeIcon
-          className="col-start-2 row-start-1 mt-0.5"
-          clientType={session.client_type}
-        />
+        {checked === undefined ? (
+          <ClientTypeIcon
+            className="col-start-2 row-start-1 mt-0.5"
+            clientType={session.client_type}
+          />
+        ) : (
+          <CheckboxMark
+            checked={checked}
+            className="col-start-2 row-start-1 mt-1 justify-self-center"
+            disabled={behavior.locked}
+          />
+        )}
         <strong
           className="col-span-2 col-start-3 row-start-1 min-w-0 truncate text-sm font-medium @[560px]/request-list:col-span-1"
           title={session.title}
@@ -2145,6 +2460,7 @@ function RecordDetail({
   olderAvailable,
   onBack,
   onDelete,
+  onDeleteSession,
   onNavigate,
   onClearDecrypted,
   onLockRaw,
@@ -2168,7 +2484,10 @@ function RecordDetail({
   newerAvailable: boolean;
   olderAvailable: boolean;
   onBack: () => void;
+  /** Deletes the selected call with its retries. */
   onDelete: () => void;
+  /** Deletes every call of the conversation. */
+  onDeleteSession: () => void;
   onNavigate: (direction: -1 | 1) => void;
   onClearDecrypted: () => void;
   onLockRaw: () => void;
@@ -2206,6 +2525,9 @@ function RecordDetail({
   >({});
   const rootId = record.parent_request_id ?? record.id;
   const rootRecord = turns.find((turn) => turn.id === rootId) ?? record;
+  // Running calls keep their records, so the whole conversation waits.
+  const sessionLive =
+    sessionRunning(session) || turns.some((turn) => turn.status === "pending");
   const recoveryRecords = [...(childrenByRoot[rootId] ?? []), rootRecord];
   const isChild = record.parent_request_id !== null;
   const requestPart = auditContent?.request_body ?? null;
@@ -2510,7 +2832,18 @@ function RecordDetail({
                     ? t("records.deletePending")
                     : deleting
                       ? t("records.deleting")
-                      : t("common.delete")}
+                      : t("records.deleteCall")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-testid="delete-session"
+                  disabled={deleting || sessionLive}
+                  onSelect={onDeleteSession}
+                  variant="destructive"
+                >
+                  <Trash2 aria-hidden="true" />
+                  {sessionLive
+                    ? t("records.sessionRunningDelete")
+                    : t("records.deleteSession")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -3265,84 +3598,46 @@ function RecordSkeleton() {
 }
 
 function PurgeDialog({
-  mode,
   before,
   busy,
-  onModeChange,
   onBeforeChange,
   onCancel,
   onSubmit,
 }: {
-  mode: "all" | "before";
   before: string;
   busy: boolean;
-  onModeChange: (mode: "all" | "before") => void;
   onBeforeChange: (value: string) => void;
   onCancel: () => void;
   onSubmit: () => void;
 }) {
   const t = i18n.t.bind(i18n);
   return (
-    <ModalDialog onCancel={onCancel} title={t("records.purgeTitle")}>
-      <RadioGroup
-        className="grid gap-2"
-        disabled={busy}
-        onValueChange={(value) => onModeChange(value as "all" | "before")}
-        value={mode}
-      >
-        <Label className="flex items-center gap-2 rounded-lg border bg-muted px-3 py-2 text-sm">
-          <RadioGroupItem value="all" />
-          <span>{t("records.purgeAllOption")}</span>
-        </Label>
-        <Label className="flex items-center gap-2 rounded-lg border bg-muted px-3 py-2 text-sm">
-          <RadioGroupItem value="before" />
-          <span>{t("records.purgeBeforeOption")}</span>
-        </Label>
-        {mode === "before" ? (
-          <Input
-            onChange={(event) => onBeforeChange(event.currentTarget.value)}
-            type="datetime-local"
-            value={before}
-          />
-        ) : null}
-      </RadioGroup>
-      <DialogFooter>
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={onCancel}
-          type="button"
-        >
-          {t("common.cancel")}
-        </Button>
-        <Button disabled={busy} onClick={onSubmit} type="button">
-          {busy ? t("records.purging") : t("records.runPurge")}
-        </Button>
-      </DialogFooter>
-    </ModalDialog>
-  );
-}
-
-function ModalDialog({
-  title,
-  children,
-  onCancel,
-}: {
-  title: string;
-  children: ReactNode;
-  onCancel: () => void;
-}) {
-  const t = i18n.t.bind(i18n);
-  return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className="max-w-xl sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            {t("records.dialogDescription")}
-          </DialogDescription>
+          <DialogTitle>{t("records.purgeBeforeOption")}</DialogTitle>
+          <DialogDescription>{t("records.purgeBeforeHint")}</DialogDescription>
         </DialogHeader>
-        {children}
+        <Input
+          aria-label={t("records.purgeBeforeOption")}
+          disabled={busy}
+          onChange={(event) => onBeforeChange(event.currentTarget.value)}
+          type="datetime-local"
+          value={before}
+        />
+        <DialogFooter>
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={onCancel}
+            type="button"
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button disabled={busy || !before} onClick={onSubmit} type="button">
+            {busy ? t("records.purging") : t("records.runPurge")}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -3354,6 +3649,11 @@ function confirmMessage(pending: PendingConfirm): string {
   }
   if (pending.kind === "delete") {
     return i18n.t("records.deleteBody");
+  }
+  if (pending.kind === "delete-sessions") {
+    return i18n.t("records.deleteSessionsBody", {
+      calls: i18n.t("records.callCount", { count: pending.calls }),
+    });
   }
   if (pending.kind === "purge-all") {
     return i18n.t("records.purgeAllBody");

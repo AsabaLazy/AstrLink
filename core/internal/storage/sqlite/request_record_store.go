@@ -600,10 +600,82 @@ WHERE parent_request_id IN (
 			return contract.PurgeResult{}, fmt.Errorf("commit request purge: %w", err)
 		}
 		return contract.PurgeResult{DeletedRecords: recordCount, DeletedAuditBlobs: blobCount}, nil
+	case contract.PurgeScopeSessions:
+		var result contract.PurgeResult
+		if result, err = purgeRequestSessions(ctx, transaction, request.SessionIDs); err != nil {
+			return contract.PurgeResult{}, err
+		}
+		if err = transaction.Commit(); err != nil {
+			return contract.PurgeResult{}, fmt.Errorf("commit request purge: %w", err)
+		}
+		return result, nil
 	default:
 		err = fmt.Errorf("%w: unknown purge scope", storagecontract.ErrInvalidArgument)
 		return contract.PurgeResult{}, err
 	}
+}
+
+// purgeRequestSessions deletes the named conversations: their roots with
+// every retry attempt, cursor and audit part. A root still running stays,
+// since its attempts and final snapshot are yet to be written; the
+// conversation keeps it and loses the rest.
+func purgeRequestSessions(
+	ctx context.Context,
+	transaction *sql.Tx,
+	sessionIDs []contract.SessionID,
+) (contract.PurgeResult, error) {
+	// Write first, so the counts match what is deleted and another
+	// connection's write makes this wait on busy_timeout instead of failing a
+	// deferred read transaction upgrade with SQLITE_BUSY.
+	if _, err := transaction.ExecContext(ctx, `UPDATE request_records SET id = id WHERE 0`); err != nil {
+		return contract.PurgeResult{}, fmt.Errorf("lock request records: %w", err)
+	}
+	args := make([]any, len(sessionIDs))
+	for index, id := range sessionIDs {
+		args[index] = string(id)
+	}
+	withDoomed := `WITH roots AS (
+    SELECT id FROM request_records INDEXED BY request_records_session_turns_idx
+    WHERE parent_request_id IS NULL AND COALESCE(session_id, id) IN (` + sessionPlaceholders(len(args)) + `)
+      AND status <> 'pending'
+), doomed AS (
+    SELECT id FROM roots
+    UNION
+    SELECT id FROM request_records WHERE parent_request_id IN (SELECT id FROM roots)
+)
+`
+	var result contract.PurgeResult
+	if err := transaction.QueryRowContext(ctx,
+		withDoomed+`SELECT COUNT(*) FROM audit_blobs WHERE request_id IN (SELECT id FROM doomed)`, args...,
+	).Scan(&result.DeletedAuditBlobs); err != nil {
+		return contract.PurgeResult{}, fmt.Errorf("count purge audit blobs: %w", err)
+	}
+	if err := transaction.QueryRowContext(ctx,
+		withDoomed+`SELECT COUNT(*) FROM doomed`, args...,
+	).Scan(&result.DeletedRecords); err != nil {
+		return contract.PurgeResult{}, fmt.Errorf("count purge request records: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx,
+		withDoomed+`DELETE FROM audit_blobs WHERE request_id IN (SELECT id FROM doomed)`, args...,
+	); err != nil {
+		return contract.PurgeResult{}, fmt.Errorf("purge audit blobs: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx,
+		withDoomed+`DELETE FROM request_record_cursors WHERE request_id IN (SELECT id FROM doomed)`, args...,
+	); err != nil {
+		return contract.PurgeResult{}, fmt.Errorf("purge request record cursors: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx,
+		withDoomed+`DELETE FROM request_records WHERE parent_request_id IN (SELECT id FROM roots)`, args...,
+	); err != nil {
+		return contract.PurgeResult{}, fmt.Errorf("purge child request records: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx,
+		withDoomed+`DELETE FROM request_records WHERE id IN (SELECT id FROM roots)`, args...,
+	); err != nil {
+		return contract.PurgeResult{}, fmt.Errorf("purge request records: %w", err)
+	}
+	return result, nil
 }
 
 type requestRecordRow struct {

@@ -658,7 +658,10 @@ export async function deleteRequestRecord(requestId: string): Promise<void> {
 }
 
 export async function purgeRequestRecords(
-  input: { scope: "all" } | { scope: "before"; before: string },
+  input:
+    | { scope: "all" }
+    | { scope: "before"; before: string }
+    | { scope: "sessions"; session_ids: string[] },
 ): Promise<{ deleted_records: number; deleted_audit_blobs: number }> {
   requireNativeBridge();
   return parsePurgeResult(
