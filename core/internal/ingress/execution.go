@@ -152,7 +152,10 @@ func (handler *Handler) executeCandidatesWithTest(
 	}
 	var rateLimited []endpoint.RateLimitedCandidate
 	schedule := newRecoverySchedule(candidates, body.Replayable())
-	protection := handler.subscriptionProtection(request.Context())
+	routingSettings := handler.requestRoutingSettings(request.Context())
+	protection := subscriptionProtectionFrom(routingSettings)
+	rewrite := gatewayRewriteFrom(routingSettings)
+	haiku := claudeCodeHaikuRequest(detectClientType(request.Header), classified.Model)
 	// Each official client identity is learned at most once per request.
 	learnedClaude, learnedCodex, learnedGrok := false, false, false
 	repairedTargets := map[string][]byte{}
@@ -336,6 +339,28 @@ func (handler *Handler) executeCandidatesWithTest(
 				finishPrivacy()
 				last = executionFailure{kind: executionFailureConversionUnsupported, err: convertErr, endpointID: candidate.Service.ID}
 				records.noteCandidateRejected(last.endpointID, last.code())
+				continue
+			}
+		}
+
+		// The global system prompt and reasoning settings edit the body in the
+		// upstream protocol, before the subscription identity steps below, so an
+		// official identity they add or check stays first. Connection tests
+		// send their own fixed request.
+		var reasoning gatewayReasoning
+		if test == nil {
+			var rewriteErr error
+			reasoning, rewriteErr = handler.applyGatewayRewrite(attemptRequest, plan.UpstreamProtocol, rewrite, haiku)
+			if rewriteErr != nil {
+				finishPrivacy()
+				if request.Context().Err() != nil {
+					return
+				}
+				last = executionFailure{kind: executionFailureConfiguration, err: rewriteErr, endpointID: candidate.Service.ID}
+				records.noteCandidateRejected(last.endpointID, last.code())
+				if !body.Replayable() {
+					break
+				}
 				continue
 			}
 		}
@@ -608,6 +633,7 @@ func (handler *Handler) executeCandidatesWithTest(
 					handler.recordLogger,
 				)
 				recordSession.noteConversionDiagnostics(contract.ConversionDiagnosticPhaseRequest, conversion.Diagnostics)
+				recordSession.noteGatewayReasoning(reasoning)
 				recordSession.observeOutboundCapture(outbound)
 			}
 			if test != nil && test.observer.Outbound != nil {

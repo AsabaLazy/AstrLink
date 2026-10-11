@@ -52,6 +52,7 @@ it("shows default-setting tabs and clears dirty state on unmount under StrictMod
     const tabs = [...container.querySelectorAll('[role="tab"]')];
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       "模型与工具",
+      "思考与提示词",
       "恢复与重试",
       "错误规则",
       "会话粘性",

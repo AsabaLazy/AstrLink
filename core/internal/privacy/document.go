@@ -11,8 +11,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuantumNous/astrlink/core/contract"
+	"github.com/QuantumNous/astrlink/core/internal/jsonedit"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 const maxJSONDepth = 128
@@ -255,24 +255,11 @@ func walkJSONStrings(
 	}
 }
 
-// Only encode the value being changed. The parsed map is used for inspection,
-// never to serialize the request, preserving other fields and their key order.
-func (document *jsonDocument) setValue(path string, value any) error {
-	encoded, err := encodeJSONValue(value)
-	if err != nil {
-		return err
-	}
-	return document.setRaw(path, encoded)
-}
-
+// encodeJSONValue encodes only the value being changed. The parsed map is used
+// for inspection, never to serialize the request, preserving other fields and
+// their key order.
 func encodeJSONValue(value any) ([]byte, error) {
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(encoded.Bytes(), []byte{'\n'}), nil
+	return jsonedit.Encode(value)
 }
 
 // stringReplacement is the new raw JSON for a string the request still holds
@@ -355,28 +342,6 @@ func (document *jsonDocument) replaceStrings(replacements map[string]stringRepla
 		written = edit.end
 	}
 	document.body = append(updated, document.body[written:]...)
-	return nil
-}
-
-func (document *jsonDocument) setRaw(path string, value []byte) error {
-	// SJSON may strip outer whitespace when inserting a missing member. Keep
-	// that envelope ourselves, including for notice fields absent in the input.
-	start := len(document.body) - len(bytes.TrimLeft(document.body, " \t\r\n"))
-	end := len(bytes.TrimRight(document.body, " \t\r\n"))
-	if start >= end {
-		return ErrUnsafeRewrite
-	}
-	updated, err := sjson.SetRawBytes(document.body[start:end], path, value)
-	if err != nil {
-		return err
-	}
-	if start != 0 || end != len(document.body) {
-		wrapped := make([]byte, 0, start+len(updated)+len(document.body)-end)
-		wrapped = append(wrapped, document.body[:start]...)
-		wrapped = append(wrapped, updated...)
-		updated = append(wrapped, document.body[end:]...)
-	}
-	document.body = updated
 	return nil
 }
 

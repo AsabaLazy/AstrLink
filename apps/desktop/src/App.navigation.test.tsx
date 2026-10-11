@@ -1513,7 +1513,14 @@ describe("App workspace navigation", () => {
       [...container.querySelectorAll('[role="tab"]')].map(
         (tab) => tab.textContent,
       ),
-    ).toEqual(["模型与工具", "恢复与重试", "错误规则", "会话粘性", "转发身份"]);
+    ).toEqual([
+      "模型与工具",
+      "思考与提示词",
+      "恢复与重试",
+      "错误规则",
+      "会话粘性",
+      "转发身份",
+    ]);
     expect(container.textContent).not.toContain("mmBERT");
     expect(bridgeMocks.listServices).toHaveBeenCalledTimes(serviceCalls);
     expect(bridgeMocks.getUsageSummary).toHaveBeenCalledTimes(requestCalls);

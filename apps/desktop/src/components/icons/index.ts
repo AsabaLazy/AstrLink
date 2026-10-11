@@ -21,6 +21,7 @@ export { Connect } from "./connect";
 export { Copy } from "./copy";
 export { Eye } from "./eye";
 export { EyeOff } from "./eye-off";
+export { Fingerprint } from "./fingerprint";
 export { Flask } from "./flask";
 export { FoldHorizontal } from "./fold-horizontal";
 export { GripVertical } from "./grip-vertical";

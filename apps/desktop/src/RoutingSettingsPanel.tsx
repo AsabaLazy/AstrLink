@@ -14,17 +14,25 @@ import { Panel, PanelHeader } from "./components/Panel";
 import { Button } from "./components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import {
+  Boxes,
+  Brain,
+  Fingerprint,
+  type AnimatedIcon,
+} from "./components/icons";
+import {
   identityLearningKeys,
   identitySettingKeys,
   identityVersionKeys,
   modelRedirectIssues,
   parseRoutingSettings,
   subscriptionProtectionKeys,
+  thinkingPromptKeys,
   type RoutingSettings,
 } from "./failure-policy-model";
 import { useT } from "./i18n";
 import { PageHeader } from "./PageHeader";
 import type { RoutableService } from "./service-model";
+import { ThinkingPromptSettings } from "./ThinkingPromptSettings";
 import { UpstreamIdentitySettings } from "./UpstreamIdentitySettings";
 
 export const routingAutosaveDelay = 500;
@@ -41,14 +49,16 @@ const routingSettingKeys = [
   ...subscriptionProtectionKeys,
   ...identityLearningKeys,
   ...identityVersionKeys,
+  ...thinkingPromptKeys,
 ] as const;
 
-const routingTabs = [
-  "modelsAndTools",
-  "recovery",
-  "rules",
-  "session",
-  "identity",
+const routingTabs: ReadonlyArray<{ value: string; icon?: AnimatedIcon }> = [
+  { value: "modelsAndTools", icon: Boxes },
+  { value: "thinkingPrompts", icon: Brain },
+  { value: "recovery" },
+  { value: "rules" },
+  { value: "session" },
+  { value: "identity", icon: Fingerprint },
 ];
 
 // A document without the key has no redirects; compare and edit it as [].
@@ -276,12 +286,13 @@ export function RoutingSettingsPanel({
           aria-label={t("nav.routing")}
           className="min-w-0 shrink-0"
         >
-          {routingTabs.map((value) => (
+          {routingTabs.map(({ value, icon: Icon }) => (
             <TabsTrigger
               key={value}
               value={value}
               onClick={() => setTab(value)}
             >
+              {Icon ? <Icon aria-hidden="true" /> : null}
               {t(`routing.tabs.${value}`)}
             </TabsTrigger>
           ))}
@@ -316,6 +327,15 @@ export function RoutingSettingsPanel({
                   changeDraft({ ...draft, builtin_tools })
                 }
               />
+            </TabsContent>
+            <TabsContent
+              value="thinkingPrompts"
+              className="gutter-scroller min-h-0 flex-1 overflow-y-auto pb-1"
+              data-tab-scroller
+            >
+              <fieldset disabled={!ready} className="grid min-w-0 gap-3">
+                <ThinkingPromptSettings value={draft} onChange={changeDraft} />
+              </fieldset>
             </TabsContent>
             <TabsContent
               value="recovery"

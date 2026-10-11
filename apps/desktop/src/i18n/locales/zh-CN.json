@@ -2575,7 +2575,7 @@
     "protectionHint": "作用于 Claude 与 Codex 订阅，默认开启，互不影响。修改自动保存，对新请求生效。",
     "protection": {
       "officialPassthrough": "官方客户端请求原样转发",
-      "officialPassthroughHint": "识别到真正的 Claude Code 或 Codex CLI 请求时，只补充凭据和必需的 OAuth 项，原样转发，不改写请求体、身份头或会话标识；下面的其他保护只作用于第三方客户端和协议转换请求。关闭后所有订阅请求都按下方规则整形。",
+      "officialPassthroughHint": "识别到真正的 Claude Code 或 Codex CLI 请求时，只补充凭据和必需的 OAuth 项，身份头和会话标识保持原样。“思考与提示词”里开启的设置也会用在这些请求上。下面的其他保护只作用于第三方客户端和协议转换请求。关闭后所有订阅请求都按下方规则整形。",
       "risk": "识别上游封控并暂停调度",
       "riskHint": "识别封禁、额度用尽和拒绝信号，暂停对应账号并切换到其他 API 提供商；401 时刷新一次令牌。关闭后只转发上游错误，不再记录或暂停；已暂停的账号仍需在 API 提供商列表手动恢复。",
       "codexRequests": "修正 Codex 订阅请求",
@@ -2607,6 +2607,72 @@
       "notLearned": "尚未学到，内置版本 {{version}}",
       "versionPlaceholder": "留空则使用已学习或内置版本"
     },
+    "thinkingTitle": "思考强度",
+    "thinkingHint": "设置模型回答前想多久。",
+    "thinkingModeLabel": "方式",
+    "thinkingLevelLabel": "档位",
+    "thinkingRangeLabel": "范围",
+    "thinkingModes": {
+      "passthrough": "跟随客户端",
+      "fixed": "固定",
+      "adaptive": "自适应"
+    },
+    "thinkingLevels": {
+      "off": "关",
+      "low": "低",
+      "medium": "中",
+      "high": "高",
+      "max": "最高"
+    },
+    "thinkingPresets": {
+      "everyday": "日常",
+      "research": "研究",
+      "custom": "自定义"
+    },
+    "thinkingRangeFrom": "从",
+    "thinkingRangeTo": "到",
+    "thinkingRangeMin": "最少想多少",
+    "thinkingRangeMax": "最多想多少",
+    "thinkingHelp": "思考强度说明",
+    "thinkingDemo": {
+      "client": "客户端",
+      "model": "模型",
+      "noThinking": "不思考",
+      "requests": {
+        "quick": "问个小问题",
+        "bug": "调试一个 bug",
+        "afternoon": "改了一下午代码"
+      },
+      "text": {
+        "passthrough": "客户端怎么设，就怎么发。想换档位，去客户端里改。",
+        "fixed": "每个请求都按「{{level}}」思考。客户端自己选的档位被替换。",
+        "fixedOff": "模型直接回答。关不掉的新模型想得最少。",
+        "everyday": "简单的问题想得少，复杂的问题想得多。从「低」起步，对话变长、用的工具多或问题很长时逐级提高，最多到「最高」。适合平时写代码和聊天。",
+        "research": "每个问题至少按「中」思考。对话变长、用的工具多或问题很长时逐级提高，直到这个模型能想的最多。适合难题和长时间钻研，回答更慢，花费更多。",
+        "custom": "你来定最少想多少、最多想多少。简单的问题用下限，越复杂越靠近上限。两头选一样时，每个请求都按那一档。"
+      }
+    },
+    "promptTitle": "全局提示词",
+    "promptHelp": "全局提示词说明",
+    "promptDemo": {
+      "title": "发给模型的系统提示词",
+      "identity": "客户端的身份声明",
+      "client": "客户端自带提示词",
+      "prefix": "你的开头",
+      "suffix": "你的末尾",
+      "smallTasks": "起标题这类小任务",
+      "titleTask": "给这段对话起个标题",
+      "unchanged": "保持原样",
+      "text": {
+        "on": "已开启。每个请求多出这两段文字的输入用量。",
+        "off": "未开启。打开右上角的开关后，这两段文字会加进每个请求。"
+      }
+    },
+    "promptEnabled": "使用全局提示词",
+    "promptPrefix": "加在开头",
+    "promptPrefixPlaceholder": "例如：所有回答都用简体中文。",
+    "promptSuffix": "加在末尾",
+    "promptSuffixPlaceholder": "例如：改代码之前，先说明打算怎么改。",
     "retryTitle": "重试次数与等待时间",
     "repairTitle": "推理内容修复",
     "rulesTitle": "重试规则",
@@ -2614,6 +2680,7 @@
     "redirectsInvalid": "请完善模型重定向，完成后会自动保存。",
     "tabs": {
       "modelsAndTools": "模型与工具",
+      "thinkingPrompts": "思考与提示词",
       "redirects": "模型重定向",
       "identity": "转发身份",
       "recovery": "恢复与重试",

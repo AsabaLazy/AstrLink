@@ -185,7 +185,10 @@ type recordSession struct {
 	channelBinding *channelBindingAttempt
 	// routingSettings is the request's single settings read; nil when the
 	// store has none or the read failed.
-	routingSettings       *contract.RoutingSettings
+	routingSettings *contract.RoutingSettings
+	// sentReasoningEffort is the level the current attempt sent when the
+	// reasoning settings changed the client's; nil keeps the client's level.
+	sentReasoningEffort   *string
 	pendingAttempt        *pendingAttemptRecord
 	recovery              *contract.RequestRecovery
 	modelRedirect         *contract.RequestModelRedirect
@@ -537,7 +540,7 @@ func (session *recordSession) recordSnapshot(
 		Status:             session.status,
 		InputProtocol:      session.classified.Protocol,
 		RequestedModel:     requestedModel,
-		ReasoningEffort:    session.classified.ReasoningEffort,
+		ReasoningEffort:    session.reasoningEffort(),
 		Streaming:          session.classified.Streaming,
 		ServiceID:          session.endpointID,
 		LocalAccessTokenID: session.accessTokenID,
@@ -720,6 +723,37 @@ func (session *recordSession) noteSelected(candidate endpoint.Resolved, plan con
 	session.endpointID = &endpointID
 	planCopy := plan
 	session.plan = &planCopy
+}
+
+// gatewayReasoningDiagnostic is the request diagnostic that explains what
+// the reasoning settings did to an attempt.
+const gatewayReasoningDiagnostic = "gateway_reasoning"
+
+// noteGatewayReasoning records what the reasoning settings did to the current
+// network attempt: the level it sent when they changed the client's, and the
+// diagnostic that explains the decision.
+func (session *recordSession) noteGatewayReasoning(reasoning gatewayReasoning) {
+	if session == nil {
+		return
+	}
+	session.sentReasoningEffort = nil
+	if level := reasoning.effort; level != "" {
+		session.sentReasoningEffort = &level
+	}
+	if reasoning.diagnostic != "" {
+		session.noteConversionDiagnostics(contract.ConversionDiagnosticPhaseRequest, []relaykitbridge.ConversionDiagnostic{{
+			Code: gatewayReasoningDiagnostic, Path: "reasoning", Message: reasoning.diagnostic, Severity: string(contract.ConversionDiagnosticWarning),
+		}})
+	}
+}
+
+// reasoningEffort is the level the record shows: the one the attempt sent.
+func (session *recordSession) reasoningEffort() *string {
+	if session.sentReasoningEffort != nil {
+		level := *session.sentReasoningEffort
+		return &level
+	}
+	return session.classified.ReasoningEffort
 }
 
 // noteCodexOfficial records whether the current attempt forwarded a Codex

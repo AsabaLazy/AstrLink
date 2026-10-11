@@ -2575,7 +2575,7 @@
     "protectionHint": "Applies to Claude and Codex subscriptions. Enabled by default and controlled independently. Changes save automatically and apply to new requests.",
     "protection": {
       "officialPassthrough": "Forward official client requests unchanged",
-      "officialPassthroughHint": "When a genuine Claude Code or Codex CLI request is recognized, add only credentials and required OAuth items and forward it unchanged, without rewriting the body, identity headers, or session identifiers. The other protections then apply only to third-party and converted requests. When disabled, every subscription request is shaped by the rules below.",
+      "officialPassthroughHint": "When a genuine Claude Code or Codex CLI request is recognized, only credentials and required OAuth items are added, and identity headers and session identifiers stay as sent. Settings you turn on under Thinking & prompts also apply to these requests. The other protections below apply only to third-party and converted requests. When disabled, every subscription request is shaped by the rules below.",
       "risk": "Detect upstream risk control and pause scheduling",
       "riskHint": "Detect suspension, exhausted quota, and rejection signals, pause the affected account, and fail over to another API provider. Refresh the token once on 401. When disabled, upstream errors are only forwarded, not recorded or paused. Paused accounts still need to be resumed from the API provider list.",
       "codexRequests": "Normalize Codex subscription requests",
@@ -2607,6 +2607,72 @@
       "notLearned": "Nothing learned yet; built-in version {{version}}",
       "versionPlaceholder": "Leave empty to use the learned or built-in version"
     },
+    "thinkingTitle": "Thinking level",
+    "thinkingHint": "Sets how long models think before they answer.",
+    "thinkingModeLabel": "Mode",
+    "thinkingLevelLabel": "Level",
+    "thinkingRangeLabel": "Range",
+    "thinkingModes": {
+      "passthrough": "Follow client",
+      "fixed": "Fixed",
+      "adaptive": "Adaptive"
+    },
+    "thinkingLevels": {
+      "off": "Off",
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "max": "Max"
+    },
+    "thinkingPresets": {
+      "everyday": "Everyday",
+      "research": "Research",
+      "custom": "Custom"
+    },
+    "thinkingRangeFrom": "From",
+    "thinkingRangeTo": "To",
+    "thinkingRangeMin": "Least thinking",
+    "thinkingRangeMax": "Most thinking",
+    "thinkingHelp": "About thinking levels",
+    "thinkingDemo": {
+      "client": "Client",
+      "model": "Model",
+      "noThinking": "No thinking",
+      "requests": {
+        "quick": "Quick question",
+        "bug": "Fixing a bug",
+        "afternoon": "An afternoon of edits"
+      },
+      "text": {
+        "passthrough": "Each request uses the level its client picks. To pick another level, change it in the client.",
+        "fixed": "Every request thinks at {{level}}. The level the client picks is replaced.",
+        "fixedOff": "Models answer without thinking. Newer models that can't turn it off think the least.",
+        "everyday": "Simple questions get little thinking, complex ones get more. Starts at Low and rises step by step when the chat gets long, uses many tools, or the question is long, up to Max. A good fit for everyday coding and chat.",
+        "research": "Every question gets at least Medium thinking. Rises step by step when the chat gets long, uses many tools, or the question is long, up to the most this model can think. A good fit for hard problems and long research, though answers take longer and cost more.",
+        "custom": "You set the least and the most thinking. Simple questions use the lower end, and more complex ones move closer to the upper end. When both ends match, every request uses that level."
+      }
+    },
+    "promptTitle": "Global prompt",
+    "promptHelp": "About the global prompt",
+    "promptDemo": {
+      "title": "System prompt sent to the model",
+      "identity": "Client identity line",
+      "client": "Client's built-in prompt",
+      "prefix": "Your start",
+      "suffix": "Your end",
+      "smallTasks": "Small tasks like titles",
+      "titleTask": "Give this conversation a title",
+      "unchanged": "As is",
+      "text": {
+        "on": "On. These two texts add to the input usage of every request.",
+        "off": "Off. Turn on the switch at the top right to add these two texts to every request."
+      }
+    },
+    "promptEnabled": "Use the global prompt",
+    "promptPrefix": "Add at the start",
+    "promptPrefixPlaceholder": "For example: Answer in English.",
+    "promptSuffix": "Add at the end",
+    "promptSuffixPlaceholder": "For example: Before you change code, explain the plan.",
     "retryTitle": "Retry limits and delays",
     "repairTitle": "Reasoning content repair",
     "rulesTitle": "Retry rules",
@@ -2614,6 +2680,7 @@
     "redirectsInvalid": "Complete the model redirects to save automatically.",
     "tabs": {
       "modelsAndTools": "Models & tools",
+      "thinkingPrompts": "Thinking & prompts",
       "redirects": "Model redirects",
       "identity": "Forwarding identity",
       "recovery": "Recovery & retries",

@@ -115,6 +115,7 @@ type Handler struct {
 	builtinStates            builtintools.Store
 	searchRefs               searchRefStore
 	codexTurns               codexTurnStore
+	codexModels              codexCatalogModels
 	proxyCredentials         secretstore.SecretStore
 	affinities               responseAffinities
 	resolver                 endpoint.Resolver

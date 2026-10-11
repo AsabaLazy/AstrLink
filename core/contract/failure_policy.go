@@ -153,6 +153,7 @@ type RoutingSettings struct {
 	SubscriptionSessionIsolation bool `json:"subscription_session_isolation"`
 	// OfficialClientPassthrough forwards a recognized Claude Code or Codex CLI
 	// request untouched, adding only credentials and required OAuth items. The
+	// global system prompt and reasoning settings still apply to it. The
 	// other identity and request protections then apply to third-party and
 	// converted requests only.
 	OfficialClientPassthrough bool `json:"official_client_passthrough"`
@@ -169,6 +170,23 @@ type RoutingSettings struct {
 	ClaudeIdentityVersion string `json:"claude_identity_version,omitempty"`
 	CodexIdentityVersion  string `json:"codex_identity_version,omitempty"`
 	GrokIdentityVersion   string `json:"grok_identity_version,omitempty"`
+	// SystemPromptEnabled adds SystemPromptPrefix at the start and
+	// SystemPromptSuffix at the end of the system prompt of inference
+	// requests, except Claude Code's Haiku requests. The texts are sent
+	// verbatim; a blank text adds nothing.
+	SystemPromptEnabled bool   `json:"system_prompt_enabled"`
+	SystemPromptPrefix  string `json:"system_prompt_prefix"`
+	SystemPromptSuffix  string `json:"system_prompt_suffix"`
+	// ReasoningMode sets the reasoning of inference requests. The
+	// passthrough mode leaves it to each client, the fixed mode sends
+	// ReasoningLevel, and the adaptive mode sends a level inside the
+	// AdaptivePreset range. AdaptiveMin and AdaptiveMax are the custom
+	// range; every value is kept while another mode or preset is chosen.
+	ReasoningMode  ReasoningMode  `json:"reasoning_mode"`
+	ReasoningLevel ReasoningLevel `json:"reasoning_level"`
+	AdaptivePreset AdaptivePreset `json:"adaptive_preset"`
+	AdaptiveMin    ReasoningLevel `json:"adaptive_min"`
+	AdaptiveMax    ReasoningLevel `json:"adaptive_max"`
 	// ModelRedirects is always emitted; nil documents load as an empty table.
 	ModelRedirects         []ModelRedirect               `json:"model_redirects"`
 	ChannelStickiness      *ChannelStickiness            `json:"channel_stickiness,omitempty"`
@@ -192,6 +210,11 @@ func DefaultRoutingSettings() RoutingSettings {
 		ClaudeIdentityAutoLearn:      true,
 		CodexIdentityAutoLearn:       true,
 		GrokIdentityAutoLearn:        true,
+		ReasoningMode:                ReasoningModePassthrough,
+		ReasoningLevel:               ReasoningLevelMedium,
+		AdaptivePreset:               AdaptivePresetEveryday,
+		AdaptiveMin:                  ReasoningLevelLow,
+		AdaptiveMax:                  ReasoningLevelMax,
 		ModelRedirects:               []ModelRedirect{},
 		ChannelStickiness:            &ChannelStickiness{Enabled: true, TTLSeconds: 3600},
 		DefaultFailurePolicy:         DefaultFailurePolicy(),
@@ -217,6 +240,24 @@ func (settings RoutingSettings) Validate() error {
 		if err := settings.BuiltinTools.Validate(); err != nil {
 			return err
 		}
+	}
+	if err := validateSystemPromptText("system_prompt_prefix", settings.SystemPromptPrefix); err != nil {
+		return err
+	}
+	if err := validateSystemPromptText("system_prompt_suffix", settings.SystemPromptSuffix); err != nil {
+		return err
+	}
+	if err := settings.ReasoningMode.Validate(); err != nil {
+		return err
+	}
+	if err := settings.ReasoningLevel.Validate(); err != nil {
+		return err
+	}
+	if err := settings.AdaptivePreset.Validate(); err != nil {
+		return err
+	}
+	if err := validateAdaptiveRange(settings.AdaptiveMin, settings.AdaptiveMax); err != nil {
+		return err
 	}
 	if err := ValidateModelRedirects(settings.ModelRedirects); err != nil {
 		return err

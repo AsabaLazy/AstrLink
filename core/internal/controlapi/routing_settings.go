@@ -72,6 +72,22 @@ func (handler *Handler) routingSettingsResource(writer http.ResponseWriter, requ
 				destination = &settings.CodexIdentityVersion
 			case "grok_identity_version":
 				destination = &settings.GrokIdentityVersion
+			case "system_prompt_enabled":
+				destination = &settings.SystemPromptEnabled
+			case "system_prompt_prefix":
+				destination = &settings.SystemPromptPrefix
+			case "system_prompt_suffix":
+				destination = &settings.SystemPromptSuffix
+			case "reasoning_mode":
+				destination = &settings.ReasoningMode
+			case "reasoning_level":
+				destination = &settings.ReasoningLevel
+			case "adaptive_preset":
+				destination = &settings.AdaptivePreset
+			case "adaptive_min":
+				destination = &settings.AdaptiveMin
+			case "adaptive_max":
+				destination = &settings.AdaptiveMax
 			case "default_recovery_paths":
 				writeError(writer, http.StatusGone, "routing_feature_retired", "default call paths are retired")
 				return

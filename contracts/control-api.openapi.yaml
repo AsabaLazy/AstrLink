@@ -4155,7 +4155,7 @@ components:
         official_client_passthrough:
           type: boolean
           default: true
-          description: Forward a recognized Claude Code or Codex CLI request untouched, adding only credentials and required OAuth items. Identity and request protections then apply to third-party and converted requests only.
+          description: Forward a recognized Claude Code or Codex CLI request untouched, adding only credentials and required OAuth items. The global system prompt and reasoning settings still apply to it. Identity and request protections then apply to third-party and converted requests only.
         claude_identity_auto_learn:
           type: boolean
           default: true
@@ -4174,6 +4174,30 @@ components:
           $ref: "#/components/schemas/ClientIdentityVersion"
         codex_identity_version:
           $ref: "#/components/schemas/CodexIdentityVersion"
+        system_prompt_enabled:
+          type: boolean
+          default: false
+          description: Add system_prompt_prefix at the start and system_prompt_suffix at the end of the system prompt of Chat, Responses, Anthropic Messages and Gemini requests. An official client identity line stays first. Claude Code requests for a Claude Haiku model keep their own prompt.
+        system_prompt_prefix:
+          $ref: "#/components/schemas/SystemPromptText"
+        system_prompt_suffix:
+          $ref: "#/components/schemas/SystemPromptText"
+        reasoning_mode:
+          $ref: "#/components/schemas/ReasoningMode"
+        reasoning_level:
+          $ref: "#/components/schemas/ReasoningLevel"
+        adaptive_preset:
+          $ref: "#/components/schemas/AdaptivePreset"
+        adaptive_min:
+          allOf:
+            - $ref: "#/components/schemas/ReasoningLevel"
+          default: low
+          description: Lowest level of the custom adaptive range; at most adaptive_max. Kept and validated while another preset or mode is chosen.
+        adaptive_max:
+          allOf:
+            - $ref: "#/components/schemas/ReasoningLevel"
+          default: max
+          description: Highest level of the custom adaptive range; at least adaptive_min. Kept and validated while another preset or mode is chosen.
         model_redirects:
           type: array
           maxItems: 200
@@ -4202,6 +4226,32 @@ components:
           maximum: 20
           default: 6
       additionalProperties: false
+    SystemPromptText:
+      type: string
+      maxLength: 20000
+      default: ""
+      description: Text sent verbatim in the system prompt while system_prompt_enabled is on. Whitespace-only text adds nothing.
+    ReasoningMode:
+      type: string
+      enum: [passthrough, fixed, adaptive]
+      default: passthrough
+      description: >-
+        passthrough leaves reasoning as each client sets it. fixed sends every request to a model with known
+        reasoning support at reasoning_level, turning reasoning on or off as needed. adaptive sends a level inside
+        the adaptive_preset range: its lower end for a simple request, one level higher for each of more than 10
+        messages, more than 3 tools and a last user message over 2000 characters, at most its upper end, and the
+        upper end when all three apply. Claude Code requests for a Claude Haiku model keep their own reasoning in
+        both modes.
+    ReasoningLevel:
+      type: string
+      enum: ["off", low, medium, high, max]
+      default: medium
+      description: Level the fixed mode sends. off turns reasoning off, or to the lowest setting of a model that cannot turn it off; max selects the highest level each model supports.
+    AdaptivePreset:
+      type: string
+      enum: [everyday, research, custom]
+      default: everyday
+      description: Range of the adaptive mode. everyday sends low through max, research medium through max, and custom adaptive_min through adaptive_max.
     ClientIdentityVersion:
       type: string
       maxLength: 64
@@ -4254,6 +4304,31 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CodexIdentityVersion"
             - { type: string, const: "" }
+        system_prompt_enabled:
+          type: boolean
+        system_prompt_prefix:
+          type: string
+          maxLength: 20000
+        system_prompt_suffix:
+          type: string
+          maxLength: 20000
+        reasoning_mode:
+          type: string
+          enum: [passthrough, fixed, adaptive]
+        reasoning_level:
+          type: string
+          enum: ["off", low, medium, high, max]
+        adaptive_preset:
+          type: string
+          enum: [everyday, research, custom]
+        adaptive_min:
+          type: string
+          enum: ["off", low, medium, high, max]
+          description: Checked against adaptive_max after the patch is merged; a range whose lower end is above its upper end is rejected.
+        adaptive_max:
+          type: string
+          enum: ["off", low, medium, high, max]
+          description: Checked against adaptive_min after the patch is merged; a range whose lower end is above its upper end is rejected.
         model_redirects:
           type: array
           maxItems: 200
@@ -6019,7 +6094,7 @@ components:
           type: [string, "null"]
           minLength: 1
           maxLength: 32
-          description: Explicit client-requested reasoning level, normalized to lowercase. Null for unspecified levels and historical records; never inferred from model names or token budgets.
+          description: Reasoning level of the final attempt, in lowercase. It is the level the gateway's reasoning settings sent when they changed the request ("none" when they turned reasoning off), and otherwise the client's explicit level. A client's token budget or model name is never read as a level. Null when the client named no level and the settings left reasoning unchanged, and for historical records.
         streaming:
           type: boolean
         route_id:
@@ -6414,7 +6489,7 @@ components:
           type: [string, "null"]
           minLength: 1
           maxLength: 32
-          description: Explicit client-requested reasoning level, normalized to lowercase. Null for unspecified levels and historical records; never inferred from model names or token budgets.
+          description: Reasoning level of the final attempt, in lowercase. It is the level the gateway's reasoning settings sent when they changed the request ("none" when they turned reasoning off), and otherwise the client's explicit level. A client's token budget or model name is never read as a level. Null when the client named no level and the settings left reasoning unchanged, and for historical records.
         input_protocol:
           $ref: ./protocol-capabilities.schema.json#/$defs/ProtocolId
         service_id:

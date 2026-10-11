@@ -457,7 +457,10 @@ type RequestRecord struct {
 	// ModelRedirect is set when a routing-settings redirect replaced
 	// RequestedModel for provider selection.
 	ModelRedirect *RequestModelRedirect `json:"model_redirect,omitempty"`
-	// ReasoningEffort is the explicitly requested level; nil means unspecified or historical.
+	// ReasoningEffort is the level the final attempt sent: the explicitly
+	// requested one, or the gateway's when its reasoning settings changed it
+	// ("none" when they turned reasoning off). Nil means unspecified or
+	// historical.
 	ReasoningEffort *string    `json:"reasoning_effort"`
 	Streaming       bool       `json:"streaming"`
 	RouteID         *RouteID   `json:"route_id"`

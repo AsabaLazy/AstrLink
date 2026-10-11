@@ -374,6 +374,9 @@ func (handler *Handler) fetchModelDiscovery(
 	} else {
 		entries, entriesErr = parseDiscoveryEntries(classified.Protocol, discoveryBody)
 	}
+	if entriesErr == nil {
+		handler.codexModels.remember(entries)
+	}
 	if entriesErr != nil {
 		return discoveryResult{outcome: discoveryOutcomeFailed, failure: executionFailure{
 			kind:       executionFailureUpstream,
