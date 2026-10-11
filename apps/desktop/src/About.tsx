@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { Panel, PanelBody, PanelHeader } from "@/components/Panel";
+import { Panel, PanelHeader } from "@/components/Panel";
 import { DataField, DataRow } from "@/components/DataRow";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -181,15 +181,9 @@ export function About({
         {/* Center the column inside the full-width scrollport, so its scrollbar
             stays at the workspace edge like every other page. */}
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
-          <Panel
-            className={cn(
-              "flex flex-col",
-              snapshot.release ? "min-h-64 flex-1" : "shrink-0",
-            )}
-            data-slot="about-update-panel"
-          >
+          <Panel data-slot="about-update-panel">
             <PanelHeader
-              className="shrink-0 flex-wrap items-center gap-3 px-5 py-4"
+              className="flex-wrap items-center gap-3 px-5 py-4"
               actions={
                 <>
                   <Button
@@ -228,12 +222,10 @@ export function About({
                 </div>
               </div>
             </PanelHeader>
-            <PanelBody
-              className={cn(
-                "space-y-3 px-5 pt-3",
-                snapshot.release ? "pb-4" : "pb-0",
-                !snapshot.release && "flex-none",
-              )}
+            {/* Not PanelBody: its contained overscroll keeps the wheel from
+                reaching the page scrollport even when it has nothing to scroll. */}
+            <div
+              className={cn("space-y-3 px-5 pt-3", snapshot.release && "pb-4")}
               data-slot="about-update-content"
             >
               <div
@@ -481,7 +473,7 @@ export function About({
                   />
                 </div>
               ) : null}
-            </PanelBody>
+            </div>
           </Panel>
           <LocalClientUpdates compact={Boolean(snapshot.release)} />
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { Panel, PanelBody, PanelHeader } from "@/components/Panel";
+import { Panel, PanelHeader } from "@/components/Panel";
 import { DataField } from "@/components/DataRow";
 import { AgentToolIcon } from "@/components/AgentToolIcon";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -179,7 +179,7 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
         </Button>
       </PanelHeader>
       {expanded ? (
-        <PanelBody className="flex-none space-y-3 p-3" id={`${id}-clients`}>
+        <div className="space-y-3 p-3" id={`${id}-clients`}>
           {!native ? (
             <p className="text-xs text-muted-foreground">
               {t("localClients.browser")}
@@ -369,7 +369,7 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
               })}
             </p>
           ) : null}
-        </PanelBody>
+        </div>
       ) : null}
     </Panel>
   );

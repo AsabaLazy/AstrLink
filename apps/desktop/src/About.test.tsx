@@ -155,4 +155,17 @@ describe("About updates", () => {
     await act(async () => button("检查更新").click());
     expect(mocks.checkAppUpdate).toHaveBeenCalledTimes(2);
   });
+  it("leaves scrolling to the page scrollport", async () => {
+    await render();
+    await act(async () =>
+      (
+        container.querySelector("button[aria-controls]") as HTMLButtonElement
+      ).click(),
+    );
+    const page = container.querySelector('[data-slot="about-workspace"]')!;
+    expect(page.className).toContain("overflow-y-auto");
+    // A nested overscroll-contained box stops the wheel even when it has
+    // nothing to scroll, so the page would not move under the pointer.
+    expect(page.querySelector('[class*="overscroll-"]')).toBeNull();
+  });
 });

@@ -233,4 +233,10 @@ describe("local client updates", () => {
     expect(container.textContent).toContain("请在桌面应用中");
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
+
+  it("leaves scrolling to the About page", async () => {
+    await render();
+    expect(container.querySelector('[data-client="codex"]')).not.toBeNull();
+    expect(container.querySelector('[class*="overscroll-"]')).toBeNull();
+  });
 });

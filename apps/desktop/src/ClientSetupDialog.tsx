@@ -20,7 +20,7 @@ import {
   GeminiColor,
   OpenCodeMono,
   OpenClawColor,
-  PiMono,
+  PiColor,
 } from "@/components/brand-icons";
 import { CCSwitchIcon } from "@/components/CCSwitchIcon";
 import { ArrowUpRight, Key, Server, Settings } from "@/components/icons";
@@ -80,7 +80,7 @@ export const clientSetupClients = [
   { id: "gemini", label: "Gemini CLI", Icon: GeminiColor },
   { id: "opencode", label: "OpenCode", Icon: OpenCodeMono },
   { id: "openclaw", label: "OpenClaw", Icon: OpenClawColor },
-  { id: "pi", label: "Pi", Icon: PiMono },
+  { id: "pi", label: "Pi", Icon: PiColor },
 ] as const satisfies readonly {
   id: ClientConfigClient;
   label: string;
