@@ -24,6 +24,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { StatusDot } from "@/components/StatusDot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 import {
@@ -207,11 +208,11 @@ function NavButton({
       aria-label={disabled ? i18n.t("common.comingSoon", { label }) : label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "relative h-9 w-full justify-start gap-2.5 rounded-md px-2 text-sm font-medium text-text-secondary hover:bg-accent hover:text-accent-foreground max-[960px]:justify-center max-[960px]:px-0",
-        // Active state is a tide-coloured left rule plus a flat wash. This bar
-        // is the only place the logo's tide colour appears in the UI.
+        "relative h-9 w-full justify-start gap-2.5 rounded-lg px-3 text-base font-normal text-text-secondary hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground max-[960px]:justify-center max-[960px]:px-0",
+        // The active page sits on a neutral pill one step darker than the
+        // window ground, with heavier ink.
         active &&
-          "bg-accent font-semibold text-accent-foreground before:absolute before:inset-y-1 before:-left-2 before:w-0.5 before:rounded-full before:bg-tide max-[960px]:before:hidden",
+          "bg-sidebar-accent font-semibold text-sidebar-accent-foreground hover:bg-sidebar-accent",
       )}
       disabled={disabled}
       onClick={onClick}
@@ -222,7 +223,7 @@ function NavButton({
       <Icon className="size-5" name={icon} />
       {badge ? (
         <span
-          className="absolute right-1 top-1 size-2 rounded-full bg-primary"
+          className="absolute top-1/2 right-3 size-2 -translate-y-1/2 rounded-full bg-primary max-[960px]:top-1 max-[960px]:right-1 max-[960px]:translate-y-0"
           role="status"
           aria-label={badge}
           title={badge}
@@ -790,8 +791,8 @@ export default function App() {
   return (
     <AppShell
       sidebar={
-        <aside className="flex h-full min-h-0 flex-col border-r bg-sidebar px-3 pt-[var(--sidebar-top)] pb-3 max-[960px]:px-2 max-[960px]:pb-2.5">
-          <div className="flex items-center gap-3 px-2 pb-5 max-[960px]:justify-center max-[960px]:px-0">
+        <aside className="flex h-full min-h-0 flex-col px-4 pt-[var(--sidebar-top)] pb-4 max-[960px]:px-2 max-[960px]:pb-2.5">
+          <div className="flex items-center gap-3 px-3 pb-6 max-[960px]:justify-center max-[960px]:px-0">
             <img
               className="block size-8 shrink-0"
               src={astrlinkLogo}
@@ -810,86 +811,96 @@ export default function App() {
             aria-label={t("nav.main")}
             data-slot="sidebar-navigation"
           >
-            <span className="px-2 pb-1.5 text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase max-[960px]:hidden">
-              {t("nav.workspace")}
-            </span>
-            <NavButton
-              active={page.kind === "overview"}
-              icon="home"
-              label={t("nav.overview")}
-              onClick={() => navigate({ kind: "overview" })}
-            />
-            <NavButton
-              active={serviceSectionActive}
-              icon="server"
-              label={t("nav.services")}
-              onClick={() => navigate({ kind: "list" })}
-            />
-            <NavButton
-              active={page.kind === "tokens"}
-              icon="key"
-              label={t("nav.tokens")}
-              onClick={() => navigate({ kind: "tokens" })}
-            />
-            <NavButton
-              active={page.kind === "safety"}
-              icon="shield"
-              label={t("nav.safety")}
-              badge={modelUpdateNotice}
-              onClick={() => navigate({ kind: "safety" })}
-            />
-            <NavButton
-              active={page.kind === "records"}
-              icon="activity"
-              label={t("nav.records")}
-              onClick={() => navigate({ kind: "records" })}
-            />
-            <NavButton
-              active={page.kind === "routing"}
-              icon="route"
-              label={t("nav.routing")}
-              onClick={() => navigate({ kind: "routing" })}
-            />
+            <div
+              className="flex flex-col gap-1"
+              role="group"
+              aria-label={t("nav.workspace")}
+            >
+              <NavButton
+                active={page.kind === "overview"}
+                icon="home"
+                label={t("nav.overview")}
+                onClick={() => navigate({ kind: "overview" })}
+              />
+              <NavButton
+                active={serviceSectionActive}
+                icon="server"
+                label={t("nav.services")}
+                onClick={() => navigate({ kind: "list" })}
+              />
+              <NavButton
+                active={page.kind === "tokens"}
+                icon="key"
+                label={t("nav.tokens")}
+                onClick={() => navigate({ kind: "tokens" })}
+              />
+              <NavButton
+                active={page.kind === "safety"}
+                icon="shield"
+                label={t("nav.safety")}
+                badge={modelUpdateNotice}
+                onClick={() => navigate({ kind: "safety" })}
+              />
+              <NavButton
+                active={page.kind === "records"}
+                icon="activity"
+                label={t("nav.records")}
+                onClick={() => navigate({ kind: "records" })}
+              />
+              <NavButton
+                active={page.kind === "routing"}
+                icon="route"
+                label={t("nav.routing")}
+                onClick={() => navigate({ kind: "routing" })}
+              />
+            </div>
 
-            <span className="mt-4 px-2 pb-1.5 text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase max-[960px]:mx-2 max-[960px]:mt-3 max-[960px]:mb-2 max-[960px]:h-px max-[960px]:bg-border max-[960px]:p-0 max-[960px]:text-transparent">
-              {t("nav.system")}
-            </span>
-            {!isWebEdition && (
+            <Separator className="mx-2 my-2 bg-sidebar-border data-[orientation=horizontal]:w-auto" />
+
+            <div
+              className="flex flex-col gap-1"
+              role="group"
+              aria-label={t("nav.system")}
+            >
+              {!isWebEdition && (
+                <NavButton
+                  active={page.kind === "agentTools"}
+                  icon="bot"
+                  label={t("nav.agentTools")}
+                  onClick={() => navigate({ kind: "agentTools" })}
+                />
+              )}
               <NavButton
-                active={page.kind === "agentTools"}
-                icon="bot"
-                label={t("nav.agentTools")}
-                onClick={() => navigate({ kind: "agentTools" })}
+                active={page.kind === "settings"}
+                icon="settings"
+                label={t("nav.settings")}
+                onClick={() => navigate({ kind: "settings" })}
               />
-            )}
-            <NavButton
-              active={page.kind === "settings"}
-              icon="settings"
-              label={t("nav.settings")}
-              onClick={() => navigate({ kind: "settings" })}
-            />
-            {!isWebEdition && (
-              <NavButton
-                active={page.kind === "about"}
-                icon="about"
-                label={t("nav.about")}
-                badge={
-                  updateNoticeKind
-                    ? t(`about.phase.${updateNoticeKind}`)
-                    : undefined
-                }
-                onClick={() => navigate({ kind: "about" })}
-              />
-            )}
-            {isWebEdition && <ConsoleLogout />}
+              {!isWebEdition && (
+                <NavButton
+                  active={page.kind === "about"}
+                  icon="about"
+                  label={t("nav.about")}
+                  badge={
+                    updateNoticeKind
+                      ? t(`about.phase.${updateNoticeKind}`)
+                      : undefined
+                  }
+                  onClick={() => navigate({ kind: "about" })}
+                />
+              )}
+              {isWebEdition && <ConsoleLogout />}
+            </div>
           </nav>
 
           <div
             aria-label={t("nav.gatewayStatus", { status: statusLabel })}
-            className="mt-3 flex items-center gap-2 border-t px-2 pt-3 text-text-secondary max-[960px]:justify-center max-[960px]:px-0"
+            className="mx-2 mt-3 flex h-11 items-center gap-2.5 border-t border-sidebar-border px-1 pt-2 text-text-secondary max-[960px]:justify-center max-[960px]:px-0"
             title={t("nav.gatewayStatus", { status: statusLabel })}
           >
-            <StatusDot tone={statusTone} />
+            <span className="grid size-5 shrink-0 place-items-center">
+              <StatusDot tone={statusTone} />
+            </span>
             <span className="flex min-w-0 items-baseline gap-1.5 max-[960px]:hidden">
               <strong className="text-sm font-medium text-foreground">
                 {t("nav.gateway")}
@@ -912,7 +923,7 @@ export default function App() {
         >
           <main
             className={cn(
-              "@container/workspace-surface h-full min-h-0 w-full min-w-0 px-8 pt-[var(--workspace-top)] pb-8 max-[960px]:px-5 [@media(max-height:680px)]:pb-5",
+              "@container/workspace-surface h-full min-h-0 w-full min-w-0 px-8 pt-[var(--workspace-top)] pb-6 max-[960px]:px-5 [@media(max-height:680px)]:pb-3",
               "flex flex-col",
               [
                 "about",
