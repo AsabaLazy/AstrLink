@@ -3129,6 +3129,7 @@
     "errorDetails": "错误详情",
     "multiple": "检测到其他安装位置，只更新当前使用的客户端：",
     "reopen": "已更新，重新打开客户端即可使用。",
+    "wslUnchecked": "{{names}} 未运行，没有检测其中的客户端。启动后点「刷新」。",
     "phase": {
       "idle": "待检查",
       "checking": "检查中",

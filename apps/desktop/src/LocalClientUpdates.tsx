@@ -21,9 +21,11 @@ import {
   acceptLocalClients,
   emptyLocalClients,
   localClientGuide,
+  localClientKey,
   localClientLabel,
   type LocalClientId,
   type LocalClientSnapshot,
+  type LocalClientTarget,
 } from "./local-client-model";
 
 const ERROR_KEYS = new Set([
@@ -51,7 +53,7 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
   const busy = pending || snapshot.busy;
   const available = snapshot.clients
     .filter((c) => c.can_update)
-    .map((c) => c.id);
+    .map(({ id, wsl }) => ({ id, wsl }));
 
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +108,15 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
     } catch (error) {
       setError(String(error));
     }
+  }
+  /** The client's name, followed by its WSL distribution when it runs in one. */
+  function placeLabel({ id, wsl }: LocalClientTarget) {
+    return wsl === null
+      ? localClientLabel(id)
+      : t("clientSetup.placeClient", {
+          client: localClientLabel(id),
+          place: t("agentDebug.wslPlace", { name: wsl }),
+        });
   }
 
   return (
@@ -178,15 +189,21 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
           <div className="grid gap-3 @min-[600px]/workspace-surface:grid-cols-2">
             {snapshot.clients.map((client) => (
               <Panel
-                key={client.id}
+                key={localClientKey(client)}
                 className="flex min-w-0 flex-col gap-3 p-3"
                 data-client={client.id}
+                data-wsl={client.wsl ?? undefined}
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <AgentToolIcon id={client.id} size={20} />
                   <h3 className="text-sm font-medium">
                     {localClientLabel(client.id)}
                   </h3>
+                  {client.wsl !== null ? (
+                    <span className="text-xs text-muted-foreground">
+                      {t("agentDebug.wslPlace", { name: client.wsl })}
+                    </span>
+                  ) : null}
                   <StatusBadge
                     className="ml-auto"
                     tone={
@@ -296,10 +313,14 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
                       size="sm"
                       disabled={busy}
                       aria-label={t("localClients.updateNamed", {
-                        name: localClientLabel(client.id),
+                        name: placeLabel(client),
                       })}
                       onClick={() =>
-                        void run(() => updateLocalClients([client.id]))
+                        void run(() =>
+                          updateLocalClients([
+                            { id: client.id, wsl: client.wsl },
+                          ]),
+                        )
                       }
                     >
                       {t("localClients.update")}
@@ -339,6 +360,15 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
               </Panel>
             ))}
           </div>
+          {snapshot.wsl_unchecked.length ? (
+            <p className="text-xs text-muted-foreground">
+              {t("localClients.wslUnchecked", {
+                names: snapshot.wsl_unchecked.join(
+                  t("agentDebug.partsSeparator"),
+                ),
+              })}
+            </p>
+          ) : null}
         </PanelBody>
       ) : null}
     </Panel>

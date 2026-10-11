@@ -209,15 +209,39 @@ fn home(distribution: &str, configured: Option<&WslDirs>) -> Result<WslHome, Str
         Some(share) => share,
         None => default_home(distribution)?,
     };
-    let conf = PathBuf::from(format!(r"\\wsl$\{distribution}\etc\wsl.conf"));
     Ok(WslHome {
         distribution: distribution.to_string(),
         share,
-        mount_root: parse_mount_root(&fs::read_to_string(conf).unwrap_or_default()),
+        mount_root: mount_root(distribution),
         dirs: configured
             .map(|entry| entry.dirs.clone())
             .unwrap_or_default(),
     })
+}
+
+/// The distribution's root as Windows reaches it. Reaching it starts a
+/// stopped distribution.
+pub fn share_root(distribution: &str) -> PathBuf {
+    PathBuf::from(format!(r"\\wsl$\{distribution}"))
+}
+
+/// Where the distribution mounts Windows drives, read from its
+/// `/etc/wsl.conf`.
+pub fn mount_root(distribution: &str) -> String {
+    let conf = share_root(distribution).join("etc").join("wsl.conf");
+    parse_mount_root(&fs::read_to_string(conf).unwrap_or_default())
+}
+
+/// wsl.exe, which runs commands in a distribution.
+pub fn program() -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    {
+        platform::program()
+    }
+    #[cfg(not(windows))]
+    {
+        Err("WSL needs Windows".to_string())
+    }
 }
 
 /// The default user's home, which starts the distribution if it is stopped.
@@ -383,16 +407,21 @@ mod platform {
             .collect()
     }
 
-    /// Runs wsl.exe without a console window and returns its decoded output.
-    pub fn run(args: &[&str], timeout: Duration) -> Result<String, String> {
+    pub fn program() -> Result<PathBuf, String> {
         let system = std::env::var_os("SystemRoot")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
         let program = system.join("System32").join("wsl.exe");
-        if !program.is_file() {
-            return Err("WSL is not installed".to_string());
+        if program.is_file() {
+            Ok(program)
+        } else {
+            Err("WSL is not installed".to_string())
         }
-        let mut child = Command::new(program)
+    }
+
+    /// Runs wsl.exe without a console window and returns its decoded output.
+    pub fn run(args: &[&str], timeout: Duration) -> Result<String, String> {
+        let mut child = Command::new(program()?)
             .args(args)
             .env("WSL_UTF8", "1")
             .stdin(Stdio::null())

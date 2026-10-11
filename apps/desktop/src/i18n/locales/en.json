@@ -3129,6 +3129,7 @@
     "errorDetails": "Error details",
     "multiple": "Other installations were found. Only the active client will be updated:",
     "reopen": "Updated. Reopen the client to use the new version.",
+    "wslUnchecked": "Clients in stopped WSL distributions weren’t checked: {{names}}. Start one, then select Refresh.",
     "phase": {
       "idle": "Not checked",
       "checking": "Checking",
