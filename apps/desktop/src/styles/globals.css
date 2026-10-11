@@ -121,13 +121,13 @@
   --violet-wash: #eaf2fc;
 
   /* Navigation: the window ground behind the sidebar and the workspace card */
-  --sidebar: #f1f2f5;
+  --sidebar: #fafbfc;
   --sidebar-foreground: #1a2a3d;
   --sidebar-primary: #1d4d87;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e4e6ec;
+  --sidebar-accent: #eef0f4;
   --sidebar-accent-foreground: #1a2a3d;
-  --sidebar-border: #e1e4ea;
+  --sidebar-border: #e5e7f0;
   --sidebar-ring: #3b82f6;
 
   /* Details */
