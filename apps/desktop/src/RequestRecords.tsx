@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -1753,7 +1754,46 @@ export function RequestRecords({
                   </FormMessage>
                 ) : null}
                 <div className="flex w-full min-w-0 flex-wrap items-center gap-2 border-b bg-background py-2">
-                  <div className="grid min-w-0 flex-1 basis-72 grid-cols-3 gap-2 @[680px]:max-w-4xl @[680px]:grid-cols-5">
+                  <div className="grid min-w-0 flex-1 basis-72 grid-cols-3 gap-2 @[680px]:max-w-4xl @[680px]:grid-cols-[minmax(0,1.2fr)_auto_repeat(4,minmax(0,1fr))]">
+                    {/* The client scopes the list, so it leads and stands apart from the attribute filters. */}
+                    <FilterSelect
+                      ariaLabel={t("records.filter", {
+                        label: t("records.client"),
+                      })}
+                      className="w-full"
+                      label={t("records.client")}
+                      onChange={(clientType) =>
+                        setFilters((current) => ({
+                          ...current,
+                          clientType: clientType as ClientType | "",
+                        }))
+                      }
+                      options={[
+                        { label: t("common.all"), value: "" },
+                        ...clientOptions.map((clientType) => ({
+                          label: clientTypeName(clientType),
+                          value: clientType,
+                          displayLabel: (
+                            <span className="inline-flex min-w-0 items-center gap-2">
+                              <ClientTypeIcon
+                                clientType={clientType}
+                                decorative
+                                size={16}
+                              />
+                              <span className="truncate">
+                                {clientTypeName(clientType)}
+                              </span>
+                            </span>
+                          ),
+                        })),
+                      ]}
+                      value={filters.clientType}
+                      variant="filled"
+                    />
+                    <Separator
+                      className="mx-1 hidden self-center data-[orientation=vertical]:h-5 @[680px]:block"
+                      orientation="vertical"
+                    />
                     <FilterSelect
                       ariaLabel={t("records.filter", {
                         label: t("records.status"),
@@ -1805,39 +1845,6 @@ export function RequestRecords({
                         })),
                       ]}
                       value={filters.protocol}
-                    />
-                    <FilterSelect
-                      ariaLabel={t("records.filter", {
-                        label: t("records.client"),
-                      })}
-                      className="w-full"
-                      label={t("records.client")}
-                      onChange={(clientType) =>
-                        setFilters((current) => ({
-                          ...current,
-                          clientType: clientType as ClientType | "",
-                        }))
-                      }
-                      options={[
-                        { label: t("common.all"), value: "" },
-                        ...clientOptions.map((clientType) => ({
-                          label: clientTypeName(clientType),
-                          value: clientType,
-                          displayLabel: (
-                            <span className="inline-flex min-w-0 items-center gap-2">
-                              <ClientTypeIcon
-                                clientType={clientType}
-                                decorative
-                                size={16}
-                              />
-                              <span className="truncate">
-                                {clientTypeName(clientType)}
-                              </span>
-                            </span>
-                          ),
-                        })),
-                      ]}
-                      value={filters.clientType}
                     />
                     <MultiFilterSelect
                       allLabel={t("common.all")}
