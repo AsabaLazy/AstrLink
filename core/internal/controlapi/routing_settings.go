@@ -2,9 +2,11 @@ package controlapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/QuantumNous/astrlink/core/contract"
+	"github.com/QuantumNous/astrlink/core/internal/storage"
 )
 
 const RoutingSettingsPath = "/control/v1/routing-settings"
@@ -119,6 +121,9 @@ func (handler *Handler) routingSettingsResource(writer http.ResponseWriter, requ
 			writeError(writer, http.StatusUnprocessableEntity, "invalid_routing_settings", err.Error())
 			return
 		}
+		if _, ok := patch["builtin_tools"]; ok && !handler.imagesProviderUsable(writer, request, settings.BuiltinTools) {
+			return
+		}
 		if err := handler.routingSettings.UpdateRoutingSettings(request.Context(), settings); err != nil {
 			handler.writeStoreError(writer, err)
 			return
@@ -128,6 +133,31 @@ func (handler *Handler) routingSettingsResource(writer http.ResponseWriter, requ
 		writer.Header().Set("Allow", "GET, PATCH")
 		writeError(writer, http.StatusMethodNotAllowed, "method_not_allowed", "only GET and PATCH are allowed")
 	}
+}
+
+// imagesProviderUsable checks turned-on image generation that calls a
+// provider's Images API against that provider, and answers the request when
+// the provider cannot serve it. The mistake then shows on save instead of on
+// every image call. A turned-off tool keeps any choice, so a stale one can
+// always be turned off. Whether the provider is enabled and connected is left
+// to each call. Each refusal has its own code, which the desktop shows in the
+// operator's language.
+func (handler *Handler) imagesProviderUsable(writer http.ResponseWriter, request *http.Request, tools *contract.BuiltinTools) bool {
+	if tools == nil || !tools.ImageGeneration.Enabled || tools.ImageGeneration.Backend != "service_images" {
+		return true
+	}
+	record, err := handler.serviceStore.GetService(request.Context(), tools.ImageGeneration.ServiceID)
+	switch {
+	case errors.Is(err, storage.ErrNotFound):
+		writeError(writer, http.StatusUnprocessableEntity, "image_provider_not_found", "image_generation: the selected provider does not exist")
+	case err != nil:
+		handler.writeStoreError(writer, err)
+	case !contract.BuiltinImagesServiceKind(record.Service.Kind):
+		writeError(writer, http.StatusUnprocessableEntity, "image_provider_unsupported", "image_generation: the selected provider has no Images API. Pick an OpenAI, OpenAI-compatible, New API or MiniMax provider, or use the upstream backend with a Codex subscription.")
+	default:
+		return true
+	}
+	return false
 }
 
 // normalizeRoutingSettings keeps model_redirects an array on the wire even if

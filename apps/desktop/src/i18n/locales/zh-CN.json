@@ -3481,6 +3481,10 @@
       "unexpectedValue": "取值无效"
     }
   },
+  "controlErrors": {
+    "image_provider_not_found": "图片生成选用的 API 提供商已不存在。请换一个提供商，或关闭图片生成。",
+    "image_provider_unsupported": "图片生成选用的 API 提供商没有 Images API。「提供商的 Images API」可以选用 OpenAI、OpenAI 兼容、New API 和 MiniMax 提供商。Codex 订阅请改选「Responses · image_generation」。"
+  },
   "webConsole": {
     "title": "AstrLink 控制台",
     "setup": "设置控制台口令",

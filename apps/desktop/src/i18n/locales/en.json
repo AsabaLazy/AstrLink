@@ -3481,6 +3481,10 @@
       "unexpectedValue": "unexpected value"
     }
   },
+  "controlErrors": {
+    "image_provider_not_found": "The API provider chosen for image generation no longer exists. Choose another provider or turn image generation off.",
+    "image_provider_unsupported": "The API provider chosen for image generation has no Images API. Provider’s Images API works with OpenAI, OpenAI-compatible, New API, and MiniMax providers. For a Codex subscription, choose Responses · image_generation instead."
+  },
   "webConsole": {
     "title": "AstrLink console",
     "setup": "Set console password",

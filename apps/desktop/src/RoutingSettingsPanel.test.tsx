@@ -1743,6 +1743,29 @@ describe("shared global recovery settings", () => {
     expect(container.textContent).not.toContain("自动保存失败");
   });
 
+  it("words a refused save in the operator's language", async () => {
+    bridge.updateRoutingSettings.mockRejectedValueOnce(
+      new Error(
+        'PATCH /control/v1/routing-settings returned 422 Unprocessable Entity: {"error":{"code":"image_provider_unsupported","message":"image_generation: the selected provider has no Images API.","retryable":false,"details":[]},"request_id":"req_0"}',
+      ),
+    );
+    await act(async () =>
+      root.render(
+        <RoutingSettingsPanel
+          services={services}
+          ready
+          onDirtyChange={vi.fn()}
+        />,
+      ),
+    );
+    await typeRedirect("Codex 自动审查的目标模型", "gpt-5");
+    await flushAutosave();
+    expect(container.textContent).toContain(
+      "自动保存失败，修改已保留。 图片生成选用的 API 提供商没有 Images API。",
+    );
+    expect(container.textContent).not.toContain("returned 422");
+  });
+
   it("blocks saving until every redirect is valid", async () => {
     bridge.getRoutingSettings.mockResolvedValue({
       ...settings(),

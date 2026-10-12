@@ -2,6 +2,7 @@ import { BuiltinToolsEditor } from "./components/BuiltinToolsEditor";
 import { useWorkspaceSnapshot } from "./workspace-snapshots";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getRoutingSettings, updateRoutingSettings } from "./bridge";
+import { controlErrorMessage } from "./control-error";
 import { ChannelStickinessEditor } from "./components/ChannelStickinessEditor";
 import { FailurePolicyEditor } from "./components/FailurePolicyEditor";
 import {
@@ -198,9 +199,7 @@ export function RoutingSettingsPanel({
           // Newer edits get their own attempt; an unchanged failed draft pauses
           // until the user edits it or retries, rather than looping requests.
           if (draftRef.current === submitted)
-            setError(
-              error instanceof Error ? error.message : t("routing.saveFailed"),
-            );
+            setError(controlErrorMessage(error, t("routing.saveFailed")));
         })
         .finally(() => setSaving(false));
     }, routingAutosaveDelay);
