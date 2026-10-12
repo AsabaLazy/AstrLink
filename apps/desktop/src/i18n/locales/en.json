@@ -2613,9 +2613,6 @@
     "clientConfig": {
       "syncFailed": "Unable to update the client configs AstrLink wrote to the new gateway address: {{error}}"
     },
-    "isolated": {
-      "realHome": "This is the development instance. Set up clients and Agent tools in the AstrLink started with make start."
-    },
     "sidecar": {
       "portBusy": "Inference port {{port}} is busy or unavailable: {{error}}",
       "notReady": "The gateway is not ready yet.",

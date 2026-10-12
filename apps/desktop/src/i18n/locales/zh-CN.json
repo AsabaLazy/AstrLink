@@ -2613,9 +2613,6 @@
     "clientConfig": {
       "syncFailed": "无法把已写入的客户端配置更新到新的网关地址：{{error}}"
     },
-    "isolated": {
-      "realHome": "这是开发实例，客户端配置和 Agent 工具要在 make start 启动的 AstrLink 里设置。"
-    },
     "sidecar": {
       "portBusy": "推理端口 {{port}} 已被占用或不可用：{{error}}",
       "notReady": "网关尚未就绪。",

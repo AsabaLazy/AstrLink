@@ -751,14 +751,35 @@ fn legacy_mcp_binary_dest(home: &Path) -> PathBuf {
     astrlink_home(home).join("bin").join(name)
 }
 
+/// The directory that marks `id` as installed in `home`.
+fn tool_dir(home: Home, id: AgentToolId) -> PathBuf {
+    match id {
+        AgentToolId::Cursor => home.join(".cursor"),
+        AgentToolId::Claude => home.claude_dir(),
+        AgentToolId::Codex => home.codex_dir(),
+        AgentToolId::Grok => home.grok_dir(),
+        AgentToolId::Pi => home.pi_dir(),
+    }
+}
+
 fn tool_detected(home: Home, id: AgentToolId) -> bool {
     match id {
-        AgentToolId::Cursor => home.join(".cursor").is_dir(),
+        // Claude Code also counts when only its `.claude.json` is there.
         AgentToolId::Claude => home.claude_detected(),
-        AgentToolId::Codex => home.codex_dir().is_dir(),
-        AgentToolId::Grok => home.grok_dir().is_dir(),
-        AgentToolId::Pi => home.pi_detected(),
+        _ => tool_dir(home, id).is_dir(),
     }
+}
+
+/// Creates in `to` the directory of each agent tool detected in `from`, so
+/// the isolated instance finds the user's tools in its own home. Nothing in
+/// the tools' directories is copied.
+pub fn mirror_tools(from: Home, to: Home) -> io::Result<()> {
+    for id in AgentToolId::all() {
+        if tool_detected(from, id) {
+            fs::create_dir_all(tool_dir(to, id))?;
+        }
+    }
+    Ok(())
 }
 
 fn tool_skill_dir(home: Home, bundle: &SkillBundle, id: AgentToolId) -> PathBuf {
@@ -3087,6 +3108,35 @@ mod tests {
                 .installed
         );
         let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn mirrors_the_detected_tools_without_their_contents() {
+        let root = unique_temp("agent-mirror-tools");
+        let (user, isolated) = (root.join("user"), root.join("isolated"));
+        fs::create_dir_all(user.join(".codex")).unwrap();
+        fs::create_dir_all(user.join(".pi").join("agent")).unwrap();
+        fs::write(user.join(".codex").join("config.toml"), "model = \"x\"\n").unwrap();
+        // Claude Code counts with only its state file.
+        fs::write(user.join(".claude.json"), "{}").unwrap();
+
+        mirror_tools(Home::local(&user), Home::local(&isolated)).unwrap();
+        let detected = AgentToolId::all()
+            .into_iter()
+            .filter(|id| tool_detected(Home::local(&isolated), *id))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            detected,
+            [AgentToolId::Claude, AgentToolId::Codex, AgentToolId::Pi]
+        );
+        assert_eq!(fs::read_dir(isolated.join(".codex")).unwrap().count(), 0);
+        assert!(!isolated.join(".claude.json").exists());
+        // The next start keeps what was set up in the isolated home.
+        let config = isolated.join(".codex").join("config.toml");
+        fs::write(&config, "isolated").unwrap();
+        mirror_tools(Home::local(&user), Home::local(&isolated)).unwrap();
+        assert_eq!(fs::read_to_string(&config).unwrap(), "isolated");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

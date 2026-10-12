@@ -24,8 +24,9 @@ make dev
 ```
 
 该命令安装前端依赖、构建网关和 worker，然后启动一个隔离的开发实例。它有自己的数据和配置目录，默认端口是 18318，可以和正式版或
-`make start` 同时运行。客户端配置和 Agent 工具要在 `make start`
-启动的实例里设置。
+`make start` 同时运行。它把客户端配置和 Agent 工具设置在 `~/.astrlink-isolated`
+里，平时用的客户端仍连着原来的实例。要让客户端连开发实例，用
+`HOME=~/.astrlink-isolated` 启动它，或者用 CC Switch 导入后在 CC Switch 里切换。
 
 要用原来的数据和端口运行 AstrLink，执行
 `make start`。它只构建一次前端，不监听文件，改代码后重新执行才会生效。

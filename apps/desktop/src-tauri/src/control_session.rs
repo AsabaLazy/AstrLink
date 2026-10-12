@@ -29,12 +29,19 @@ pub struct ControlSessionFile {
     pub desktop_pid: Option<u32>,
 }
 
+/// The home whose agent tools and client configs AstrLink manages: the
+/// user's, or the isolated instance's own inside it.
 pub fn user_home() -> Result<PathBuf, String> {
     if let Ok(value) = std::env::var("ASTRLINK_AGENT_HOME") {
         if !value.is_empty() {
             return Ok(PathBuf::from(value));
         }
     }
+    account_home().map(crate::instance::agent_home)
+}
+
+/// The user's own home directory.
+pub fn account_home() -> Result<PathBuf, String> {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map(PathBuf::from)
@@ -42,7 +49,7 @@ pub fn user_home() -> Result<PathBuf, String> {
 }
 
 pub fn astrlink_home(home: &Path) -> PathBuf {
-    home.join(crate::instance::home_directory_name())
+    home.join(".astrlink")
 }
 
 pub fn session_path(home: &Path) -> PathBuf {

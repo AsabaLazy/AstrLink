@@ -58,9 +58,14 @@ pub struct Homes {
 impl Homes {
     /// Finds the WSL homes `reach` selects. Tool directories follow CC
     /// Switch's settings, which also locate a WSL home without asking WSL.
+    /// The isolated instance keeps to its own home: WSL homes are the user's.
     pub fn find(host: PathBuf, reach: Reach) -> Result<Self, String> {
         let (dirs, wsl_dirs) = wsl::split_dirs(cc_switch::config_dirs(&host));
-        let (wsl, unchecked) = wsl::homes(&wsl_dirs, reach)?;
+        let (wsl, unchecked) = if crate::instance::is_isolated() {
+            Default::default()
+        } else {
+            wsl::homes(&wsl_dirs, reach)?
+        };
         Ok(Self {
             host,
             dirs,
@@ -121,8 +126,7 @@ pub struct Home<'a> {
 }
 
 impl<'a> Home<'a> {
-    /// The desktop user's home with every tool in its default place.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// A home on this computer with every tool in its default place.
     pub fn local(host: &'a Path) -> Self {
         Self {
             host,
@@ -199,11 +203,14 @@ impl<'a> Home<'a> {
             .unwrap_or_else(|| self.join(".pi").join("agent"))
     }
 
+    /// The directory that marks Pi as installed: its moved agent directory,
+    /// or `~/.pi`.
+    pub(crate) fn pi_dir(self) -> PathBuf {
+        self.dirs.pi.clone().unwrap_or_else(|| self.join(".pi"))
+    }
+
     pub(crate) fn pi_detected(self) -> bool {
-        match &self.dirs.pi {
-            Some(dir) => dir.is_dir(),
-            None => self.join(".pi").is_dir(),
-        }
+        self.pi_dir().is_dir()
     }
 }
 

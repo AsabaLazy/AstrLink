@@ -152,10 +152,12 @@ pub async fn open_import(
 ) -> Result<(), String> {
     let (token_name, _) = client_config::token_summary(manager, token_id).await?;
     let token = client_config::reveal_access_token(manager, token_id, inference_url).await?;
+    // The isolated instance's name keeps its provider apart from the other
+    // AstrLink's, so switching between them in CC Switch is unambiguous.
     let url = import_url(
         client,
         inference_url,
-        &format!("AstrLink · {token_name}"),
+        &format!("{} · {token_name}", crate::instance::product_name()),
         models,
         &token,
     )?;
@@ -190,8 +192,12 @@ async fn set_cc_switch(home: PathBuf, client: Client, handed_over: bool) -> Resu
 
 /// The home whose config CC Switch writes for `client`: the WSL home its
 /// directory setting points into, or else the desktop user's. `None` when
-/// that distribution is no longer registered.
+/// that distribution is no longer registered, and for the isolated instance:
+/// CC Switch writes the user's own homes, which it leaves alone.
 fn managed_home(home: PathBuf, client: Client) -> Result<Option<OwnedHome>, String> {
+    if crate::instance::is_isolated() {
+        return Ok(None);
+    }
     let distribution = managed_distribution(config_dirs(&home), client);
     let names = distribution.iter().cloned().collect::<Vec<_>>();
     Ok(Homes::find(home, Reach::Named(&names))?.take(distribution.as_deref()))
