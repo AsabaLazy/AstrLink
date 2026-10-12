@@ -2239,10 +2239,83 @@ describe("RequestRecords", () => {
     expect(inspector?.textContent).not.toContain(`${body.length} B`);
   });
 
+  it("summarizes what the privacy policy replaced and restored", async () => {
+    const redacted: RequestRecord = {
+      ...firstRecord,
+      privacy_decision: "redact",
+      privacy_restore: {
+        enabled: true,
+        mapping_count: 3,
+        restored_count: 2,
+        visible_restored_count: 2,
+        tool_argument_restored_count: 0,
+        fallback_count: 1,
+        hits: [
+          { kind: "email", count: 2 },
+          { kind: "phone", count: 1 },
+        ],
+      },
+    };
+    const clean: RequestRecord = {
+      ...firstRecord,
+      id: "req_cccccccccccccccccccccccccccccccc",
+      started_at: "2026-07-25T12:00:00Z",
+      completed_at: "2026-07-25T12:00:01Z",
+      privacy_decision: "allow",
+      privacy_restore: null,
+      turn_index: 2,
+    };
+    bridgeMocks.listRequestSessions.mockResolvedValueOnce({
+      items: [sessionFromRecord(redacted)],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValueOnce({
+      ...sessionFromRecord(redacted),
+      turns: [redacted, clean],
+    });
+    await renderRecords();
+    await act(async () => {
+      (
+        container.querySelector(
+          `[data-session-id="${redacted.id}"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => {
+      exactButton("隐私保护").click();
+    });
+
+    const panel = container.querySelector('[data-testid="privacy-audit"]');
+    const text = panel?.textContent ?? "";
+    expect(text).toContain("已脱敏");
+    expect(text).toContain("发送给模型前替换了 3 处隐私内容");
+    expect(text).toContain("替换内容");
+    expect(text).toContain("邮箱 ×2");
+    expect(text).toContain("电话 ×1");
+    expect(text).toContain("已还原");
+    expect(text).toContain("未还原");
+    // Only the call that did something gets a row; the clean one is a count.
+    const rows = panel?.querySelectorAll('[data-testid="privacy-audit-call"]');
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0].textContent).toContain("第 1 次调用");
+    expect(rows?.[0].textContent).toContain("替换 3 处");
+    expect(rows?.[0].textContent).toContain("还原 2 处");
+    expect(text).toContain("其余 1 次调用没有替换内容。");
+  });
+
   it("names what a warning found in the policy step", async () => {
     const warned: RequestRecord = {
       ...firstRecord,
       privacy_restore: null,
+      privacy_decision: "warn",
+      privacy_findings: [
+        { kind: "common_secret", json_path: "/input/0/content", count: 1 },
+        { kind: "email", json_path: "/input/0/content", count: 1 },
+        { kind: "email", json_path: "/input/2/content", count: 1 },
+      ],
       events: [
         {
           kind: "accepted",
@@ -2270,21 +2343,6 @@ describe("RequestRecords", () => {
         },
       ],
     };
-    bridgeMocks.getRequestAuditContent.mockResolvedValue({
-      request_id: warned.id,
-      withheld: {},
-      http_meta: null,
-      request_body: null,
-      response_content: null,
-      upstream_http_meta: null,
-      upstream_request_body: null,
-      upstream_response_content: null,
-      privacy_findings: [
-        { kind: "common_secret", json_path: "/input/0/content", count: 1 },
-        { kind: "email", json_path: "/input/0/content", count: 1 },
-        { kind: "email", json_path: "/input/2/content", count: 1 },
-      ],
-    });
     bridgeMocks.listRequestSessions.mockResolvedValueOnce({
       items: [sessionFromRecord(warned, { privacy_warned: true })],
       next_cursor: null,
@@ -2331,6 +2389,18 @@ describe("RequestRecords", () => {
     expect(
       inspector?.querySelector('[data-testid="inspector-policy-body"]'),
     ).toBeNull();
+
+    await act(async () => {
+      exactButton("隐私保护").click();
+    });
+    const panel =
+      container.querySelector('[data-testid="privacy-audit"]')?.textContent ??
+      "";
+    expect(panel).toContain("已警告");
+    expect(panel).toContain("命中了隐私内容，请求按原文发给了模型。");
+    expect(panel).toContain("命中类别");
+    expect(panel).toContain("邮箱 ×2");
+    expect(panel).not.toContain("替换");
   });
 
   it("explains missing capture in the inspector", async () => {
@@ -2931,10 +3001,8 @@ describe("RequestRecords", () => {
     expect(container.textContent).toContain('"prompt": "secret"');
     expect(bridgeMocks.getRequestAuditContent).toHaveBeenCalledTimes(1);
 
-    // Explicit clear drops the cache and returns to the monitor.
-    await act(async () => {
-      exactButton("审计").click();
-    });
+    // Explicit clear drops the cache and returns to the monitor. The clear
+    // action belongs to the content tab, which is where decrypted text is read.
     await act(async () => {
       exactButton("清除已解密内容").click();
     });
@@ -2984,7 +3052,7 @@ describe("RequestRecords", () => {
         `[aria-label="${i18n.t("records.sections")}"] [role="tab"]`,
       ),
     ].map((tab) => tab.textContent?.trim());
-    expect(tabs.slice(0, 2)).toEqual(["对话", "追踪"]);
+    expect(tabs.slice(0, 2)).toEqual(["摘要", "追踪"]);
     expect(
       container.querySelector('[data-testid="request-conversation"]'),
     ).not.toBeNull();

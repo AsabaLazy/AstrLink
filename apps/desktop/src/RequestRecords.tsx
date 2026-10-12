@@ -127,7 +127,6 @@ import {
   statusLabel,
   statusTone,
   type AuditContent,
-  type AuditContentPart,
   type ClientType,
   type RequestRecord,
   type RequestSession,
@@ -136,6 +135,7 @@ import {
   type SessionStatus,
 } from "./request-record-model";
 import { RequestConversation } from "./RequestConversation";
+import { RequestPrivacyAudit } from "./RequestPrivacyAudit";
 import { RequestTrajectory } from "./RequestTrajectory";
 import {
   applyQueuedSessions,
@@ -3504,48 +3504,26 @@ function RecordDetail({
               {t("records.noDecrypted")}
             </p>
           )}
-        </TabsContent>
-
-        <TabsContent
-          className="min-h-0 min-w-0 flex-1 space-y-3 overflow-auto overscroll-contain py-4 [scrollbar-gutter:stable]"
-          value="audit"
-        >
-          <div className="grid grid-cols-2 gap-2.5 @max-[720px]:grid-cols-1">
-            {!isChild ? (
-              <>
-                <AuditSummaryCard
-                  captured={record.audit.request_body_captured}
-                  label={t("records.clientBody")}
-                  part={requestPart}
-                  truncated={record.audit.request_body_truncated}
-                />
-                <AuditSummaryCard
-                  captured={record.audit.response_content_captured}
-                  label={t("records.clientResponse")}
-                  part={responsePart}
-                  truncated={record.audit.response_content_truncated}
-                />
-              </>
-            ) : null}
-            <AuditSummaryCard
-              captured={record.audit.upstream_request_body_captured}
-              label={t("records.upstreamBody")}
-              part={upstreamRequestPart}
-              truncated={record.audit.upstream_request_body_truncated}
-            />
-            <AuditSummaryCard
-              captured={record.audit.upstream_response_content_captured}
-              label={t("records.upstreamResponse")}
-              part={upstreamResponsePart}
-              truncated={record.audit.upstream_response_content_truncated}
-            />
-          </div>
           <div className="flex items-center justify-between gap-3 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
             <span>{t("records.decryptMemoryOnly")}</span>
             <Button onClick={onClearDecrypted} type="button" variant="outline">
               {t("records.clearDecrypted")}
             </Button>
           </div>
+        </TabsContent>
+
+        <TabsContent
+          className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain py-4 [scrollbar-gutter:stable]"
+          value="audit"
+        >
+          <RequestPrivacyAudit
+            onOpenCall={(requestId) => {
+              onSelectTurn(requestId);
+              setDetailTab("content");
+            }}
+            selectedRequestId={record.id}
+            turns={turns}
+          />
         </TabsContent>
       </Tabs>
     </section>
@@ -3631,49 +3609,6 @@ function Metric({
         ) : null}
       </dd>
     </div>
-  );
-}
-
-function AuditSummaryCard({
-  label,
-  captured,
-  truncated,
-  part,
-}: {
-  label: string;
-  captured: boolean;
-  truncated: boolean;
-  part: AuditContentPart | null;
-}) {
-  const t = i18n.t.bind(i18n);
-  return (
-    <article className="rounded-md border bg-muted p-3">
-      <header className="mb-2 flex items-center justify-between gap-2">
-        <strong className="text-sm font-medium">{label}</strong>
-        <span
-          className={cn(
-            "text-micro text-muted-foreground",
-            captured && "text-success-foreground",
-          )}
-        >
-          {captured ? t("records.captured") : t("records.notCaptured")}
-        </span>
-      </header>
-      <dl className="grid grid-cols-3 gap-2">
-        <DetailField
-          label={t("records.type")}
-          value={part?.media_type ?? "—"}
-        />
-        <DetailField
-          label={t("records.size")}
-          value={part ? formatBytes(part.captured_bytes) : "—"}
-        />
-        <DetailField
-          label={t("records.truncated")}
-          value={truncated ? t("common.yes") : t("common.no")}
-        />
-      </dl>
-    </article>
   );
 }
 

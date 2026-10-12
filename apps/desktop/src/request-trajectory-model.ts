@@ -2,8 +2,13 @@ import { findMatches } from "./find-model";
 import { formatExactNumber } from "./format-compact-number";
 import { i18n } from "./i18n";
 import {
+  PRIVACY_KIND_ORDER,
+  privacyKindLabel,
+  sortPrivacyKinds,
+  type PrivacyKind,
+} from "./privacy-kind";
+import {
   statusLabel,
-  type AuditPrivacyFinding,
   type RequestEvent,
   type RequestModelRedirect,
   type RequestRecord,
@@ -90,9 +95,7 @@ const privacyPlaceholderPattern =
  * Core no longer mints phone, card, or account stand-ins, but requests recorded
  * by earlier builds still carry them.
  */
-const naturalPlaceholderPatterns: ReadonlyArray<
-  [(typeof privacyKindOrder)[number], RegExp]
-> = [
+const naturalPlaceholderPatterns: ReadonlyArray<[PrivacyKind, RegExp]> = [
   ["email", /\bredacted-[0-9a-f]{12}@private\.invalid\b/gi],
   ["url", /\bhttps:\/\/private\.invalid\/r\/[0-9a-f]{12}\b/gi],
   ["phone", /\+1-555-555-01\d{2}\b/g],
@@ -102,25 +105,7 @@ const naturalPlaceholderPatterns: ReadonlyArray<
   ["ip_address", /\b2001:db8::[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*\b/gi],
 ];
 
-const privacyKindOrder = [
-  "email",
-  "phone",
-  "account",
-  "payment_card",
-  "ip_address",
-  "url",
-  "common_secret",
-  "private_address",
-  "private_date",
-  "private_person",
-  "unknown",
-] as const;
-
-function privacyKindLabel(kind: (typeof privacyKindOrder)[number]): string {
-  return i18n.t(`privacy.${kind}`);
-}
-
-const privacyTokenKinds: Array<[string, (typeof privacyKindOrder)[number]]> = [
+const privacyTokenKinds: Array<[string, PrivacyKind]> = [
   ["ACCOUNT_NUMBER", "account"],
   ["PAYMENT_CARD", "payment_card"],
   ["IP_ADDRESS", "ip_address"],
@@ -145,9 +130,7 @@ export interface PrivacyHighlightSpan {
 }
 
 export function privacyHitLabel(kind: string): string {
-  return privacyKindOrder.includes(kind as (typeof privacyKindOrder)[number])
-    ? privacyKindLabel(kind as (typeof privacyKindOrder)[number])
-    : kind;
+  return privacyKindLabel(kind);
 }
 
 export function recordedPrivacyHits(
@@ -167,29 +150,18 @@ export function recordedPrivacyHits(
  * kind. A finding is one kind at one path, so counts add up across paths.
  */
 export function recordedPrivacyFindings(
-  findings: readonly AuditPrivacyFinding[] | undefined,
+  findings: RequestRecord["privacy_findings"],
 ): PrivacyHitGroup[] {
   const counts = new Map<string, number>();
   for (const finding of findings ?? []) {
     counts.set(finding.kind, (counts.get(finding.kind) ?? 0) + finding.count);
   }
-  // Known kinds in display order, then labels from a newer Core by name.
-  const rank = (kind: string) => {
-    const index = privacyKindOrder.indexOf(
-      kind as (typeof privacyKindOrder)[number],
-    );
-    return index === -1 ? privacyKindOrder.length : index;
-  };
-  return [...counts.keys()]
-    .sort(
-      (left, right) => rank(left) - rank(right) || left.localeCompare(right),
-    )
-    .map((kind) => ({
-      kind,
-      label: privacyHitLabel(kind),
-      count: counts.get(kind) ?? 0,
-      placeholders: [],
-    }));
+  return sortPrivacyKinds([...counts.keys()]).map((kind) => ({
+    kind,
+    label: privacyHitLabel(kind),
+    count: counts.get(kind) ?? 0,
+    placeholders: [],
+  }));
 }
 
 /**
@@ -279,20 +251,18 @@ export function extractPrivacyHits(text: string): PrivacyHitGroup[] {
       record(kind, match[0]);
     }
   }
-  return privacyKindOrder
-    .filter((kind) => grouped.has(kind))
-    .map((kind) => {
-      const placeholders = [...(grouped.get(kind) ?? [])];
-      return {
-        kind,
-        label: privacyKindLabel(kind),
-        count: placeholders.length,
-        placeholders,
-      };
-    });
+  return PRIVACY_KIND_ORDER.filter((kind) => grouped.has(kind)).map((kind) => {
+    const placeholders = [...(grouped.get(kind) ?? [])];
+    return {
+      kind,
+      label: privacyKindLabel(kind),
+      count: placeholders.length,
+      placeholders,
+    };
+  });
 }
 
-function kindFromPlaceholder(token: string): (typeof privacyKindOrder)[number] {
+function kindFromPlaceholder(token: string): PrivacyKind {
   const inner = token.slice(1, -1);
   if (inner === "SECRET" || inner.startsWith("SECRET_")) {
     return "common_secret";

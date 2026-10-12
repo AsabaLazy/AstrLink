@@ -86,6 +86,26 @@ export interface PrivacyHitCount {
   count: number;
 }
 
+/**
+ * What the privacy policy did to this request. `none` means no policy applied,
+ * so the body went upstream untouched; `allow` means a policy inspected it and
+ * found nothing to act on. Absent on records written before decisions existed.
+ */
+export type PrivacyDecision =
+  | "none"
+  | "allow"
+  | "warn"
+  | "redact"
+  | "block"
+  | "fail_open";
+
+/** One privacy hit, by kind and structural path only. Never a value. */
+export interface PrivacyFinding {
+  kind: string;
+  json_path: string;
+  count: number;
+}
+
 export interface PrivacyRestoreSummary {
   enabled: boolean;
   mapping_count: number;
@@ -242,6 +262,10 @@ export interface RequestRecord {
   error: RequestErrorSummary | null;
   audit: RequestAuditSummary;
   privacy_restore: PrivacyRestoreSummary | null;
+  /** Absent on historical records and while the decision is still pending. */
+  privacy_decision?: PrivacyDecision;
+  /** Present for redact and block decisions; absent otherwise. */
+  privacy_findings?: PrivacyFinding[];
   session_id: string | null;
   previous_response_id: string | null;
   output_response_id: string | null;
@@ -689,6 +713,60 @@ function parsePrivacyHits(value: unknown, path: string): PrivacyHitCount[] {
   });
 }
 
+function optionalPrivacyDecision(
+  value: unknown,
+  path: string,
+): { privacy_decision?: PrivacyDecision } {
+  const decision = parsePrivacyDecision(value, `${path}.privacy_decision`);
+  return decision === null ? {} : { privacy_decision: decision };
+}
+
+function optionalPrivacyFindings(
+  value: unknown,
+  path: string,
+): { privacy_findings?: PrivacyFinding[] } {
+  const findings = parsePrivacyFindings(value, `${path}.privacy_findings`);
+  return findings.length === 0 ? {} : { privacy_findings: findings };
+}
+
+const privacyDecisions = new Set<PrivacyDecision>([
+  "none",
+  "allow",
+  "warn",
+  "redact",
+  "block",
+  "fail_open",
+]);
+
+function parsePrivacyDecision(
+  value: unknown,
+  path: string,
+): PrivacyDecision | null {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== "string" ||
+    !privacyDecisions.has(value as PrivacyDecision)
+  ) {
+    return invalid(path, "unknownDecision");
+  }
+  return value as PrivacyDecision;
+}
+
+function parsePrivacyFindings(value: unknown, path: string): PrivacyFinding[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return invalid(path, "array");
+  return value.map((item, index) => {
+    const finding = objectAt(item, `${path}[${index}]`);
+    const count = intAt(finding.count, `${path}[${index}].count`);
+    if (count < 1) return invalid(`${path}[${index}].count`, "positiveInteger");
+    return {
+      kind: stringAt(finding.kind, `${path}[${index}].kind`),
+      json_path: stringAt(finding.json_path, `${path}[${index}].json_path`),
+      count,
+    };
+  });
+}
+
 function parseRecovery(value: unknown, path: string): RequestRecovery {
   const record = objectAt(value, path);
   const delay = intAt(record.delay_ms, `${path}.delay_ms`);
@@ -941,6 +1019,8 @@ function parseRequestRecordAt(value: unknown, path: string): RequestRecord {
       record.privacy_restore,
       `${path}.privacy_restore`,
     ),
+    ...optionalPrivacyDecision(record.privacy_decision, path),
+    ...optionalPrivacyFindings(record.privacy_findings, path),
     session_id: Object.hasOwn(record, "session_id")
       ? nullableStringAt(record.session_id, `${path}.session_id`)
       : null,

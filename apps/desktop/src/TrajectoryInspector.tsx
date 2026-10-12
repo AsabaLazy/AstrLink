@@ -683,7 +683,7 @@ function PolicyInspector({
   const hits =
     replacedHits.length > 0
       ? replacedHits
-      : recordedPrivacyFindings(auditContent?.privacy_findings);
+      : recordedPrivacyFindings(record.privacy_findings);
   const mappings = record.privacy_restore?.mapping_count ?? 0;
   const segments = row.summary.split(" · ");
   const body = redacted ? (auditContent?.upstream_request_body ?? null) : null;
