@@ -168,6 +168,11 @@ func restrict(document Document, kinds map[string]bool) Document {
 // not write is still part of the remote's configuration, so it travels through
 // unchanged; dropping it would let one device's narrower settings delete the
 // other device's data.
+//
+// Later sources win, so the caller passes the stale merge base first and the
+// remote's current package last: an entity this device does not manage must
+// come from the remote, or a device that turned a kind off would seal its own
+// old copy back over a change the other device has already published.
 func carryThrough(merged Document, kinds map[string]bool, sources ...Document) {
 	for _, kind := range Kinds() {
 		if kinds[kind] {

@@ -96,18 +96,24 @@ func (store *Store) SyncWriteOrder(ctx context.Context, ids []contract.ServiceID
 	if _, err = transaction.ExecContext(ctx, `UPDATE services SET sort_position = sort_position WHERE 0`); err != nil {
 		return fmt.Errorf("lock services for reorder: %w", err)
 	}
-	rows, err := transaction.QueryContext(ctx, `SELECT id FROM services`)
+	rows, err := transaction.QueryContext(ctx, `SELECT id, sort_position FROM services ORDER BY sort_position, id`)
 	if err != nil {
 		return fmt.Errorf("read services for reorder: %w", err)
 	}
-	known := map[contract.ServiceID]bool{}
+	current := map[contract.ServiceID]int{}
+	// The list keeps the query's order, so services the merged order never
+	// named are placed by the position they already hold rather than by map
+	// iteration order, which differs from run to run.
+	var ordered []contract.ServiceID
 	for rows.Next() {
 		var id contract.ServiceID
-		if err := rows.Scan(&id); err != nil {
+		var position int
+		if err := rows.Scan(&id, &position); err != nil {
 			_ = rows.Close()
 			return fmt.Errorf("read service for reorder: %w", err)
 		}
-		known[id] = true
+		current[id] = position
+		ordered = append(ordered, id)
 	}
 	if err := rows.Close(); err != nil {
 		return fmt.Errorf("read services for reorder: %w", err)
@@ -118,12 +124,16 @@ func (store *Store) SyncWriteOrder(ctx context.Context, ids []contract.ServiceID
 	position := 0
 	placed := map[contract.ServiceID]bool{}
 	apply := func(id contract.ServiceID) error {
-		if !known[id] || placed[id] {
+		if _, known := current[id]; !known || placed[id] {
 			return nil
 		}
 		placed[id] = true
-		if _, err := transaction.ExecContext(ctx, `UPDATE services SET sort_position = ? WHERE id = ?`, position, id); err != nil {
-			return fmt.Errorf("reorder service: %w", err)
+		// A service already in this position is left alone: the trigger on
+		// UPDATE would otherwise record a reorder that did not happen.
+		if current[id] != position {
+			if _, err := transaction.ExecContext(ctx, `UPDATE services SET sort_position = ? WHERE id = ?`, position, id); err != nil {
+				return fmt.Errorf("reorder service: %w", err)
+			}
 		}
 		position++
 		return nil
@@ -133,7 +143,7 @@ func (store *Store) SyncWriteOrder(ctx context.Context, ids []contract.ServiceID
 			return err
 		}
 	}
-	for id := range known {
+	for _, id := range ordered {
 		if err := apply(id); err != nil {
 			return err
 		}
@@ -298,6 +308,14 @@ func (store *Store) syncWriteService(ctx context.Context, localID string, docume
 	if err != nil {
 		return fmt.Errorf("%w: %v", storage.ErrInvalidArgument, err)
 	}
+	unchanged, err := store.syncDocumentUnchanged(ctx, `SELECT document_json FROM services WHERE id = ?`, id, encoded,
+		func(stored []byte) ([]byte, error) { return normalizeStoredService(id, stored) })
+	if err != nil {
+		return err
+	}
+	if unchanged {
+		return nil
+	}
 	now := store.now().UTC().Format(time.RFC3339Nano)
 	_, err = store.db.ExecContext(ctx, `INSERT INTO services (id, document_json, created_at, updated_at, sort_position)
 VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(sort_position), -1) + 1 FROM services))
@@ -307,6 +325,48 @@ ON CONFLICT(id) DO UPDATE SET document_json = excluded.document_json, updated_at
 		return fmt.Errorf("write synced service: %w", err)
 	}
 	return nil
+}
+
+// normalizeStoredService puts the document a service row already holds through
+// the same decode and encode the write path uses. A stored service carries the
+// references this device bound locally, so comparing it against a merged
+// document has to compare the two configurations rather than those references.
+func normalizeStoredService(id contract.ServiceID, document []byte) ([]byte, error) {
+	service, err := decodeSyncedService(id, document)
+	if err != nil {
+		return nil, err
+	}
+	return encodeService(service)
+}
+
+// syncDocumentUnchanged reports whether a row already holds the document a
+// merge decided on. Rewriting a row that is already correct is not free: the
+// change-log trigger fires on every UPDATE, so a no-op write would record a
+// change that never happened and schedule another sync for it. A row whose
+// document this build cannot read reports "changed", so the write goes ahead
+// and repairs it.
+func (store *Store) syncDocumentUnchanged(
+	ctx context.Context,
+	query string,
+	key any,
+	encoded []byte,
+	normalize func([]byte) ([]byte, error),
+) (bool, error) {
+	var stored string
+	if err := store.db.QueryRowContext(ctx, query, key).Scan(&stored); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read stored document: %w", err)
+	}
+	if stored == string(encoded) {
+		return true, nil
+	}
+	normalized, err := normalize([]byte(stored))
+	if err != nil {
+		return false, nil
+	}
+	return bytes.Equal(normalized, encoded), nil
 }
 
 // decodeSyncedService reads a service document the way the services store does
@@ -355,48 +415,55 @@ func (store *Store) syncWritePolicy(ctx context.Context, localID string, documen
 	if localID != string(contract.DefaultPrivacyPolicyID) {
 		return fmt.Errorf("%w: this build stores only the fixed privacy policy", storage.ErrInvalidArgument)
 	}
+	encoded, err := normalizeSyncedPolicy(document)
+	if err != nil {
+		return err
+	}
+	unchanged, err := store.syncDocumentUnchanged(ctx, `SELECT document_json FROM policies WHERE id = ?`, localID, encoded,
+		normalizeSyncedPolicy)
+	if err != nil {
+		return err
+	}
+	if unchanged {
+		return nil
+	}
+	now := store.now().UTC().Format(time.RFC3339Nano)
+	if _, err := store.db.ExecContext(ctx, `UPDATE policies SET document_json = ?, updated_at = ? WHERE id = ?`,
+		string(encoded), now, contract.DefaultPrivacyPolicyID); err != nil {
+		return fmt.Errorf("write synced policy: %w", err)
+	}
+	return nil
+}
+
+// normalizeSyncedPolicy decodes, validates, and re-encodes a policy document.
+// The write path and the no-op comparison share it, so the two cannot drift
+// apart on how a policy is spelled.
+func normalizeSyncedPolicy(document []byte) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(document))
 	decoder.DisallowUnknownFields()
 	var policy contract.Policy
 	if err := decoder.Decode(&policy); err != nil {
-		return fmt.Errorf("%w: decode synced policy: %v", storage.ErrInvalidArgument, err)
+		return nil, fmt.Errorf("%w: decode synced policy: %v", storage.ErrInvalidArgument, err)
 	}
 	policy.ID = contract.DefaultPrivacyPolicyID
 	if err := contract.ValidatePrivacyDefault(policy); err != nil {
-		return fmt.Errorf("%w: %v", storage.ErrInvalidArgument, err)
+		return nil, fmt.Errorf("%w: %v", storage.ErrInvalidArgument, err)
 	}
 	contract.NormalizePrivacyPolicyDefaults(&policy)
 	encoded, err := json.Marshal(policy)
 	if err != nil {
-		return fmt.Errorf("encode synced policy: %w", err)
+		return nil, fmt.Errorf("encode synced policy: %w", err)
 	}
-	now := store.now().UTC().Format(time.RFC3339Nano)
-	if _, err := store.db.ExecContext(ctx, `UPDATE policies SET document_json = ?, updated_at = ? WHERE id = ?`,
-		string(encoded), now, policy.ID); err != nil {
-		return fmt.Errorf("write synced policy: %w", err)
-	}
-	return nil
+	return encoded, nil
 }
 
 // syncWritePricingConfig writes one service's price bindings. A price binding
 // with no service here is skipped: the merge drops a service and its pricing
 // together, so a row left over would be a reference to nothing.
 func (store *Store) syncWritePricingConfig(ctx context.Context, localID string, document []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(document))
-	decoder.DisallowUnknownFields()
-	var config pricing.Config
-	if err := decoder.Decode(&config); err != nil {
-		return fmt.Errorf("%w: decode synced pricing config: %v", storage.ErrInvalidArgument, err)
-	}
-	if err := config.Validate(); err != nil {
-		return fmt.Errorf("%w: %v", storage.ErrInvalidArgument, err)
-	}
-	if config.Bindings == nil {
-		config.Bindings = map[string]pricing.Binding{}
-	}
-	encoded, err := json.Marshal(config)
+	encoded, err := normalizeSyncedPricingConfig(document)
 	if err != nil {
-		return fmt.Errorf("encode synced pricing config: %w", err)
+		return err
 	}
 	if _, err := store.GetService(ctx, contract.ServiceID(localID)); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
@@ -404,11 +471,40 @@ func (store *Store) syncWritePricingConfig(ctx context.Context, localID string, 
 		}
 		return err
 	}
-	_, err = store.db.ExecContext(ctx, `INSERT INTO pricing_configs (service_id, document_json) VALUES (?, ?)
-ON CONFLICT(service_id) DO UPDATE SET document_json = excluded.document_json`,
-		localID, string(encoded))
+	unchanged, err := store.syncDocumentUnchanged(ctx, `SELECT document_json FROM pricing_configs WHERE service_id = ?`, localID, encoded,
+		normalizeSyncedPricingConfig)
 	if err != nil {
+		return err
+	}
+	if unchanged {
+		return nil
+	}
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO pricing_configs (service_id, document_json) VALUES (?, ?)
+ON CONFLICT(service_id) DO UPDATE SET document_json = excluded.document_json`,
+		localID, string(encoded)); err != nil {
 		return fmt.Errorf("write synced pricing config: %w", err)
 	}
 	return nil
+}
+
+// normalizeSyncedPricingConfig decodes, validates, and re-encodes a price
+// binding document, shared by the write path and the no-op comparison.
+func normalizeSyncedPricingConfig(document []byte) ([]byte, error) {
+	decoder := json.NewDecoder(bytes.NewReader(document))
+	decoder.DisallowUnknownFields()
+	var config pricing.Config
+	if err := decoder.Decode(&config); err != nil {
+		return nil, fmt.Errorf("%w: decode synced pricing config: %v", storage.ErrInvalidArgument, err)
+	}
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", storage.ErrInvalidArgument, err)
+	}
+	if config.Bindings == nil {
+		config.Bindings = map[string]pricing.Binding{}
+	}
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("encode synced pricing config: %w", err)
+	}
+	return encoded, nil
 }

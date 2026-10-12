@@ -173,6 +173,13 @@ func (engine *Engine) Configure(ctx context.Context, config contract.SyncConfig)
 			return fmt.Errorf("%w: %v", storage.ErrInvalidArgument, err)
 		}
 	}
+	// An empty addressing and the path style are the same remote. Storing the
+	// canonical spelling keeps the comparison below from reading a client that
+	// leaves the field out as a configuration pointing somewhere else, which
+	// would drop the merge base on every save.
+	if config.Remote.Addressing == "" {
+		config.Remote.Addressing = contract.SyncS3AddressingPath
+	}
 	before, err := engine.store.SyncState(ctx)
 	if err != nil {
 		return err
@@ -559,7 +566,9 @@ func (engine *Engine) syncOnce(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		carryThrough(merged, kinds, remoteDoc, base)
+		// Base first, remote last: a kind this device does not write has to
+		// carry the remote's copy, not the one this device last synced.
+		carryThrough(merged, kinds, base, remoteDoc)
 		pruneOrphans(&merged)
 		if err := engine.apply(ctx, merged, scope); err != nil {
 			return err

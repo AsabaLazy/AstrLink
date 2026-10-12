@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -414,6 +415,18 @@ func (store *Store) ImportCredential(ctx context.Context, table, key string, pla
 	}
 	if len(plaintext) == 0 {
 		return fmt.Errorf("%w: empty credential", storage.ErrInvalidArgument)
+	}
+	// A credential that already holds this exact value is left alone. Re-sealing
+	// it would write a new ciphertext — the nonce differs every time — and the
+	// change-log trigger would record a change that never happened, scheduling
+	// another sync for it. A value this device cannot read is rewritten, which
+	// is also how a row left sealed under an older key heals.
+	if existing, err := store.ExportCredential(ctx, table, key); err == nil {
+		same := bytes.Equal(existing, plaintext)
+		clear(existing)
+		if same {
+			return nil
+		}
 	}
 	sealed, err := store.keys.sealColumn(table, key, plaintext)
 	if err != nil {

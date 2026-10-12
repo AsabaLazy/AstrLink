@@ -424,3 +424,136 @@ func TestStatusNamesTheDeviceFromTheConfigurationOrTheHost(t *testing.T) {
 		t.Fatalf("the configured name was not used: %+v", status)
 	}
 }
+
+// A device that turns a group off in its own settings must not seal the copy it
+// already synced back over a change the other device has published since. The
+// kind is out of the merge, so it carries the remote's version through.
+func TestNarrowScopeKeepsTheRemotesCredential(t *testing.T) {
+	pair := newPair(t)
+	ctx := context.Background()
+	passphrase := []byte("correct horse battery")
+	pair.configure(pair.first, passphrase)
+	pair.configure(pair.second, passphrase)
+	id := serviceID("f")
+	newTestService(t, pair.first.store, id, "foxtrot")
+	pair.sync(pair.first)
+	pair.sync(pair.second)
+
+	// The wide device rotates the credential and publishes it.
+	record, err := pair.second.store.GetService(ctx, id)
+	if err != nil {
+		t.Fatalf("read for rotate: %v", err)
+	}
+	pair.second.clock = pair.second.clock.Add(time.Minute)
+	if _, err := pair.second.store.UpdateService(ctx, record.Service, storage.CredentialMutation{
+		Present: true, Secret: []byte("sk-rotated"),
+	}, record.ETag); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	pair.sync(pair.second)
+
+	// The first device turns credentials off and syncs. Its merge base still
+	// holds the credential as it was before the rotation.
+	config := contract.DefaultSyncConfig()
+	config.Enabled = true
+	config.Trigger = contract.SyncTriggerSettings{Mode: contract.SyncTriggerManual}
+	config.Remote = contract.SyncRemote{
+		Kind: contract.SyncRemoteWebDAV, Endpoint: pair.url,
+		Path: contract.SyncDefaultFolder, Addressing: contract.SyncS3AddressingPath,
+	}
+	config.Scope.Credentials = false
+	if err := pair.first.engine.Configure(ctx, config); err != nil {
+		t.Fatalf("configure narrow: %v", err)
+	}
+	pair.sync(pair.first)
+
+	// The wide device syncs again: the narrow device must not have undone its
+	// change on either the remote or the wide device.
+	pair.sync(pair.second)
+	secret, err := pair.second.store.Get(ctx, serviceRef(id))
+	if err != nil {
+		t.Fatalf("read credential: %v", err)
+	}
+	if string(secret) != "sk-rotated" {
+		t.Fatalf("a narrow scope on the other device reverted the credential: got %q", secret)
+	}
+	// The narrow device keeps the copy it already had: turning a group off in
+	// the settings leaves this device's own data alone.
+	local, err := pair.first.store.Get(ctx, serviceRef(id))
+	if err != nil || string(local) != "sk-foxtrot" {
+		t.Fatalf("the narrow device's own credential changed: %q, %v", local, err)
+	}
+}
+
+// A successful sync packages the change log and clears it. The merge's own
+// writes must not be logged after the snapshot: a row left behind makes the
+// debounce branch due on the next tick, so every interval becomes the debounce.
+func TestSuccessfulSyncLeavesNothingPending(t *testing.T) {
+	pair := newPair(t)
+	ctx := context.Background()
+	passphrase := []byte("correct horse battery")
+	// The change log is stamped by SQLite, so this device's clock is put on the
+	// same timeline rather than an hour behind it.
+	pair.first.clock = time.Now().UTC()
+	config := contract.DefaultSyncConfig()
+	config.Enabled = true
+	config.Trigger = contract.SyncTriggerSettings{Mode: contract.SyncTriggerInterval, IntervalMinutes: 60, DebounceSeconds: 30}
+	config.Remote = contract.SyncRemote{
+		Kind: contract.SyncRemoteWebDAV, Endpoint: pair.url,
+		Path: contract.SyncDefaultFolder, Addressing: contract.SyncS3AddressingPath,
+	}
+	if err := pair.first.engine.Configure(ctx, config); err != nil {
+		t.Fatalf("configure: %v", err)
+	}
+	if err := pair.first.engine.SetPassphrase(ctx, passphrase); err != nil {
+		t.Fatalf("passphrase: %v", err)
+	}
+	newTestService(t, pair.first.store, serviceID("g"), "golf")
+	pair.first.clock = time.Now().UTC()
+	pair.sync(pair.first)
+
+	count, err := pair.first.store.PendingChanges(ctx)
+	if err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+	if count != 0 {
+		changes, _ := pair.first.store.ChangesSince(ctx, time.Time{})
+		for _, change := range changes {
+			t.Logf("leftover %s/%s at %s", change.Kind, change.EntityID, change.ChangedAt.Format("15:04:05.000"))
+		}
+		t.Fatalf("a successful sync left %d changes pending", count)
+	}
+	// And the scheduler agrees: an interval trigger is not due again until its
+	// interval, not one debounce later.
+	pair.first.clock = pair.first.clock.Add(31 * time.Second)
+	due, err := pair.first.engine.due(ctx)
+	if err != nil {
+		t.Fatalf("due: %v", err)
+	}
+	if due {
+		t.Fatal("a device on a 60 minute interval is due 31 seconds after a successful sync")
+	}
+}
+
+// A client that leaves the S3 addressing out names the same remote as one that
+// says "path", so saving it must not drop the merge base.
+func TestConfigureKeepsTheBaselineWhenAddressingIsOmitted(t *testing.T) {
+	pair := newPair(t)
+	ctx := context.Background()
+	passphrase := []byte("correct horse battery")
+	pair.configure(pair.first, passphrase)
+	newTestService(t, pair.first.store, serviceID("h"), "hotel")
+	pair.sync(pair.first)
+
+	// The same remote, spelled without the addressing field.
+	config := contract.DefaultSyncConfig()
+	config.Enabled = true
+	config.Trigger = contract.SyncTriggerSettings{Mode: contract.SyncTriggerManual}
+	config.Remote = contract.SyncRemote{Kind: contract.SyncRemoteWebDAV, Endpoint: pair.url, Path: contract.SyncDefaultFolder}
+	if err := pair.first.engine.Configure(ctx, config); err != nil {
+		t.Fatalf("configure: %v", err)
+	}
+	if _, _, err := pair.first.store.Baseline(ctx); err != nil {
+		t.Fatalf("re-saving the same remote dropped the merge base: %v", err)
+	}
+}
