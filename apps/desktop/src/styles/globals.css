@@ -423,12 +423,12 @@
 :root {
   --sidebar-top: calc(var(--window-chrome-height) + 16px);
   --workspace-card-top: 8px;
-  --workspace-top: calc(var(--window-chrome-height) + 19px);
+  --workspace-top: calc(var(--window-chrome-height) + 11px);
 }
 
 @media (max-height: 680px) {
   :root {
-    --workspace-top: calc(var(--window-chrome-height) + 9px);
+    --workspace-top: calc(var(--window-chrome-height) + 5px);
   }
 }
 
