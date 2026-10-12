@@ -6366,7 +6366,7 @@ components:
           type: [string, "null"]
           minLength: 1
           maxLength: 80
-          description: Bounded title from the newest visible user text. URLs and obvious secrets are stripped.
+          description: Bounded title from the newest visible user text. URLs and obvious secrets are stripped; absolute file paths are shortened to their file names.
         turn_index:
           type: [integer, "null"]
           minimum: 1
