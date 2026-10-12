@@ -28,6 +28,7 @@ import (
 	"github.com/QuantumNous/astrlink/core/internal/autotext"
 	"github.com/QuantumNous/astrlink/core/internal/builtintools"
 	"github.com/QuantumNous/astrlink/core/internal/endpoint"
+	"github.com/QuantumNous/astrlink/core/internal/imagecompress"
 	"github.com/QuantumNous/astrlink/core/internal/planner"
 	"github.com/QuantumNous/astrlink/core/internal/privacy"
 	"github.com/QuantumNous/astrlink/core/internal/relaykitbridge"
@@ -114,6 +115,7 @@ type Handler struct {
 	searchRefs               searchRefStore
 	codexTurns               codexTurnStore
 	codexModels              codexCatalogModels
+	images                   imagecompress.Compressor
 	proxyCredentials         secretstore.SecretStore
 	affinities               responseAffinities
 	resolver                 endpoint.Resolver

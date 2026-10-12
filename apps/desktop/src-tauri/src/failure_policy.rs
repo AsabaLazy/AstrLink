@@ -180,6 +180,7 @@ pub(crate) fn validate_routing_settings(
                 }
             }
             "builtin_tools" => validate_builtin_tools(value)?,
+            "image_compression" => validate_image_compression(value)?,
             "model_redirects" => validate_model_redirects(value)?,
             "default_failure_policy" => validate_failure_policy(value)?,
             "allow_unmatched_failover"
@@ -209,6 +210,29 @@ pub(crate) fn validate_routing_settings(
         }
     }
     validate_adaptive_range(object)
+}
+
+/// Mirrors contract.ImageCompression: every field is required.
+fn validate_image_compression(value: &serde_json::Value) -> Result<(), String> {
+    let settings = value
+        .as_object()
+        .ok_or("invalid image compression settings")?;
+    if settings.len() != 3
+        || !settings
+            .get("enabled")
+            .is_some_and(serde_json::Value::is_boolean)
+        || !matches!(
+            settings.get("mode").and_then(serde_json::Value::as_str),
+            Some("lossless" | "lossy")
+        )
+        || !settings
+            .get("quality")
+            .and_then(serde_json::Value::as_u64)
+            .is_some_and(|quality| (1..=100).contains(&quality))
+    {
+        return Err("invalid image compression settings".into());
+    }
+    Ok(())
 }
 
 // validate_identity_version checks the shape of a client version override; an
@@ -494,6 +518,7 @@ mod tests {
             "system_prompt_suffix": "",
             "reasoning_mode": "adaptive",
             "reasoning_level": "max",
+            "image_compression": {"enabled": true, "mode": "lossy", "quality": 80},
             "builtin_tools": {
                 "web_search": {"enabled": true, "backend": "upstream", "service_id": "service_test", "model": "search-model"},
                 "image_generation": {"enabled": false, "backend": "upstream"}
@@ -607,6 +632,37 @@ mod tests {
             .remove("reasoning_override");
         settings["system_prompt_prefix"] = json!(format!("{}x", "提".repeat(20000)));
         assert!(validate_routing_settings(&settings, false).is_err());
+    }
+    #[test]
+    fn validates_image_compression_settings() {
+        for valid in [
+            json!({"enabled": false, "mode": "lossless", "quality": 85}),
+            json!({"enabled": true, "mode": "lossy", "quality": 1}),
+            json!({"enabled": true, "mode": "lossy", "quality": 100}),
+        ] {
+            assert_eq!(
+                validate_routing_settings(&json!({ "image_compression": valid }), true),
+                Ok(()),
+                "{valid}"
+            );
+        }
+        for invalid in [
+            json!(null),
+            json!(true),
+            json!({"enabled": true}),
+            json!({"enabled": true, "mode": "lossless"}),
+            json!({"enabled": "true", "mode": "lossless", "quality": 85}),
+            json!({"enabled": true, "mode": "webp", "quality": 85}),
+            json!({"enabled": true, "mode": "lossy", "quality": 0}),
+            json!({"enabled": true, "mode": "lossy", "quality": 101}),
+            json!({"enabled": true, "mode": "lossy", "quality": 80.5}),
+            json!({"enabled": true, "mode": "lossy", "quality": 80, "max_side": 2048}),
+        ] {
+            assert!(
+                validate_routing_settings(&json!({ "image_compression": invalid }), true).is_err(),
+                "{invalid}"
+            );
+        }
     }
     fn redirect(from: &str, to: &str) -> serde_json::Value {
         json!({"from":from,"to":to,"enabled":true})

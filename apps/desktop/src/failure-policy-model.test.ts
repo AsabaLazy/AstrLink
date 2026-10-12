@@ -228,6 +228,42 @@ describe("failure policies", () => {
     ])
       expect(() => parseRoutingSettings({ ...settings, ...invalid })).toThrow();
   });
+  it("parses image compression with the core's rules and reads its absence as off", () => {
+    const settings = {
+      default_failure_policy: defaultFailurePolicy(),
+      allow_unmatched_failover: true,
+      strategy: "failover_only",
+      max_attempts: 6,
+    };
+    expect(parseRoutingSettings(settings).image_compression).toEqual({
+      enabled: false,
+      mode: "lossless",
+      quality: 85,
+    });
+    for (const image_compression of [
+      { enabled: true, mode: "lossless", quality: 85 },
+      { enabled: true, mode: "lossy", quality: 1 },
+      { enabled: false, mode: "lossy", quality: 100 },
+    ])
+      expect(
+        parseRoutingSettings({ ...settings, image_compression })
+          .image_compression,
+      ).toEqual(image_compression);
+    for (const image_compression of [
+      null,
+      true,
+      { enabled: true, mode: "lossless" },
+      { enabled: "true", mode: "lossless", quality: 85 },
+      { enabled: true, mode: "webp", quality: 85 },
+      { enabled: true, mode: "lossy", quality: 0 },
+      { enabled: true, mode: "lossy", quality: 101 },
+      { enabled: true, mode: "lossy", quality: 80.5 },
+      { enabled: true, mode: "lossy", quality: 80, max_side: 2048 },
+    ])
+      expect(() =>
+        parseRoutingSettings({ ...settings, image_compression }),
+      ).toThrow();
+  });
   it("names the range each preset uses", () => {
     const custom = { adaptive_min: "off", adaptive_max: "high" } as const;
     expect(adaptiveRange({ adaptive_preset: "everyday", ...custom })).toEqual([

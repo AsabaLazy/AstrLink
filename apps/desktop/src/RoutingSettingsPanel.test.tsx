@@ -352,7 +352,7 @@ describe("shared global recovery settings", () => {
           <RoutingSettingsPanel services={[]} ready onDirtyChange={dirty} />,
         ),
       );
-      await selectTab("思考与提示词");
+      await selectTab("请求改写");
       return dirty;
     }
 
@@ -1136,7 +1136,7 @@ describe("shared global recovery settings", () => {
       expect(bridge.updateRoutingSettings).toHaveBeenCalledExactlyOnceWith({
         system_prompt_suffix: suffix,
       });
-      await selectTab("思考与提示词");
+      await selectTab("请求改写");
       expect(promptField("加在末尾").value).toBe(suffix);
     });
 
@@ -1440,8 +1440,8 @@ describe("shared global recovery settings", () => {
         (tab) => tab.textContent,
       ),
     ).toEqual([
-      "模型与工具",
-      "思考与提示词",
+      "请求改写",
+      "重定向",
       "恢复与重试",
       "错误规则",
       "会话粘性",
@@ -1556,7 +1556,7 @@ describe("shared global recovery settings", () => {
     )!;
   }
 
-  it("opens on model redirects and saves only the replaced redirect list", async () => {
+  it("opens on request rewriting and saves only the replaced redirect list", async () => {
     const dirty = vi.fn();
     await act(async () =>
       root.render(
@@ -1568,9 +1568,17 @@ describe("shared global recovery settings", () => {
       ),
     );
     const tabs = [...container.querySelectorAll('[role="tab"]')];
-    expect(tabs[0].textContent).toBe("模型与工具");
+    expect(tabs[0].textContent).toBe("请求改写");
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect(
+      [...container.querySelectorAll('[role="tabpanel"] h2')].map(
+        (element) => element.textContent,
+      ),
+    ).toEqual(["请求图片压缩", "思考强度", "全局提示词"]);
+    expect(container.textContent).not.toContain("Codex 自动审查");
+    await selectTab("重定向");
     expect(container.textContent).toContain("Codex 自动审查");
+    expect(container.textContent).not.toContain("请求图片压缩");
     // A document without model_redirects is not a pending change.
     expect(dirty).toHaveBeenLastCalledWith(false);
     expect(button("保存默认策略")).toBeUndefined();
@@ -1611,6 +1619,7 @@ describe("shared global recovery settings", () => {
     );
     expect(dirty).toHaveBeenLastCalledWith(false);
     expect(bridge.updateRoutingSettings).not.toHaveBeenCalled();
+    await selectTab("重定向");
     const toggle = () =>
       container.querySelector<HTMLButtonElement>(
         '[aria-label="启用 codex-auto-review 的重定向"]',
@@ -1635,6 +1644,124 @@ describe("shared global recovery settings", () => {
     expect(redirectField("Codex 自动审查的目标模型").value).toBe("gpt-5");
   });
 
+  it("puts image compression first and shows the quality only for lossy mode", async () => {
+    const dirty = vi.fn();
+    await act(async () =>
+      root.render(
+        <RoutingSettingsPanel
+          services={services}
+          ready
+          onDirtyChange={dirty}
+        />,
+      ),
+    );
+    expect(dirty).toHaveBeenLastCalledWith(false);
+    const panel = () =>
+      container.querySelector<HTMLElement>(
+        '[data-testid="image-compression-settings"]',
+      )!;
+    expect(
+      container.querySelector('[role="tabpanel"] > fieldset')!
+        .firstElementChild,
+    ).toBe(panel());
+    const toggle = () =>
+      panel().querySelector<HTMLButtonElement>(
+        '[role="switch"][aria-label="启用请求图片压缩"]',
+      )!;
+    const option = (label: string) =>
+      panel().querySelector<HTMLButtonElement>(
+        `[role="radio"][aria-label="${label}"]`,
+      )!;
+    const checked = () =>
+      [...panel().querySelectorAll('[role="radio"][data-state="checked"]')].map(
+        (item) => item.getAttribute("aria-label"),
+      );
+    const quality = () =>
+      panel().querySelector<HTMLInputElement>('input[aria-label="WebP 质量"]');
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    expect(checked()).toEqual(["无损"]);
+    expect(quality()).toBeNull();
+    expect(panel().textContent).toContain("转发前把请求里的图片转成 WebP");
+    expect(panel().textContent).toContain("像素完全不变");
+    // The details stay behind the help button.
+    expect(panel().textContent).not.toContain("base64");
+
+    await act(async () => toggle().click());
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).toHaveBeenCalledExactlyOnceWith({
+      image_compression: { enabled: true, mode: "lossless", quality: 85 },
+    });
+
+    await act(async () => option("有损").click());
+    expect(checked()).toEqual(["有损", "清晰"]);
+    expect(quality()!.value).toBe("85");
+    expect(panel().textContent).toContain("JPEG 也会压缩");
+    await act(async () => option("省流").click());
+    expect(quality()!.value).toBe("60");
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).toHaveBeenLastCalledWith({
+      image_compression: { enabled: true, mode: "lossy", quality: 60 },
+    });
+
+    // A typed quality that matches no preset leaves every preset unselected.
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(quality(), "70");
+      quality()!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(checked()).toEqual(["有损"]);
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).toHaveBeenLastCalledWith({
+      image_compression: { enabled: true, mode: "lossy", quality: 70 },
+    });
+
+    // Lossless keeps the chosen quality for the next switch back.
+    await act(async () => option("无损").click());
+    expect(quality()).toBeNull();
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).toHaveBeenLastCalledWith({
+      image_compression: { enabled: true, mode: "lossless", quality: 70 },
+    });
+    expect(bridge.updateRoutingSettings).toHaveBeenCalledTimes(4);
+    expect(dirty).toHaveBeenLastCalledWith(false);
+  });
+
+  it("loads saved image compression and keeps it disabled while offline", async () => {
+    bridge.getRoutingSettings.mockResolvedValue({
+      ...settings(),
+      image_compression: { enabled: true, mode: "lossy", quality: 70 },
+    });
+    const render = (ready: boolean) =>
+      act(async () =>
+        root.render(
+          <RoutingSettingsPanel
+            services={services}
+            ready={ready}
+            onDirtyChange={vi.fn()}
+          />,
+        ),
+      );
+    await render(true);
+    await render(false);
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="启用请求图片压缩"]',
+    )!;
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.disabled).toBe(true);
+    const quality = container.querySelector<HTMLInputElement>(
+      'input[aria-label="WebP 质量"]',
+    )!;
+    expect(quality.value).toBe("70");
+    expect(quality.disabled).toBe(true);
+    for (const option of container.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="image-compression-settings"] [role="radio"]',
+    ))
+      expect(option.disabled).toBe(true);
+    expect(bridge.updateRoutingSettings).not.toHaveBeenCalled();
+  });
+
   it("does not save a partial model name until the edit is committed", async () => {
     await act(async () =>
       root.render(
@@ -1645,6 +1772,7 @@ describe("shared global recovery settings", () => {
         />,
       ),
     );
+    await selectTab("重定向");
     const input = redirectField("Codex 自动审查的目标模型");
     await act(async () => {
       Object.getOwnPropertyDescriptor(
@@ -1683,6 +1811,7 @@ describe("shared global recovery settings", () => {
         />,
       ),
     );
+    await selectTab("重定向");
     const toggle = () =>
       container.querySelector<HTMLButtonElement>(
         '[aria-label="启用 codex-auto-review 的重定向"]',
@@ -1731,6 +1860,7 @@ describe("shared global recovery settings", () => {
         />,
       ),
     );
+    await selectTab("重定向");
     await typeRedirect("Codex 自动审查的目标模型", "gpt-5");
     await flushAutosave();
     expect(container.textContent).toContain("自动保存失败，修改已保留。");
@@ -1758,6 +1888,7 @@ describe("shared global recovery settings", () => {
         />,
       ),
     );
+    await selectTab("重定向");
     await typeRedirect("Codex 自动审查的目标模型", "gpt-5");
     await flushAutosave();
     expect(container.textContent).toContain(
@@ -1782,6 +1913,7 @@ describe("shared global recovery settings", () => {
       ),
     );
     expect(dirty).toHaveBeenLastCalledWith(false);
+    await selectTab("重定向");
     await act(async () => button("添加重定向").click());
     expect(container.querySelector('[role="alert"]')).toBeNull();
     await selectTab("恢复与重试");
@@ -1791,7 +1923,7 @@ describe("shared global recovery settings", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("恢复与重试");
-    await selectTab("模型与工具");
+    await selectTab("重定向");
     expect(
       [...container.querySelectorAll('[role="alert"]')].map(
         (element) => element.textContent,

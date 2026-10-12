@@ -747,6 +747,16 @@ func (session *recordSession) noteGatewayReasoning(reasoning gatewayReasoning) {
 	}
 }
 
+// noteImageCompression records what image compression did to the current
+// network attempt.
+func (session *recordSession) noteImageCompression(result imageCompressionResult) {
+	if message := result.diagnostic(); session != nil && message != "" {
+		session.noteConversionDiagnostics(contract.ConversionDiagnosticPhaseRequest, []relaykitbridge.ConversionDiagnostic{{
+			Code: imageCompressionDiagnostic, Path: "images", Message: message, Severity: string(contract.ConversionDiagnosticWarning),
+		}})
+	}
+}
+
 // reasoningEffort is the level the record shows: the one the attempt sent.
 func (session *recordSession) reasoningEffort() *string {
 	if session.sentReasoningEffort != nil {

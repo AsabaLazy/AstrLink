@@ -26,6 +26,7 @@ export { Flask } from "./flask";
 export { FoldHorizontal } from "./fold-horizontal";
 export { GripVertical } from "./grip-vertical";
 export { Home } from "./home";
+export { ImageDown } from "./image-down";
 export { Key } from "./key";
 export { Link } from "./link";
 export { LoaderCircle } from "./loader-circle";

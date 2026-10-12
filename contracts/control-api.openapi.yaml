@@ -4368,6 +4368,8 @@ components:
             - $ref: "#/components/schemas/ReasoningLevel"
           default: max
           description: Highest level of the custom adaptive range; at least adaptive_min. Kept and validated while another preset or mode is chosen.
+        image_compression:
+          $ref: "#/components/schemas/ImageCompression"
         model_redirects:
           type: array
           maxItems: 200
@@ -4422,6 +4424,24 @@ components:
       enum: [everyday, research, custom]
       default: everyday
       description: Range of the adaptive mode. everyday sends low through max, research medium through max, and custom adaptive_min through adaptive_max.
+    ImageCompression:
+      type: object
+      additionalProperties: false
+      required: [enabled, mode, quality]
+      description: Re-encodes the base64 images of Chat, Responses, Anthropic Messages and Gemini requests as WebP before they are forwarded, so fewer bytes go upstream. An image is replaced only when its WebP is smaller. Image URLs, file IDs, animated GIFs, WebP images and JPEG photos rotated by EXIF are forwarded as sent. The request record notes how many images were re-encoded.
+      properties:
+        enabled: { type: boolean, default: false }
+        mode:
+          type: string
+          enum: [lossless, lossy]
+          default: lossless
+          description: lossless keeps every pixel and re-encodes PNG and single-frame GIF images. lossy encodes at quality and also re-encodes JPEG images; a PNG or GIF whose lossless WebP is smaller is sent lossless.
+        quality:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 85
+          description: Quality of the lossy encoder. Kept while the lossless mode is chosen.
     ClientIdentityVersion:
       type: string
       maxLength: 64
@@ -4499,6 +4519,8 @@ components:
           type: string
           enum: ["off", low, medium, high, max]
           description: Checked against adaptive_min after the patch is merged; a range whose lower end is above its upper end is rejected.
+        image_compression:
+          $ref: "#/components/schemas/ImageCompression"
         model_redirects:
           type: array
           maxItems: 200

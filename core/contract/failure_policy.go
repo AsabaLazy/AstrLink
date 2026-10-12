@@ -190,6 +190,8 @@ type RoutingSettings struct {
 	AdaptivePreset AdaptivePreset `json:"adaptive_preset"`
 	AdaptiveMin    ReasoningLevel `json:"adaptive_min"`
 	AdaptiveMax    ReasoningLevel `json:"adaptive_max"`
+	// ImageCompression re-encodes request images as WebP; off by default.
+	ImageCompression ImageCompression `json:"image_compression"`
 	// ModelRedirects is always emitted; nil documents load as an empty table.
 	ModelRedirects         []ModelRedirect               `json:"model_redirects"`
 	ChannelStickiness      *ChannelStickiness            `json:"channel_stickiness,omitempty"`
@@ -218,6 +220,7 @@ func DefaultRoutingSettings() RoutingSettings {
 		AdaptivePreset:               AdaptivePresetEveryday,
 		AdaptiveMin:                  ReasoningLevelLow,
 		AdaptiveMax:                  ReasoningLevelMax,
+		ImageCompression:             DefaultImageCompression(),
 		ModelRedirects:               []ModelRedirect{},
 		ChannelStickiness:            &ChannelStickiness{Enabled: true, TTLSeconds: 3600},
 		DefaultFailurePolicy:         DefaultFailurePolicy(),
@@ -260,6 +263,9 @@ func (settings RoutingSettings) Validate() error {
 		return err
 	}
 	if err := validateAdaptiveRange(settings.AdaptiveMin, settings.AdaptiveMax); err != nil {
+		return err
+	}
+	if err := settings.ImageCompression.Validate(); err != nil {
 		return err
 	}
 	if err := ValidateModelRedirects(settings.ModelRedirects); err != nil {

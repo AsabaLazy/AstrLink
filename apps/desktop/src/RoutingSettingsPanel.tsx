@@ -10,17 +10,19 @@ import {
   RecoveryOrderControls,
 } from "./components/FailoverEditor";
 import { FormMessage } from "./components/FormMessage";
+import { ImageCompressionEditor } from "./components/ImageCompressionEditor";
 import { ModelRedirectEditor } from "./components/ModelRedirectEditor";
 import { Panel, PanelHeader } from "./components/Panel";
 import { Button } from "./components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import {
   Boxes,
-  Brain,
   Fingerprint,
+  SquarePen,
   type AnimatedIcon,
 } from "./components/icons";
 import {
+  defaultImageCompression,
   identityLearningKeys,
   identitySettingKeys,
   identityVersionKeys,
@@ -46,6 +48,7 @@ const routingSettingKeys = [
   "channel_stickiness",
   "model_redirects",
   "builtin_tools",
+  "image_compression",
   ...identitySettingKeys,
   ...subscriptionProtectionKeys,
   ...identityLearningKeys,
@@ -54,8 +57,8 @@ const routingSettingKeys = [
 ] as const;
 
 const routingTabs: ReadonlyArray<{ value: string; icon?: AnimatedIcon }> = [
-  { value: "modelsAndTools", icon: Boxes },
-  { value: "thinkingPrompts", icon: Brain },
+  { value: "rewrite", icon: SquarePen },
+  { value: "redirects", icon: Boxes },
   { value: "recovery" },
   { value: "rules" },
   { value: "session" },
@@ -79,7 +82,7 @@ export function RoutingSettingsPanel({
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const t = useT();
-  const [tab, setTab] = useState("modelsAndTools");
+  const [tab, setTab] = useState("rewrite");
   const [settings, setSettings] = useWorkspaceSnapshot<RoutingSettings | null>(
     "routing-settings",
     null,
@@ -299,7 +302,23 @@ export function RoutingSettingsPanel({
         {draft ? (
           <>
             <TabsContent
-              value="modelsAndTools"
+              value="rewrite"
+              className="gutter-scroller min-h-0 flex-1 overflow-y-auto pb-1"
+              data-tab-scroller
+            >
+              <fieldset disabled={!ready} className="grid min-w-0 gap-3">
+                <ImageCompressionEditor
+                  value={draft.image_compression ?? defaultImageCompression()}
+                  disabled={!ready}
+                  onChange={(image_compression) =>
+                    changeDraft({ ...draft, image_compression })
+                  }
+                />
+                <ThinkingPromptSettings value={draft} onChange={changeDraft} />
+              </fieldset>
+            </TabsContent>
+            <TabsContent
+              value="redirects"
               className="gutter-scroller flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-1"
               data-tab-scroller
             >
@@ -326,15 +345,6 @@ export function RoutingSettingsPanel({
                   changeDraft({ ...draft, builtin_tools })
                 }
               />
-            </TabsContent>
-            <TabsContent
-              value="thinkingPrompts"
-              className="gutter-scroller min-h-0 flex-1 overflow-y-auto pb-1"
-              data-tab-scroller
-            >
-              <fieldset disabled={!ready} className="grid min-w-0 gap-3">
-                <ThinkingPromptSettings value={draft} onChange={changeDraft} />
-              </fieldset>
             </TabsContent>
             <TabsContent
               value="recovery"

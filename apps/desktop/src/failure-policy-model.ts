@@ -152,6 +152,29 @@ export const thinkingPromptKeys = [
   "adaptive_max",
 ] as const;
 
+/**
+ * "lossless" keeps every pixel and re-encodes PNG and single-frame GIF images;
+ * "lossy" encodes at the quality and also re-encodes JPEG images, sending a
+ * PNG or GIF lossless when that is smaller.
+ */
+export const imageCompressionModes = ["lossless", "lossy"] as const;
+export type ImageCompressionMode = (typeof imageCompressionModes)[number];
+
+/**
+ * Re-encodes the base64 images of inference requests as WebP before they are
+ * forwarded. An image is replaced only when its WebP is smaller.
+ */
+export interface ImageCompression {
+  enabled: boolean;
+  mode: ImageCompressionMode;
+  /** The lossy encoder's quality, 1–100; kept while lossless is chosen. */
+  quality: number;
+}
+
+export function defaultImageCompression(): ImageCompression {
+  return { enabled: false, mode: "lossless", quality: 85 };
+}
+
 export interface ModelRedirect {
   from: string;
   to: string;
@@ -265,6 +288,7 @@ export interface RoutingSettings {
   /** The custom range; the lower end is at most the upper end. */
   adaptive_min?: ReasoningLevel;
   adaptive_max?: ReasoningLevel;
+  image_compression?: ImageCompression;
   model_redirects?: ModelRedirect[];
   channel_stickiness?: ChannelStickiness;
   default_recovery_paths?: Record<string, string>;
@@ -522,6 +546,22 @@ export function parseClientIdentities(value: unknown): ClientIdentities {
   };
 }
 
+/** Mirrors contract.ImageCompression; an older core without it reads as off. */
+function parseImageCompression(value: unknown): ImageCompression {
+  if (value === undefined) return defaultImageCompression();
+  const settings = object(value, "image_compression");
+  keys(settings, ["enabled", "mode", "quality"], [], "image_compression");
+  if (typeof settings.enabled !== "boolean")
+    throw Error("image_compression.enabled: expected a boolean");
+  if (!imageCompressionModes.includes(settings.mode as ImageCompressionMode))
+    throw Error("image_compression.mode: unknown mode");
+  return {
+    enabled: settings.enabled,
+    mode: settings.mode as ImageCompressionMode,
+    quality: integer(settings.quality, 1, 100, "image_compression.quality"),
+  };
+}
+
 export function parseRoutingSettings(value: unknown): RoutingSettings {
   const settings = object(value, "routing_settings");
   keys(
@@ -537,12 +577,14 @@ export function parseRoutingSettings(value: unknown): RoutingSettings {
       "channel_stickiness",
       "model_redirects",
       "builtin_tools",
+      "image_compression",
       ...forwardingSwitchKeys,
       ...identityVersionKeys,
       ...thinkingPromptKeys,
     ],
     "routing_settings",
   );
+  const imageCompression = parseImageCompression(settings.image_compression);
   const redirects = parseModelRedirects(settings.model_redirects);
   const parsed = parseFailoverPolicy({
     enabled: settings.allow_unmatched_failover,
@@ -653,6 +695,7 @@ export function parseRoutingSettings(value: unknown): RoutingSettings {
       (settings.adaptive_preset as AdaptivePreset | undefined) ?? "everyday",
     adaptive_min: adaptiveMin,
     adaptive_max: adaptiveMax,
+    image_compression: imageCompression,
     model_redirects: redirects,
     ...(settings.builtin_tools !== undefined
       ? { builtin_tools: parseBuiltinTools(settings.builtin_tools) }

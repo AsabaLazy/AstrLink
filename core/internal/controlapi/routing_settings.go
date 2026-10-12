@@ -90,6 +90,8 @@ func (handler *Handler) routingSettingsResource(writer http.ResponseWriter, requ
 				destination = &settings.AdaptiveMin
 			case "adaptive_max":
 				destination = &settings.AdaptiveMax
+			case "image_compression":
+				destination = &settings.ImageCompression
 			case "default_recovery_paths":
 				writeError(writer, http.StatusGone, "routing_feature_retired", "default call paths are retired")
 				return

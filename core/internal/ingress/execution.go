@@ -155,6 +155,7 @@ func (handler *Handler) executeCandidatesWithTest(
 	routingSettings := handler.requestRoutingSettings(request.Context())
 	protection := subscriptionProtectionFrom(routingSettings)
 	rewrite := gatewayRewriteFrom(routingSettings)
+	compression := imageCompressionFrom(routingSettings)
 	haiku := claudeCodeHaikuRequest(detectClientType(request.Header), classified.Model)
 	// Each official client identity is learned at most once per request.
 	learnedClaude, learnedCodex, learnedGrok := false, false, false
@@ -343,14 +344,18 @@ func (handler *Handler) executeCandidatesWithTest(
 			}
 		}
 
-		// The global system prompt and reasoning settings edit the body in the
-		// upstream protocol, before the subscription identity steps below, so an
-		// official identity they add or check stays first. Connection tests
-		// send their own fixed request.
+		// The global system prompt, reasoning settings and image compression
+		// edit the body in the upstream protocol, before the subscription
+		// identity steps below, so an official identity they add or check stays
+		// first. Connection tests send their own fixed request.
 		var reasoning gatewayReasoning
+		var images imageCompressionResult
 		if test == nil {
 			var rewriteErr error
 			reasoning, rewriteErr = handler.applyGatewayRewrite(attemptRequest, plan.UpstreamProtocol, rewrite, haiku)
+			if rewriteErr == nil {
+				images, rewriteErr = handler.applyImageCompression(attemptRequest, plan.UpstreamProtocol, compression)
+			}
 			if rewriteErr != nil {
 				finishPrivacy()
 				if request.Context().Err() != nil {
@@ -646,6 +651,7 @@ func (handler *Handler) executeCandidatesWithTest(
 				)
 				recordSession.noteConversionDiagnostics(contract.ConversionDiagnosticPhaseRequest, conversion.Diagnostics)
 				recordSession.noteGatewayReasoning(reasoning)
+				recordSession.noteImageCompression(images)
 				recordSession.observeOutboundCapture(outbound)
 			}
 			if test != nil && test.observer.Outbound != nil {

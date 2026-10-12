@@ -111,7 +111,7 @@ func (handler *Handler) serveSearch(writer http.ResponseWriter, request *http.Re
 		candidate, binding, ok := handler.codexToolProvider(request.Context(), ref, "web_search")
 		if !ok {
 			failed("web_search_disabled", "web search is turned off",
-				"Web search is turned off for this gateway, so nothing was searched. It can be turned on under Routing → Models & tools → Built-in tools. Answer without web results, and tell the user if the answer needs them.")
+				"Web search is turned off for this gateway, so nothing was searched. It can be turned on under Routing → Redirects → Responses tool mapping. Answer without web results, and tell the user if the answer needs them.")
 			return
 		}
 		replaceRecoveryRequestBody(request, raw)

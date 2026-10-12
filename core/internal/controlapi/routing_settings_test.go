@@ -537,6 +537,45 @@ func TestRoutingSettingsThinkingAndPromptRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRoutingSettingsImageCompressionRoundTrip(t *testing.T) {
+	store, handler := newRouteHandler(t)
+	response := controlRequest(t, handler, http.MethodGet, RoutingSettingsPath, "", "", "")
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), `"image_compression":{"enabled":false,"mode":"lossless","quality":85}`) {
+		t.Fatalf("GET defaults: %d %s", response.Code, response.Body.String())
+	}
+	response = controlRequest(t, handler, http.MethodPatch, RoutingSettingsPath, "application/merge-patch+json",
+		`{"image_compression":{"enabled":true,"mode":"lossy","quality":70}}`, "")
+	want := contract.ImageCompression{Enabled: true, Mode: contract.ImageCompressionLossy, Quality: 70}
+	var patched contract.RoutingSettings
+	decode(t, response, &patched)
+	if response.Code != http.StatusOK || patched.ImageCompression != want {
+		t.Fatalf("PATCH: %d %+v", response.Code, patched.ImageCompression)
+	}
+	for _, invalid := range []string{
+		`{"image_compression":null}`,
+		`{"image_compression":true}`,
+		`{"image_compression":{"enabled":true}}`,
+		`{"image_compression":{"enabled":true,"mode":"lossless"}}`,
+		`{"image_compression":{"enabled":true,"mode":"lossless","quality":85,"max_side":2048}}`,
+		`{"image_compression":{"enabled":null,"mode":"lossless","quality":85}}`,
+		`{"image_compression":{"enabled":true,"mode":"webp","quality":85}}`,
+		`{"image_compression":{"enabled":true,"mode":"","quality":85}}`,
+		`{"image_compression":{"enabled":true,"mode":"lossy","quality":0}}`,
+		`{"image_compression":{"enabled":true,"mode":"lossy","quality":101}}`,
+		`{"image_compression":{"enabled":true,"mode":"lossy","quality":"80"}}`,
+		`{"image_compression":{"enabled":true,"mode":"lossy","quality":80.5}}`,
+	} {
+		response := controlRequest(t, handler, http.MethodPatch, RoutingSettingsPath, "application/merge-patch+json", invalid, "")
+		if response.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("%s accepted: %d %s", invalid, response.Code, response.Body.String())
+		}
+	}
+	if stored, err := store.GetRoutingSettings(context.Background()); err != nil || stored.ImageCompression != want {
+		t.Fatalf("stored after rejected patches = %+v %v", stored.ImageCompression, err)
+	}
+}
+
 func TestRoutingSettingsAdaptiveRangeRoundTrip(t *testing.T) {
 	store, handler := newRouteHandler(t)
 	patch := func(body string) (*httptest.ResponseRecorder, contract.RoutingSettings) {

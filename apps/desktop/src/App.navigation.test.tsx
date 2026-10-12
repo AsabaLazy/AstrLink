@@ -1037,7 +1037,7 @@ describe("App workspace navigation", () => {
       {
         nav: "路由",
         read: bridgeMocks.getRoutingSettings,
-        content: "Codex 自动审查",
+        content: "请求图片压缩",
       },
       {
         nav: "安全",
@@ -1544,8 +1544,8 @@ describe("App workspace navigation", () => {
         (tab) => tab.textContent,
       ),
     ).toEqual([
-      "模型与工具",
-      "思考与提示词",
+      "请求改写",
+      "重定向",
       "恢复与重试",
       "错误规则",
       "会话粘性",

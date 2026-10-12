@@ -1,15 +1,7 @@
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
-import { motion, useReducedMotion } from "motion/react";
-import { ChoiceCard } from "./components/ChoiceCard";
 import { FilterSelect } from "./components/FilterSelect";
+import { OptionRow, optionRowLabel } from "./components/OptionRow";
 import { StrengthMeter } from "./components/StrengthMeter";
 import {
   Activity,
@@ -24,7 +16,6 @@ import {
 import { Field } from "./components/Field";
 import { HelpPopover } from "./components/HelpPopover";
 import { Panel, PanelHeader } from "./components/Panel";
-import { RadioGroup } from "./components/ui/radio-group";
 import { Switch } from "./components/ui/switch";
 import { cn } from "./lib/utils";
 import { Textarea } from "./components/ui/textarea";
@@ -46,13 +37,6 @@ const modeIcons = {
   fixed: Pin,
   adaptive: Activity,
 } as const satisfies Record<ReasoningMode, AnimatedIcon>;
-
-const optionGroup =
-  "inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-md bg-muted p-0.5";
-// As tall as an option group, so a label stays beside its first row when the
-// options wrap.
-const optionGroupLabel =
-  "flex h-8 items-center text-xs font-medium text-muted-foreground";
 
 const promptFields = [
   {
@@ -158,62 +142,6 @@ function SystemPromptField({
   );
 }
 
-/**
- * One row of compact radio options. Options fade a little when unselected so
- * the choice reads at a glance.
- */
-function OptionRow<T extends string>({
-  labelId,
-  options,
-  value,
-  onValueChange,
-}: {
-  labelId: string;
-  options: readonly {
-    value: T;
-    id: string;
-    label: string;
-    icon: (selected: boolean) => ReactNode;
-  }[];
-  value: T;
-  onValueChange: (value: T) => void;
-}) {
-  const reducedMotion = useReducedMotion();
-  return (
-    <RadioGroup
-      aria-labelledby={labelId}
-      className={optionGroup}
-      value={value}
-      onValueChange={(next) => {
-        const option = options.find((item) => item.value === next);
-        if (option) onValueChange(option.value);
-      }}
-    >
-      {options.map((option) => {
-        const selected = option.value === value;
-        return (
-          <motion.div
-            key={option.value}
-            className="min-w-0"
-            initial={false}
-            animate={{ opacity: selected ? 1 : 0.8 }}
-            transition={{ duration: reducedMotion ? 0 : 0.16 }}
-          >
-            <ChoiceCard
-              id={option.id}
-              layout="compact"
-              icon={option.icon(selected)}
-              label={option.label}
-              selected={selected}
-              value={option.value}
-            />
-          </motion.div>
-        );
-      })}
-    </RadioGroup>
-  );
-}
-
 export function ThinkingPromptSettings({
   value,
   onChange,
@@ -251,7 +179,7 @@ export function ThinkingPromptSettings({
         </PanelHeader>
         <div className="p-3">
           <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2">
-            <span id={`${id}-mode`} className={optionGroupLabel}>
+            <span id={`${id}-mode`} className={optionRowLabel}>
               {t("routing.thinkingModeLabel")}
             </span>
             <OptionRow
@@ -279,7 +207,7 @@ export function ThinkingPromptSettings({
             />
             {mode === "fixed" ? (
               <>
-                <span id={`${id}-level`} className={optionGroupLabel}>
+                <span id={`${id}-level`} className={optionRowLabel}>
                   {t("routing.thinkingLevelLabel")}
                 </span>
                 <OptionRow
@@ -305,7 +233,7 @@ export function ThinkingPromptSettings({
             ) : null}
             {mode === "adaptive" ? (
               <>
-                <span id={`${id}-range`} className={optionGroupLabel}>
+                <span id={`${id}-range`} className={optionRowLabel}>
                   {t("routing.thinkingRangeLabel")}
                 </span>
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
