@@ -180,6 +180,25 @@ func claudeRateLimitRisk(header http.Header, message string, now time.Time) subs
 	return subscriptionRiskSignal{scope: subscriptionRiskModel, cooldown: until.Sub(now)}
 }
 
+// claudeExtraUsageRejection reports Anthropic's 400 for a request it counts as
+// third-party app usage, which draws on extra usage the account does not
+// have. The account is healthy and stays in service, but no Claude
+// subscription may retry the request: one with extra usage would accept it
+// and bill the user.
+func claudeExtraUsageRejection(response *http.Response, inspect func() ([]byte, bool)) bool {
+	data, complete := inspect()
+	if !complete {
+		return false
+	}
+	body, err := transport.DecodeBody(data, strings.Join(response.Header.Values("Content-Encoding"), ","), subscriptionRiskInspectBytes)
+	if err != nil {
+		return false
+	}
+	details, _ := parseSubscriptionError(body, time.Now())
+	message := strings.ToLower(details.message)
+	return strings.Contains(message, "draw from your extra usage") || strings.Contains(message, "out of extra usage")
+}
+
 func classifyCodexRisk(
 	status int,
 	header http.Header,

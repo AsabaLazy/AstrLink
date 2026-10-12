@@ -378,7 +378,8 @@ func (handler *Handler) executeCandidatesWithTest(
 				handler.learnClientIdentity(request.Context(), contract.SubscriptionProviderOpenAICodex, attemptRequest.Header)
 			}
 			if recognized && protection.officialPassthrough {
-				// A genuine Codex CLI request is forwarded untouched.
+				// A genuine Codex CLI request is forwarded untouched, apart
+				// from the web_search declaration below.
 				clientClass = accountauth.ClientClassOfficial
 			} else {
 				clientClass = accountauth.ClientClassThirdParty
@@ -404,6 +405,17 @@ func (handler *Handler) executeCandidatesWithTest(
 					continue
 				}
 				codexForcedStream = forced
+			}
+			// The backend rejects a replayed hosted web search without a declared
+			// web_search tool, whichever client sent it; compaction has its own
+			// wire shape.
+			if protection.codexRequests && plan.UpstreamProtocol == contract.ProtocolOpenAIResponses {
+				if err := declareCodexWebSearchHistory(attemptRequest); err != nil {
+					finishPrivacy()
+					last = executionFailure{kind: executionFailureConfiguration, err: err, endpointID: candidate.Service.ID}
+					records.noteCandidateRejected(last.endpointID, last.code())
+					continue
+				}
 			}
 		}
 
@@ -684,6 +696,12 @@ func (handler *Handler) executeCandidatesWithTest(
 					// without retrying any of its routes.
 					action = contract.FailureFailover
 					schedule.excludeService(candidate.CanonicalService().ID)
+				}
+				if response.StatusCode == http.StatusBadRequest && candidate.Service.Kind == contract.ServiceKindClaudeSubscription &&
+					claudeExtraUsageRejection(response, inspect) {
+					// Another Claude subscription would refuse it as well, or bill
+					// it to extra usage.
+					schedule.excludeKind(contract.ServiceKindClaudeSubscription)
 				}
 				var repaired []byte
 				if response.StatusCode == http.StatusBadRequest && !downstream.Committed() && !accountBlocked &&

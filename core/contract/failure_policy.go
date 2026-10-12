@@ -153,14 +153,17 @@ type RoutingSettings struct {
 	SubscriptionSessionIsolation bool `json:"subscription_session_isolation"`
 	// OfficialClientPassthrough forwards a recognized Claude Code or Codex CLI
 	// request untouched, adding only credentials and required OAuth items. The
-	// global system prompt and reasoning settings still apply to it. The
-	// other identity and request protections then apply to third-party and
+	// global system prompt and reasoning settings still apply to it, and Codex
+	// request normalization still declares the web_search tool the backend
+	// requires for a history that replays a hosted web search. The other
+	// identity and request protections then apply to third-party and
 	// converted requests only.
 	OfficialClientPassthrough bool `json:"official_client_passthrough"`
 	// The identity learning switches let recognized
 	// official client requests replace the baseline identity that AstrLink
 	// sends when it must supply one: converted requests, discovery, tests,
-	// OAuth and usage requests. All default on.
+	// OAuth and usage requests. A learned Claude Code release older than the
+	// baseline does not replace it. All default on.
 	ClaudeIdentityAutoLearn bool `json:"claude_identity_auto_learn"`
 	CodexIdentityAutoLearn  bool `json:"codex_identity_auto_learn"`
 	GrokIdentityAutoLearn   bool `json:"grok_identity_auto_learn"`
@@ -231,7 +234,7 @@ func (settings RoutingSettings) Validate() error {
 		return fmt.Errorf("grok_identity_version must be a version such as 1.0.45")
 	}
 	if settings.ClaudeIdentityVersion != "" && !ValidClientVersion(settings.ClaudeIdentityVersion) {
-		return fmt.Errorf("claude_identity_version must be a version such as 2.1.258")
+		return fmt.Errorf("claude_identity_version must be a version such as 2.1.296")
 	}
 	if settings.CodexIdentityVersion != "" && !ValidCodexClientVersion(settings.CodexIdentityVersion) {
 		return fmt.Errorf("codex_identity_version must be a version of at least %s", MinCodexClientVersion)
