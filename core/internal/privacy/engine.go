@@ -117,6 +117,7 @@ func (engine *Engine) Inspect(ctx context.Context, policy Policy, protocol contr
 			Decision:           DecisionWarn,
 			Findings:           accepted,
 			SuppressedFindings: suppressed,
+			Fingerprints:       warningFingerprints(accepted, segments),
 		}, nil
 	case ActionBlock:
 		return Result{

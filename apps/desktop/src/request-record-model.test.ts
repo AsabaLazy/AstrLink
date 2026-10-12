@@ -132,6 +132,19 @@ describe("reasoning effort metadata", () => {
   });
 });
 
+describe("privacy warning marker", () => {
+  it("reads whether a session had a warned call, absent on older Cores", () => {
+    expect(
+      parseRequestSession({ ...fullSession, privacy_warned: true })
+        .privacy_warned,
+    ).toBe(true);
+    expect(parseRequestSession(fullSession).privacy_warned).toBeUndefined();
+    expect(() =>
+      parseRequestSession({ ...fullSession, privacy_warned: "yes" }),
+    ).toThrow(/privacy_warned/);
+  });
+});
+
 describe("model redirect metadata", () => {
   const redirect = { from: "gpt-4.1", to: "claude-sonnet-4-5" };
 

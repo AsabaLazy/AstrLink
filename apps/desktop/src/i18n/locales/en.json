@@ -2130,6 +2130,8 @@
     "countItems": "{{count}} records",
     "sessionMeta": "{{turns}} turns · {{calls}} calls · {{duration}}",
     "sessionMetaTurns": "{{turns}} turns · {{duration}}",
+    "privacyWarned": "Warned",
+    "privacyWarnedHint": "A request in this conversation contained private content. The model received it as is.",
     "exportMarkdown": "Export as Markdown",
     "exportTxt": "Export as TXT",
     "tabTrajectory": "Trace",
@@ -2385,7 +2387,7 @@
     "policyReplaced": "{{count}} replaced",
     "policyNotice": "Placeholder note added",
     "policyAllowHint": "The policy left the request unchanged; the body is under Client.",
-    "policyWarnHint": "A warning rule matched; the policy left the request unchanged. The body is under Client.",
+    "policyWarnHint": "The model received the matched content as is. The body is under Client. With “Redact and continue”, privacy protection replaces this content before sending.",
     "policyBlockHint": "The policy blocked this request before it reached the upstream.",
     "restoreCounts": "Visible text {{visible}} · tool arguments {{tools}}",
     "restoreChip": "restore · restored/mapped",
@@ -2575,6 +2577,11 @@
     "rawAccess": {
       "notificationTitle": "An agent asks to read raw content",
       "notificationBody": "Approve or deny it in the AstrLink approval window."
+    },
+    "privacyWarning": {
+      "title": "Sent to the model as is: {{kinds}}",
+      "body": "Privacy protection is set to “Warn and continue”. “Redact and continue” replaces this content before sending, and “Block the request” stops such requests.",
+      "kindSeparator": ", "
     },
     "autostart": {
       "readFailed": "Unable to read the system login-item state: {{error}}",

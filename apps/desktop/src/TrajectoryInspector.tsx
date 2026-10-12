@@ -35,6 +35,7 @@ import {
   inspectorPart,
   inspectorTitle,
   policyDecision,
+  recordedPrivacyFindings,
   recordedPrivacyHits,
   type InspectorPart,
   type PolicyDecision,
@@ -658,7 +659,8 @@ function ClientInspector({
  * What the privacy policy did to the request. Only a redaction changes what
  * goes upstream, so only then does the tab carry a body: the request as sent,
  * with each replaced value marked. Any other outcome would repeat the client
- * tab's body under another name.
+ * tab's body under another name. A warning or a block names what it found
+ * instead, from the record's findings.
  */
 function PolicyInspector({
   row,
@@ -677,7 +679,11 @@ function PolicyInspector({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const decision = policyDecision(row, record.privacy_restore);
   const redacted = decision === "redact";
-  const hits = recordedPrivacyHits(record.privacy_restore);
+  const replacedHits = recordedPrivacyHits(record.privacy_restore);
+  const hits =
+    replacedHits.length > 0
+      ? replacedHits
+      : recordedPrivacyFindings(auditContent?.privacy_findings);
   const mappings = record.privacy_restore?.mapping_count ?? 0;
   const segments = row.summary.split(" · ");
   const body = redacted ? (auditContent?.upstream_request_body ?? null) : null;

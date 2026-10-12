@@ -1636,6 +1636,22 @@ impl CoreManager {
         Ok(())
     }
 
+    /// The requests the privacy policy's warn action let through after
+    /// `since`, as Core's in-memory feed lists them.
+    pub async fn privacy_warnings(
+        &self,
+        since: u64,
+    ) -> Result<crate::privacy_warnings::WarningPage, String> {
+        let path = format!(
+            "{}?since={since}",
+            crate::privacy_warnings::PRIVACY_WARNINGS_PATH
+        );
+        let (_, body) = self
+            .authenticated_control(Method::GET, &path, None, None)
+            .await?;
+        crate::privacy_warnings::parse_page(&body)
+    }
+
     /// Agent requests for raw audit content awaiting the operator's
     /// decision, the timed grants still running, and whether an approval
     /// needs the raw password.

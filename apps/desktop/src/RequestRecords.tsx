@@ -259,6 +259,7 @@ function sessionSummaryKey(session: RequestSession): string {
     session.tool_duration_ms ?? "",
     session.average_ttft_ms ?? "",
     session.output_tokens_per_second ?? "",
+    session.privacy_warned ? "warned" : "",
     ...session.active_request_starts,
   ].join("|");
 }
@@ -2452,12 +2453,24 @@ const SessionRow = memo(function SessionRow({
             disabled={behavior.locked}
           />
         )}
-        <strong
-          className="col-span-2 col-start-3 row-start-1 min-w-0 truncate text-sm font-medium @[560px]/request-list:col-span-1"
-          title={title}
-        >
-          {title}
-        </strong>
+        <span className="col-span-2 col-start-3 row-start-1 flex min-w-0 items-center gap-2 @[560px]/request-list:col-span-1">
+          <strong
+            className="min-w-0 truncate text-sm font-medium"
+            title={title}
+          >
+            {title}
+          </strong>
+          {session.privacy_warned ? (
+            <StatusBadge
+              className="shrink-0"
+              data-testid="privacy-warned-marker"
+              title={t("records.privacyWarnedHint")}
+              tone="pending"
+            >
+              {t("records.privacyWarned")}
+            </StatusBadge>
+          ) : null}
+        </span>
         <span className="col-span-full row-start-3 grid min-w-0 grid-cols-[minmax(0,1fr)_8rem] items-center gap-x-3 gap-y-1 text-xs leading-5 @[560px]/request-list:col-span-3 @[560px]/request-list:col-start-2 @[560px]/request-list:row-start-2 @[560px]/request-list:grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)_minmax(0,1.7fr)_4rem]">
           <code
             className="min-w-0 max-w-full truncate font-mono text-muted-foreground"

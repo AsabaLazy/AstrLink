@@ -2009,9 +2009,12 @@ pub fn start(app: &AppHandle) {
     });
 
     // Agent-side reads are short bursts; a tight local poll keeps the
-    // "being watched" icon honest without any push channel from Core.
+    // "being watched" icon honest without any push channel from Core. The
+    // same tick reads the requests the privacy policy warned about.
     let observer_manager = Arc::clone(manager.inner());
+    let notifier = app.clone();
     tauri::async_runtime::spawn(async move {
+        let mut warnings = crate::privacy_warnings::WarningCursor::default();
         loop {
             tokio::time::sleep(OBSERVER_POLL_INTERVAL).await;
             if observer_manager.view().phase != CorePhase::Ready {
@@ -2019,6 +2022,7 @@ pub fn start(app: &AppHandle) {
             }
             // Errors are transient (Core restarting); the next tick retries.
             let _ = observer_manager.poll_observers().await;
+            crate::privacy_warnings::poll(&notifier, &observer_manager, &mut warnings).await;
         }
     });
 }

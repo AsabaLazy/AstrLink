@@ -97,18 +97,16 @@ func (function ClassifierFunc) Classify(ctx context.Context, text string) autocl
 	return function(ctx, text)
 }
 
+// PolicyWarningReporter learns of every request the warn action lets through.
+// The warning names kinds, counts and keyed fingerprints, never a value.
 type PolicyWarningReporter interface {
-	ReportPolicyWarning(contract.ProtocolID, contract.ServiceID, string)
+	ReportPolicyWarning(privacy.Warning)
 }
 
-type PolicyWarningReporterFunc func(contract.ProtocolID, contract.ServiceID, string)
+type PolicyWarningReporterFunc func(privacy.Warning)
 
-func (function PolicyWarningReporterFunc) ReportPolicyWarning(
-	protocol contract.ProtocolID,
-	endpointID contract.ServiceID,
-	summary string,
-) {
-	function(protocol, endpointID, summary)
+func (function PolicyWarningReporterFunc) ReportPolicyWarning(warning privacy.Warning) {
+	function(warning)
 }
 
 type Handler struct {
@@ -532,17 +530,19 @@ func (handler *Handler) applyPrivacy(
 	case privacy.DecisionWarn:
 		// This is a response-only signal. Never add it to request.Header, where
 		// it could cross the upstream boundary.
-		summary := privacy.WarningSummary(result.Findings)
-		writer.Header().Set(PolicyWarningHeader, summary)
+		writer.Header().Set(PolicyWarningHeader, privacy.WarningSummary(result.Findings))
 		if handler.policyWarningReporter != nil {
-			handler.policyWarningReporter.ReportPolicyWarning(
-				classified.Protocol,
-				endpointID,
-				summary,
-			)
+			handler.policyWarningReporter.ReportPolicyWarning(privacy.Warning{
+				RequestID:    session.requestID(),
+				ClientType:   session.inboundClientType(),
+				Protocol:     classified.Protocol,
+				ServiceID:    endpointID,
+				Findings:     result.Findings,
+				Fingerprints: result.Fingerprints,
+			})
 		}
 		session.notePrivacyDecision("warn", contract.RequestStatusSucceeded)
-		session.notePrivacyOutcome(contract.PrivacyDecisionWarn, nil)
+		session.notePrivacyOutcome(contract.PrivacyDecisionWarn, result.Findings)
 		return finish, privacyOutcome{}, nil
 	case privacy.DecisionBlock:
 		session.notePrivacyDecision("block", contract.RequestStatusBlocked)

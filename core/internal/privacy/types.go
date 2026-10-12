@@ -219,6 +219,10 @@ type Result struct {
 	// (the record's preview). Like Redactions it stays in process: never
 	// stored, logged, or forwarded.
 	Protected []string
+	// Fingerprints are keyed digests of the distinct values a warn decision
+	// let through, so the gateway can tell a value it already warned about
+	// from a new one. Like Protected they stay in process.
+	Fingerprints []Fingerprint
 	// NoticeInjected reports that a placeholder convention note was prepended
 	// to the upstream system prompt.
 	NoticeInjected bool

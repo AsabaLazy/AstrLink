@@ -15,6 +15,7 @@ mod kek_store;
 mod macos_app;
 mod model_updates;
 mod preferences;
+mod privacy_warnings;
 mod provider_import;
 mod proxy_check;
 mod raw_access;

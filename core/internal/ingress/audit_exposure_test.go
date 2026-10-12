@@ -148,6 +148,7 @@ func TestIngressAuditExposureFollowsPrivacyDecision(t *testing.T) {
 				storage.AuditDirectionRequest:  storage.AuditExposureShareable,
 				storage.AuditDirectionResponse: storage.AuditExposureShareable,
 			},
+			wantFindings: []contract.PrivacyFinding{{Kind: contract.CanonicalKindEmail, JSONPath: "/messages/0/content", Count: 1}},
 		},
 		{
 			name:   "redact with restore",

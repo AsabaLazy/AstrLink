@@ -333,8 +333,9 @@ func (decision PrivacyDecision) Severity() int {
 }
 
 // PrivacyFinding says where accepted matches of one kind were found. It is
-// stored for block and redact so a withheld body can still be explained; it
-// never contains the matched value or a placeholder.
+// stored for warn, redact and block, so a record says what the policy found
+// even where the body is withheld; it never contains the matched value or a
+// placeholder.
 type PrivacyFinding struct {
 	Kind     CanonicalKind `json:"kind"`
 	JSONPath string        `json:"json_path"`
@@ -732,6 +733,9 @@ type RequestSession struct {
 	InputProtocol      ProtocolID            `json:"input_protocol"`
 	ServiceID          *ServiceID            `json:"service_id"`
 	LocalAccessTokenID *AccessTokenID        `json:"local_access_token_id"`
+	// PrivacyWarned is set when the warn action let at least one call of the
+	// session through, so the list can mark it without loading every call.
+	PrivacyWarned bool `json:"privacy_warned,omitempty"`
 }
 
 func (session RequestSession) Validate() error {

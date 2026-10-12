@@ -2130,6 +2130,8 @@
     "countItems": "{{count}} 条",
     "sessionMeta": "{{turns}} 轮 · {{calls}} 次调用 · {{duration}}",
     "sessionMetaTurns": "{{turns}} 轮 · {{duration}}",
+    "privacyWarned": "已警告",
+    "privacyWarnedHint": "这段对话里有请求包含隐私内容，模型收到了原文。",
     "exportMarkdown": "导出为 Markdown 文件",
     "exportTxt": "导出为 TXT 文件",
     "tabTrajectory": "追踪",
@@ -2385,7 +2387,7 @@
     "policyReplaced": "替换 {{count}} 处",
     "policyNotice": "已附加占位符说明",
     "policyAllowHint": "策略没有改动请求内容，请求体见「客户端」。",
-    "policyWarnHint": "命中警告规则，策略没有改动请求内容，请求体见「客户端」。",
+    "policyWarnHint": "命中的内容已按原文发给模型，请求体见「客户端」。隐私保护设为「脱敏后继续」时，会在发送前替换这些内容。",
     "policyBlockHint": "策略阻止了这次请求，没有发往上游。",
     "restoreCounts": "可见文本 {{visible}} · 工具参数 {{tools}}",
     "restoreChip": "restore · 已还原/映射",
@@ -2575,6 +2577,11 @@
     "rawAccess": {
       "notificationTitle": "Agent 申请读取原文",
       "notificationBody": "请在 AstrLink 的审批窗口中批准或拒绝。"
+    },
+    "privacyWarning": {
+      "title": "已按原文发给模型：{{kinds}}",
+      "body": "隐私保护当前设为「警告并继续」。设为「脱敏后继续」会在发送前替换这些内容，设为「阻止请求」会拦下这类请求。",
+      "kindSeparator": "、"
     },
     "autostart": {
       "readFailed": "无法读取系统开机启动状态：{{error}}",

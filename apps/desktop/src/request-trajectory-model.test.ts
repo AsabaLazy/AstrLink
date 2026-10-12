@@ -22,6 +22,7 @@ import {
   callProgressAtScrollLeft,
   listOffsetForCall,
   listScrollForTimeline,
+  recordedPrivacyFindings,
   recordedPrivacyHits,
   scrollLeftForCall,
   splitPrivacyHighlights,
@@ -1393,6 +1394,20 @@ describe("request trajectory model", () => {
       ["url", "URL", 1],
     ]);
     expect(recordedPrivacyHits(record.privacy_restore)).toEqual([]);
+  });
+
+  it("names what a warning found, adding up each kind across paths", () => {
+    expect(
+      recordedPrivacyFindings([
+        { kind: "email", json_path: "/input/1/content", count: 1 },
+        { kind: "common_secret", json_path: "/input/0/content", count: 2 },
+        { kind: "email", json_path: "/input/0/content", count: 1 },
+      ]).map((hit) => [hit.kind, hit.label, hit.count]),
+    ).toEqual([
+      ["email", "邮箱", 2],
+      ["common_secret", "常见密钥", 2],
+    ]);
+    expect(recordedPrivacyFindings(undefined)).toEqual([]);
   });
 
   it("reads the policy decision from the phase summary Core writes", () => {

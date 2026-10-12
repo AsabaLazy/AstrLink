@@ -1290,6 +1290,41 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /control/v1/privacy/warnings:
+    x-astrlink-implementation-status: implemented
+    get:
+      x-astrlink-role: observer
+      tags: [Requests]
+      operationId: listPrivacyWarnings
+      summary: List recent requests the privacy policy's warn action let through.
+      description: >-
+        Core keeps the latest 128 warnings in memory only and starts over when it
+        restarts. Events come oldest first and name the kinds found with their
+        counts, never a value or a fingerprint. notifiable is set when the
+        request carried a value no earlier warning of this Core process carried,
+        so a value resent with a conversation's history does not notify again.
+        A reader passes the last sequence it read as since; when epoch changes,
+        sequences have started over and the reader reads again from 0.
+      parameters:
+        - name: since
+          in: query
+          required: false
+          description: Return events with a greater sequence. Defaults to 0, which returns every retained event.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Retained warnings after since.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrivacyWarningPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /control/v1/access-token-usage:
     x-astrlink-implementation-status: implemented
     get:
@@ -6362,7 +6397,7 @@ components:
           maxItems: 64
           items:
             $ref: "#/components/schemas/PrivacyFinding"
-          description: Present for redact and block decisions. Omitted on legacy rows.
+          description: Present for warn, redact and block decisions. Omitted on legacy rows, including warn rows recorded before warn kept its findings.
         extensions:
           $ref: ./protocol-capabilities.schema.json#/$defs/Extensions
       additionalProperties: false
@@ -6411,6 +6446,54 @@ components:
           type: string
           minLength: 1
           maxLength: 256
+        count:
+          type: integer
+          minimum: 1
+      additionalProperties: false
+    PrivacyWarningPage:
+      type: object
+      required: [epoch, events]
+      properties:
+        epoch:
+          type: string
+          pattern: "^[0-9a-f]{16}$"
+          description: Names this Core process's feed. A different value means Core restarted and sequences started over.
+        events:
+          type: array
+          maxItems: 128
+          items:
+            $ref: "#/components/schemas/PrivacyWarningEvent"
+      additionalProperties: false
+    PrivacyWarningEvent:
+      type: object
+      required: [sequence, at, kinds, notifiable]
+      description: One request the warn action let through. Never carries a value or a fingerprint.
+      properties:
+        sequence:
+          type: integer
+          minimum: 1
+        at:
+          type: string
+          format: date-time
+        request_id:
+          $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
+        client_type:
+          $ref: "#/components/schemas/ClientType"
+        kinds:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/PrivacyWarningKindCount"
+        notifiable:
+          type: boolean
+          description: Set when the request carried a value no earlier warning of this Core process carried.
+      additionalProperties: false
+    PrivacyWarningKindCount:
+      type: object
+      required: [kind, count]
+      properties:
+        kind:
+          $ref: "#/components/schemas/PrivacyCanonicalKind"
         count:
           type: integer
           minimum: 1
@@ -6635,6 +6718,9 @@ components:
           oneOf:
             - $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
             - type: "null"
+        privacy_warned:
+          type: boolean
+          description: Present and true when the privacy policy's warn action let at least one call of the session through.
       additionalProperties: false
     RequestSessionPage:
       type: object

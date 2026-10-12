@@ -290,6 +290,11 @@ export interface RequestSession {
   input_protocol: string;
   service_id: string | null;
   local_access_token_id: string | null;
+  /**
+   * Set when the warn action let at least one call through as is; absent
+   * otherwise and from a Core that predates it.
+   */
+  privacy_warned?: boolean;
 }
 
 export interface RequestSessionPage {
@@ -1151,6 +1156,14 @@ function parseRequestSessionAt(value: unknown, path: string): RequestSession {
       session.local_access_token_id,
       `${path}.local_access_token_id`,
     ),
+    ...(session.privacy_warned == null
+      ? {}
+      : {
+          privacy_warned: boolAt(
+            session.privacy_warned,
+            `${path}.privacy_warned`,
+          ),
+        }),
   };
 }
 

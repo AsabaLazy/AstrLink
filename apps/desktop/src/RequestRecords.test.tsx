@@ -572,6 +572,36 @@ describe("RequestRecords", () => {
     },
   );
 
+  it("marks a conversation the warn action let through on its title line", async () => {
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [
+        sessionFromRecord(firstRecord, { privacy_warned: true }),
+        sessionFromRecord(secondRecord),
+      ],
+      next_cursor: null,
+    });
+    await renderRecords();
+    const rows = container.querySelectorAll(
+      '[data-testid="request-session-row"]',
+    );
+    const marker = rows[0]?.querySelector(
+      '[data-testid="privacy-warned-marker"]',
+    );
+    expect(marker?.textContent).toBe("已警告");
+    expect(marker?.getAttribute("title")).toBe(
+      "这段对话里有请求包含隐私内容，模型收到了原文。",
+    );
+    // It shares the title's line, so the row keeps its cells and height.
+    expect(
+      marker?.parentElement?.contains(rows[0]?.querySelector("strong") ?? null),
+    ).toBe(true);
+    expect(rows[0]?.children).toHaveLength(rows[1]?.children.length ?? -1);
+    expect(
+      rows[1]?.querySelector('[data-testid="privacy-warned-marker"]'),
+    ).toBeNull();
+    expect(rows[1]?.textContent).not.toContain("已警告");
+  });
+
   it("shows explicit reasoning effort beside the model and omits it for legacy sessions", async () => {
     bridgeMocks.listRequestSessions.mockResolvedValue({
       items: [
@@ -2207,6 +2237,100 @@ describe("RequestRecords", () => {
     ).toBeNull();
     expect(inspector?.textContent).not.toContain("hello");
     expect(inspector?.textContent).not.toContain(`${body.length} B`);
+  });
+
+  it("names what a warning found in the policy step", async () => {
+    const warned: RequestRecord = {
+      ...firstRecord,
+      privacy_restore: null,
+      events: [
+        {
+          kind: "accepted",
+          started_at: firstRecord.started_at,
+          ended_at: firstRecord.started_at,
+          status: "succeeded",
+          summary: "gpt-4.1 · openai.responses",
+          attempt_index: 1,
+        },
+        {
+          kind: "privacy",
+          started_at: firstRecord.started_at,
+          ended_at: firstRecord.started_at,
+          status: "succeeded",
+          summary: "warn",
+          attempt_index: 1,
+        },
+        {
+          kind: "completed",
+          started_at: firstRecord.started_at,
+          ended_at: firstRecord.completed_at,
+          status: "succeeded",
+          summary: "HTTP 200",
+          attempt_index: 1,
+        },
+      ],
+    };
+    bridgeMocks.getRequestAuditContent.mockResolvedValue({
+      request_id: warned.id,
+      withheld: {},
+      http_meta: null,
+      request_body: null,
+      response_content: null,
+      upstream_http_meta: null,
+      upstream_request_body: null,
+      upstream_response_content: null,
+      privacy_findings: [
+        { kind: "common_secret", json_path: "/input/0/content", count: 1 },
+        { kind: "email", json_path: "/input/0/content", count: 1 },
+        { kind: "email", json_path: "/input/2/content", count: 1 },
+      ],
+    });
+    bridgeMocks.listRequestSessions.mockResolvedValueOnce({
+      items: [sessionFromRecord(warned, { privacy_warned: true })],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValueOnce({
+      ...sessionFromRecord(warned, { privacy_warned: true }),
+      turns: [warned],
+    });
+    await renderRecords();
+    await act(async () => {
+      (
+        container.querySelector(
+          `[data-session-id="${warned.id}"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => {
+      (
+        container.querySelector(
+          '[data-testid="trajectory-row"][data-chip="POLICY"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    const inspector = container.querySelector(
+      '[data-testid="trajectory-inspector"]',
+    );
+    const outcome =
+      inspector?.querySelector('[data-testid="policy-outcome"]')?.textContent ??
+      "";
+    expect(outcome).toContain("已警告");
+    expect(outcome).toContain("邮箱 ×2");
+    expect(outcome).toContain("常见密钥 ×1");
+    expect(outcome).not.toMatch(/替换 \d+ 处/);
+    expect(
+      inspector?.querySelector('[data-testid="policy-hint"]')?.textContent,
+    ).toBe(
+      "命中的内容已按原文发给模型，请求体见「客户端」。隐私保护设为「脱敏后继续」时，会在发送前替换这些内容。",
+    );
+    expect(
+      inspector?.querySelector('[data-testid="inspector-policy-body"]'),
+    ).toBeNull();
   });
 
   it("explains missing capture in the inspector", async () => {

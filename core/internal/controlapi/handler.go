@@ -56,6 +56,9 @@ type Dependencies struct {
 	AuditSettings      storage.AuditSettingsStore
 	AuditKeys          storage.AuditKeyStore
 	AuditBlobs         storage.AuditBlobStore
+	// PrivacyWarnings is the feed of requests the warn action let through.
+	// Optional; without it the route is not registered.
+	PrivacyWarnings PrivacyWarningFeed
 	// RawVault guards raw audit parts. Nil until raw sealing is set up
 	// by the runtime; see RawVault.
 	RawVault RawVault
@@ -132,6 +135,7 @@ type Handler struct {
 	policyStore       storage.PolicyStore
 	privacyModels     PrivacyModelRegistry
 	privacyFilter     privacy.Filter
+	privacyWarnings   PrivacyWarningFeed
 	policyChanged     func(contract.Policy)
 	requestRecords    storage.RequestRecordStore
 	auditSettings     storage.AuditSettingsStore
@@ -203,6 +207,7 @@ func newHandler(version contract.VersionResponse, dependencies Dependencies) (*H
 		policyStore:     dependencies.PolicyStore,
 		privacyModels:   dependencies.PrivacyModels,
 		privacyFilter:   dependencies.PrivacyFilter,
+		privacyWarnings: dependencies.PrivacyWarnings,
 		policyChanged:   dependencies.PolicyChanged,
 		requestRecords:  dependencies.RequestRecords,
 		auditSettings:   dependencies.AuditSettings,
@@ -231,6 +236,9 @@ func newHandler(version contract.VersionResponse, dependencies Dependencies) (*H
 	handler.observers.active = handler.rawGrants.activeCount
 	handler.observers.passwordRequired = handler.rawPasswordRequired
 	handler.mux.HandleFunc(ObserversPath, handler.authenticated(handler.getObservers, RoleObserver))
+	if handler.privacyWarnings != nil {
+		handler.mux.HandleFunc(PrivacyWarningsPath, handler.authenticated(handler.getPrivacyWarnings, RoleObserver))
+	}
 	handler.mux.HandleFunc(PricingPath+"/", handler.authenticated(handler.pricingResource, RoleObserver))
 	handler.mux.HandleFunc(BuiltinToolsPath, handler.authenticated(handler.builtinToolResource, RoleOperator))
 	handler.mux.HandleFunc(RoutingSettingsPath, handler.authenticated(handler.routingSettingsResource, RoleObserver))

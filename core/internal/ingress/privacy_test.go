@@ -89,7 +89,7 @@ func TestPrivacyNoMatchAndWarnPreserveExactBytesAndWarningStaysLocal(t *testing.
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var warningReports []string
+			var warningReports []privacy.Warning
 			filter := testPrivacyEngine(t, privacy.Policy{
 				Enabled: true, Mode: privacy.ModeRegex, Action: test.action,
 			}, nil)
@@ -99,11 +99,9 @@ func TestPrivacyNoMatchAndWarnPreserveExactBytesAndWarningStaysLocal(t *testing.
 					return endpoint.Resolved{Endpoint: upstream}, nil
 				}),
 				PrivacyFilter: filter,
-				PolicyWarningReporter: PolicyWarningReporterFunc(
-					func(_ contract.ProtocolID, _ contract.ServiceID, summary string) {
-						warningReports = append(warningReports, summary)
-					},
-				),
+				PolicyWarningReporter: PolicyWarningReporterFunc(func(warning privacy.Warning) {
+					warningReports = append(warningReports, warning)
+				}),
 				Forwarder: transport.New(roundTripFunc(func(request *http.Request) (*http.Response, error) {
 					if request.Header.Get(PolicyWarningHeader) != "" {
 						t.Fatalf("privacy warning leaked upstream: %#v", request.Header)
@@ -137,11 +135,16 @@ func TestPrivacyNoMatchAndWarnPreserveExactBytesAndWarningStaysLocal(t *testing.
 				t.Fatalf("unexpected warning header = %q", header)
 			}
 			if test.wantHeader {
-				if len(warningReports) != 1 || warningReports[0] != "email=1" {
+				if len(warningReports) != 1 {
 					t.Fatalf("warning reports = %#v", warningReports)
 				}
-				if strings.Contains(warningReports[0], "alice@example.com") {
-					t.Fatalf("warning report leaked plaintext: %q", warningReports[0])
+				warning := warningReports[0]
+				if warning.RequestID == "" || warning.Protocol != contract.ProtocolOpenAIResponses ||
+					privacy.WarningSummary(warning.Findings) != "email=1" || len(warning.Fingerprints) != 1 {
+					t.Fatalf("warning report = %#v", warning)
+				}
+				if encoded, _ := json.Marshal(warning); strings.Contains(string(encoded), "alice@example.com") {
+					t.Fatalf("warning report leaked plaintext: %s", encoded)
 				}
 			} else if len(warningReports) != 0 {
 				t.Fatalf("unexpected warning reports = %#v", warningReports)

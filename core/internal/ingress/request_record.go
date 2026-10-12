@@ -1610,8 +1610,9 @@ func (session *recordSession) visibleInputPreview() string {
 }
 
 // notePrivacyOutcome keeps the structured decision beside the event summary.
-// Findings are kept only for decisions that withhold the client body; their
-// paths are reduced to structure so no request value reaches the record.
+// Findings are kept for every decision that found something (warn, redact and
+// block); their paths are reduced to structure so no request value reaches the
+// record.
 func (session *recordSession) notePrivacyOutcome(decision contract.PrivacyDecision, findings []privacy.Finding) {
 	if session == nil || !decision.Valid() {
 		return
@@ -1619,10 +1620,25 @@ func (session *recordSession) notePrivacyOutcome(decision contract.PrivacyDecisi
 	if session.privacyDecision == "" || decision.Severity() > session.privacyDecision.Severity() {
 		session.privacyDecision = decision
 	}
-	if decision != contract.PrivacyDecisionRedact && decision != contract.PrivacyDecisionBlock {
-		return
-	}
 	session.privacyFindings = mergePrivacyFindings(session.privacyFindings, findings)
+}
+
+// requestID is the root record's id, which every attempt shares; empty when
+// the request is not recorded.
+func (session *recordSession) requestID() contract.RequestID {
+	if session == nil {
+		return ""
+	}
+	return session.id
+}
+
+// inboundClientType is the client recognized from the request headers; empty
+// when unknown or when the request is not recorded.
+func (session *recordSession) inboundClientType() contract.ClientType {
+	if session == nil {
+		return ""
+	}
+	return session.clientType
 }
 
 // sealHTTPMeta encrypts the redacted HTTP envelope as a third blob direction.

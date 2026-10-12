@@ -3,6 +3,7 @@ import { formatExactNumber } from "./format-compact-number";
 import { i18n } from "./i18n";
 import {
   statusLabel,
+  type AuditPrivacyFinding,
   type RequestEvent,
   type RequestModelRedirect,
   type RequestRecord,
@@ -159,6 +160,36 @@ export function recordedPrivacyHits(
     count: hit.count,
     placeholders: [],
   }));
+}
+
+/**
+ * What the policy found when it replaced nothing (a warning or a block), by
+ * kind. A finding is one kind at one path, so counts add up across paths.
+ */
+export function recordedPrivacyFindings(
+  findings: readonly AuditPrivacyFinding[] | undefined,
+): PrivacyHitGroup[] {
+  const counts = new Map<string, number>();
+  for (const finding of findings ?? []) {
+    counts.set(finding.kind, (counts.get(finding.kind) ?? 0) + finding.count);
+  }
+  // Known kinds in display order, then labels from a newer Core by name.
+  const rank = (kind: string) => {
+    const index = privacyKindOrder.indexOf(
+      kind as (typeof privacyKindOrder)[number],
+    );
+    return index === -1 ? privacyKindOrder.length : index;
+  };
+  return [...counts.keys()]
+    .sort(
+      (left, right) => rank(left) - rank(right) || left.localeCompare(right),
+    )
+    .map((kind) => ({
+      kind,
+      label: privacyHitLabel(kind),
+      count: counts.get(kind) ?? 0,
+      placeholders: [],
+    }));
 }
 
 /**

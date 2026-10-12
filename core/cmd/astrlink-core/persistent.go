@@ -177,6 +177,9 @@ func openPersistentCore(ctx context.Context, options persistentOptions) (*persis
 	if err != nil {
 		return fail("configure local privacy filter: %w", err)
 	}
+	// The desktop polls this feed to notify about requests the warn action
+	// let through; it lives in memory only.
+	privacyWarnings := privacy.NewWarningFeed()
 	conversionEngine := relaykitbridge.NewEngine()
 	// One registry serves inference, gateway-initiated requests and
 	// learning, so a learned identity applies everywhere at once.
@@ -234,13 +237,14 @@ func openPersistentCore(ctx context.Context, options persistentOptions) (*persis
 		),
 		PrivacyFilter: privacyFilter,
 		PolicyWarningReporter: ingress.PolicyWarningReporterFunc(
-			func(protocol contract.ProtocolID, endpointID contract.ServiceID, summary string) {
+			func(warning privacy.Warning) {
 				logf(
 					"privacy policy warning: protocol=%s service_id=%s findings=%s",
-					protocol,
-					endpointID,
-					summary,
+					warning.Protocol,
+					warning.ServiceID,
+					privacy.WarningSummary(warning.Findings),
 				)
+				privacyWarnings.Report(warning)
 			},
 		),
 		RequestRecords:           store,
@@ -261,6 +265,7 @@ func openPersistentCore(ctx context.Context, options persistentOptions) (*persis
 		PolicyStore:        store,
 		PrivacyModels:      privacyModel,
 		PrivacyFilter:      privacyFilter,
+		PrivacyWarnings:    privacyWarnings,
 		PolicyChanged:      privacyWorker.ApplyPolicy,
 		RequestRecords:     store,
 		AuditSettings:      store,
