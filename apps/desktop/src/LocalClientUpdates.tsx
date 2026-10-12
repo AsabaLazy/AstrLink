@@ -179,18 +179,18 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
         </Button>
       </PanelHeader>
       {expanded ? (
-        <div className="space-y-3 p-3" id={`${id}-clients`}>
+        <div className="space-y-2 p-2.5" id={`${id}-clients`}>
           {!native ? (
             <p className="text-xs text-muted-foreground">
               {t("localClients.browser")}
             </p>
           ) : null}
           {error ? <FormMessage tone="error">{error}</FormMessage> : null}
-          <div className="grid gap-3 @min-[600px]/workspace-surface:grid-cols-2">
+          <div className="grid gap-2 @min-[600px]/workspace-surface:grid-cols-2">
             {snapshot.clients.map((client) => (
               <Panel
                 key={localClientKey(client)}
-                className="flex min-w-0 flex-col gap-3 p-3"
+                className="flex min-w-0 flex-col gap-2 px-3 py-2.5"
                 data-client={client.id}
                 data-wsl={client.wsl ?? undefined}
               >
@@ -219,7 +219,7 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
                     {t(`localClients.phase.${client.phase}`)}
                   </StatusBadge>
                 </div>
-                <dl className="space-y-1.5 text-xs">
+                <dl className="space-y-1 text-xs">
                   <div className="flex justify-between gap-2">
                     <dt className="text-muted-foreground">
                       {t("localClients.current")}
@@ -261,7 +261,7 @@ export function LocalClientUpdates({ compact = false }: { compact?: boolean }) {
                       >
                         {t("localClients.details")}
                       </summary>
-                      <div className="mt-3 space-y-3">
+                      <div className="mt-2 space-y-2">
                         {client.executable ? (
                           <DataField
                             label={t("localClients.installationPath")}
