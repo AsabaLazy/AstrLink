@@ -571,6 +571,7 @@
       }
     },
     "help": {
+      "title": "常见问题",
       "installTitle": "未检测到或安装不完整？",
       "installBody": "先启动一次对应工具，再点“重新检测”。若显示未安装或部分安装，点“安装工具”或“安装 / 更新”并勾选对应工具；安装完成后新开会话。",
       "connectTitle": "Agent 连不上 AstrLink？",

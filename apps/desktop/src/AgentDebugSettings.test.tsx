@@ -587,6 +587,21 @@ describe("AgentDebugSettings", () => {
     copy.mockRestore();
   });
 
+  it("keeps the common questions behind one collapsed entry", async () => {
+    await act(async () => root.render(<AgentDebugSettings />));
+    const help = container.querySelectorAll("details");
+    expect(help).toHaveLength(1);
+    expect(help[0].hasAttribute("open")).toBe(false);
+    expect(help[0].querySelector("summary")?.textContent).toBe("常见问题");
+    expect(
+      [...help[0].querySelectorAll("dt")].map((term) => term.textContent),
+    ).toEqual([
+      "未检测到或安装不完整？",
+      "Agent 连不上 AstrLink？",
+      "为什么看不到请求正文？",
+    ]);
+  });
+
   function skillCheckbox(id: string): HTMLButtonElement {
     const found = document.querySelector<HTMLButtonElement>(
       `#agent-skill-${id}`,

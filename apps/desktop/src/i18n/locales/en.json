@@ -571,6 +571,7 @@
       }
     },
     "help": {
+      "title": "Common questions",
       "installTitle": "Tool missing or setup incomplete?",
       "installBody": "Launch the tool once, then choose Check again. If it shows Not installed or Partially installed, choose Install tools or Install / update and select that tool. Open a new session when installation finishes.",
       "connectTitle": "Agent can't reach AstrLink?",
