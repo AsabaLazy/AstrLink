@@ -192,17 +192,24 @@ async fn set_cc_switch(home: PathBuf, client: Client, handed_over: bool) -> Resu
 /// directory setting points into, or else the desktop user's. `None` when
 /// that distribution is no longer registered.
 fn managed_home(home: PathBuf, client: Client) -> Result<Option<OwnedHome>, String> {
-    let (_, wsl_dirs) = wsl::split_dirs(config_dirs(&home));
-    let distribution = wsl_dirs
+    let distribution = managed_distribution(config_dirs(&home), client);
+    let names = distribution.iter().cloned().collect::<Vec<_>>();
+    Ok(Homes::find(home, Reach::Named(&names))?.take(distribution.as_deref()))
+}
+
+/// The WSL distribution whose config CC Switch writes for `client`, as its
+/// directory settings `dirs` place it; `None` for the desktop user's. Only
+/// Claude Code and Codex move into WSL.
+pub fn managed_distribution(dirs: ToolDirs, client: Client) -> Option<String> {
+    let (_, wsl_dirs) = wsl::split_dirs(dirs);
+    wsl_dirs
         .into_iter()
         .find(|entry| match client {
             Client::Claude => entry.dirs.claude.is_some(),
             Client::Codex => entry.dirs.codex.is_some(),
             _ => false,
         })
-        .map(|entry| entry.distribution);
-    let names = distribution.iter().cloned().collect::<Vec<_>>();
-    Ok(Homes::find(home, Reach::Named(&names))?.take(distribution.as_deref()))
+        .map(|entry| entry.distribution)
 }
 
 /// The configuration directories CC Switch's settings move each app to, so
@@ -276,6 +283,49 @@ mod tests {
         fs::write(home.join(".cc-switch").join("settings.json"), "not json").unwrap();
         assert_eq!(config_dirs(&home), ToolDirs::default());
         fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn cc_switch_writes_claude_and_codex_where_their_dirs_point() {
+        let all = [
+            Client::Claude,
+            Client::Codex,
+            Client::Gemini,
+            Client::Opencode,
+            Client::Openclaw,
+            Client::Pi,
+        ];
+        // Default settings write every client in the desktop user's home.
+        for client in all {
+            assert_eq!(managed_distribution(ToolDirs::default(), client), None);
+        }
+        let dirs = ToolDirs {
+            claude: Some(PathBuf::from(r"D:\claude")),
+            codex: Some(PathBuf::from(r"\\wsl$\ubuntu-24.04\home\codbitz\.codex")),
+            grok: Some(PathBuf::from(r"\\wsl$\Debian\home\ada\.grok")),
+            pi: Some(PathBuf::from(r"\\wsl.localhost\Debian\home\ada\.pi\agent")),
+        };
+        for client in all {
+            let expected = (client == Client::Codex).then_some("ubuntu-24.04");
+            assert_eq!(
+                managed_distribution(dirs.clone(), client).as_deref(),
+                expected,
+                "{client:?}"
+            );
+        }
+        // Both directories in one distribution name it once, however spelled.
+        let both = ToolDirs {
+            claude: Some(PathBuf::from(
+                r"\\wsl.localhost\Ubuntu-24.04\home\codbitz\.claude",
+            )),
+            ..dirs
+        };
+        for client in [Client::Claude, Client::Codex] {
+            assert_eq!(
+                managed_distribution(both.clone(), client).as_deref(),
+                Some("Ubuntu-24.04")
+            );
+        }
     }
 
     #[test]

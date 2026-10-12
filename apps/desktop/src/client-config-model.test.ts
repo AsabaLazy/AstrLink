@@ -52,6 +52,7 @@ function parseStatuses(clients: unknown[]) {
     clients,
     wsl_unchecked: [],
     wsl_localhost: false,
+    cc_switch_wsl: { claude: null, codex: null },
   }).clients;
 }
 
@@ -65,6 +66,7 @@ describe("client-config IPC parsing", () => {
       clients: [...statuses(), ...inWSL("Ubuntu"), ...inWSL("Debian")],
       wsl_unchecked: ["Arch"],
       wsl_localhost: true,
+      cc_switch_wsl: { claude: null, codex: null },
     };
     expect(parseClientConfigOverview(value)).toEqual(value);
     for (const clients of [
@@ -83,6 +85,30 @@ describe("client-config IPC parsing", () => {
     expect(() =>
       parseClientConfigOverview({ ...value, wsl_unchecked: [""] }),
     ).toThrow("wsl_unchecked");
+  });
+
+  it("accepts the WSL distribution CC Switch writes Claude Code or Codex in", () => {
+    const value = {
+      clients: statuses(),
+      wsl_unchecked: [],
+      wsl_localhost: false,
+      cc_switch_wsl: { claude: null, codex: "Ubuntu-24.04" },
+    };
+    expect(parseClientConfigOverview(value)).toEqual(value);
+    const { cc_switch_wsl: _, ...missing } = value;
+    expect(() => parseClientConfigOverview(missing)).toThrow("cc_switch_wsl");
+    for (const ccSwitchWSL of [
+      null,
+      { claude: null },
+      { claude: null, codex: null, pi: null },
+      { claude: "", codex: null },
+      { claude: null, codex: "Ubuntu\n24.04" },
+      { claude: null, codex: true },
+    ]) {
+      expect(() =>
+        parseClientConfigOverview({ ...value, cc_switch_wsl: ccSwitchWSL }),
+      ).toThrow("cc_switch_wsl");
+    }
   });
 
   it("accepts one status per direct client in order", () => {

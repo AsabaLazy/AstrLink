@@ -77,6 +77,7 @@ function clientStatuses(
     clients: [...clients, ...wsl],
     wsl_unchecked: [],
     wsl_localhost: false,
+    cc_switch_wsl: { claude: null, codex: null },
   };
 }
 

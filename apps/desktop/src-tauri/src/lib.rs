@@ -1952,10 +1952,18 @@ async fn client_config_status(
                 }
             }
         }
+        let dirs = cc_switch::config_dirs(&homes.host);
         Ok(client_config::ClientOverview {
             clients,
             wsl_unchecked,
             wsl_localhost: wsl::localhost_shared(&homes.host),
+            cc_switch_wsl: client_config::CcSwitchWsl {
+                claude: cc_switch::managed_distribution(
+                    dirs.clone(),
+                    client_config::Client::Claude,
+                ),
+                codex: cc_switch::managed_distribution(dirs, client_config::Client::Codex),
+            },
         })
     })
     .await

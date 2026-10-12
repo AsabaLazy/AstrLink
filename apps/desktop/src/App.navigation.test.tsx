@@ -38,6 +38,7 @@ const bridgeMocks = vi.hoisted(() => ({
     clients: [],
     wsl_unchecked: [],
     wsl_localhost: false,
+    cc_switch_wsl: { claude: null, codex: null },
   }),
   previewClientConfigSnippet: vi.fn().mockResolvedValue("{}"),
   copyClientConfigSnippet: vi.fn(),

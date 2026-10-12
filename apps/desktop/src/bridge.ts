@@ -883,7 +883,12 @@ export async function getClientConfigStatus(
   inferenceUrl: string | null,
 ): Promise<ClientConfigOverview> {
   if (!hasNativeBridge())
-    return { clients: [], wsl_unchecked: [], wsl_localhost: false };
+    return {
+      clients: [],
+      wsl_unchecked: [],
+      wsl_localhost: false,
+      cc_switch_wsl: { claude: null, codex: null },
+    };
   return parseClientConfigOverview(
     await invoke<unknown>("client_config_status", { inferenceUrl }),
   );

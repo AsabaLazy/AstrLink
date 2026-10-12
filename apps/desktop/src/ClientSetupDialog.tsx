@@ -98,8 +98,20 @@ function placeLabel(client: ClientConfigClient, wsl: string | null): string {
     ? name
     : i18n.t("clientSetup.placeClient", {
         client: name,
-        place: i18n.t("agentDebug.wslPlace", { name: wsl }),
+        place: placeName(wsl),
       });
+}
+
+/** This computer, or a WSL distribution, as the location control names it. */
+function placeName(wsl: string | null): string {
+  return wsl === null
+    ? i18n.t("clientSetup.placeLocal")
+    : i18n.t("agentDebug.wslPlace", { name: wsl });
+}
+
+/** Windows matches WSL distribution names in any case. */
+function samePlace(a: string | null, b: string | null): boolean {
+  return a?.toLowerCase() === b?.toLowerCase();
 }
 
 const protocols: Record<ClientConfigClient, string> = {
@@ -285,7 +297,12 @@ function DesktopClientSetupDialog({
       if (!active.current) return;
       setOverview(
         (current) =>
-          current ?? { clients: [], wsl_unchecked: [], wsl_localhost: false },
+          current ?? {
+            clients: [],
+            wsl_unchecked: [],
+            wsl_localhost: false,
+            cc_switch_wsl: { claude: null, codex: null },
+          },
       );
       setStatusFailed(true);
     }
@@ -361,7 +378,15 @@ function DesktopClientSetupDialog({
   const isClaude = client === "claude";
   const modelRequired = !isClaude && !model.trim();
   const configured = status?.token_id != null;
-  const offersCCSwitch = ccSwitch && client !== null && ccSwitchImports(client);
+  // CC Switch writes a client where its directory settings point, which for
+  // Claude Code and Codex can be one WSL distribution. Only that place
+  // offers its import.
+  const ccSwitchPlace =
+    client === "claude" || client === "codex"
+      ? (overview?.cc_switch_wsl[client] ?? null)
+      : null;
+  const ccSwitchable = ccSwitch && client !== null && ccSwitchImports(client);
+  const offersCCSwitch = ccSwitchable && samePlace(ccSwitchPlace, place);
   // The system proxy applies to this computer's Codex, not to one in WSL.
   const checksProxy = client === "codex" && !inWSL && inferenceURL !== "";
 
@@ -615,7 +640,7 @@ function DesktopClientSetupDialog({
       if (!(await enableEntries(target))) return;
       await openCCSwitchImport(target);
       if (!active.current) return;
-      notify.success(t("clientSetup.ccSwitchOpened"));
+      notify.successWithSteps(t("clientSetup.ccSwitchOpened"));
       onClose();
     } catch {
       if (active.current)
@@ -896,7 +921,7 @@ function DesktopClientSetupDialog({
                       htmlFor={`client-setup-${key}`}
                       label={t(`clientSetup.${key}`)}
                       hint={
-                        key === "fableModel" && ccSwitch
+                        key === "fableModel" && offersCCSwitch
                           ? t("clientSetup.fableNotImported")
                           : undefined
                       }
@@ -933,6 +958,17 @@ function DesktopClientSetupDialog({
                   ) : null}
                   {offersCCSwitch && client === "codex" ? (
                     <p>{t("clientSetup.codexToolsCCSwitch")}</p>
+                  ) : null}
+                  {ccSwitchable && !offersCCSwitch && status ? (
+                    <p>
+                      {t("clientSetup.ccSwitchElsewhere", {
+                        client: label,
+                        target: placeName(ccSwitchPlace),
+                        place: placeName(place),
+                        // The folder holding the config file.
+                        dir: status.paths[0].replace(/[\\/][^\\/]*$/, ""),
+                      })}
+                    </p>
                   ) : null}
                 </HelpDisclosure>
               ) : null}

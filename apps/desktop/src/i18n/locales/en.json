@@ -3071,11 +3071,12 @@
     "removeFailed": "Unable to remove the config.",
     "ccSwitchImport": "Import with CC Switch instead",
     "ccSwitchOpening": "Opening CC Switch…",
-    "ccSwitchOpened": "Requested CC Switch to open. Confirm the import there, enable the provider, then reopen the client.",
+    "ccSwitchOpened": "Requested CC Switch to open. Confirm the import there, enable the provider, then reopen the client. While CC Switch starts up, it may miss this import and stay on its main screen. If so, keep it open and import again.",
     "ccSwitchFailed": "Unable to open CC Switch. Check that it is installed with the ccswitch:// protocol registered and that the gateway and token are still available, then retry.",
     "ccSwitchOverwrites": "Switching providers in CC Switch overwrites the config written here.",
     "codexTools": "After writing, Codex shows its own image generation and web search tools. When Codex calls them, the gateway first uses the settings under Routing → Models & tools → Built-in tools. A tool turned off there goes to the API provider serving the conversation. A Codex subscription handles both tools. OpenAI API, OpenAI compatible and New API providers handle image generation. Otherwise Codex is told how to turn the tool on.",
     "codexToolsCCSwitch": "A config imported with CC Switch lacks this setting, so Codex does not show these two tools.",
+    "ccSwitchElsewhere": "Importing with CC Switch writes to {{client}} ({{target}}). To write to {{client}} ({{place}}), set {{client}} Configuration Directory to {{dir}} under Configuration Directory Override (Advanced) in CC Switch Settings, then reopen this dialog.",
     "limitsTitle": "Limitations",
     "limits": {
       "claude": "Only the user-level ~/.claude/settings.json is written. A project’s .claude/settings.json or .claude/settings.local.json wins when it sets the same environment variables. With CLAUDE_CONFIG_DIR set, Claude Code reads another folder; configure it manually instead.",

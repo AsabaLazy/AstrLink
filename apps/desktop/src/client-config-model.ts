@@ -60,6 +60,11 @@ export interface ClientConfigOverview {
   wsl_unchecked: string[];
   /** Whether WSL clients reach the gateway at localhost (mirrored networking). */
   wsl_localhost: boolean;
+  /**
+   * The WSL distribution whose config CC Switch writes, by client; `null` for
+   * this computer. CC Switch's directory settings decide it.
+   */
+  cc_switch_wsl: Record<"claude" | "codex", string | null>;
 }
 
 export type ClientConfigApplyOutcome =
@@ -194,7 +199,11 @@ export function parseClientConfigOverview(
   value: unknown,
 ): ClientConfigOverview {
   const root = objectAt(value, "$");
-  exactKeys(root, ["clients", "wsl_unchecked", "wsl_localhost"], "$");
+  exactKeys(
+    root,
+    ["clients", "wsl_unchecked", "wsl_localhost", "cc_switch_wsl"],
+    "$",
+  );
   const clients = arrayAt(root.clients, "$.clients").map((item, index) =>
     parseStatus(item, `$.clients[${index}]`),
   );
@@ -220,12 +229,22 @@ export function parseClientConfigOverview(
   if (typeof root.wsl_localhost !== "boolean") {
     invalid("$.wsl_localhost", "expected a boolean");
   }
+  const ccSwitchWSL = objectAt(root.cc_switch_wsl, "$.cc_switch_wsl");
+  exactKeys(ccSwitchWSL, ["claude", "codex"], "$.cc_switch_wsl");
+  const distribution = (key: "claude" | "codex") =>
+    ccSwitchWSL[key] === null
+      ? null
+      : lineAt(ccSwitchWSL[key], `$.cc_switch_wsl.${key}`, 255);
   return {
     clients,
     wsl_unchecked: arrayAt(root.wsl_unchecked, "$.wsl_unchecked").map(
       (item, index) => lineAt(item, `$.wsl_unchecked[${index}]`, 255),
     ),
     wsl_localhost: root.wsl_localhost,
+    cc_switch_wsl: {
+      claude: distribution("claude"),
+      codex: distribution("codex"),
+    },
   };
 }
 

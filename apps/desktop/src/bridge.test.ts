@@ -859,6 +859,7 @@ describe("desktop bridge contract", () => {
       clients: [...statuses, ...inUbuntu],
       wsl_unchecked: ["Debian"],
       wsl_localhost: true,
+      cc_switch_wsl: { claude: null, codex: "Ubuntu" },
     };
     invokeMock.mockResolvedValueOnce(overview);
     await expect(

@@ -22,6 +22,7 @@ vi.mock("./bridge", () => bridgeMocks);
 import type { ConversionEngineCapability } from "./core-model";
 import type { Service } from "./service-model";
 import { ClientSetupDialog } from "./ClientSetupDialog";
+import { notify } from "./notify";
 import type { AccessTokenSummary } from "./access-token-model";
 import type {
   ClientConfigState,
@@ -88,7 +89,13 @@ function overview(
   clients: ClientConfigStatus[],
   extra: Partial<ClientConfigOverview> = {},
 ): ClientConfigOverview {
-  return { clients, wsl_unchecked: [], wsl_localhost: false, ...extra };
+  return {
+    clients,
+    wsl_unchecked: [],
+    wsl_localhost: false,
+    cc_switch_wsl: { claude: null, codex: null },
+    ...extra,
+  };
 }
 
 function configured(
@@ -96,6 +103,25 @@ function configured(
   tokenId = token.id,
 ): Partial<ClientConfigStatus> {
   return { state, token_id: tokenId };
+}
+
+/** Every client on this Windows computer and in WSL Ubuntu-24.04. */
+function windowsPlaces(
+  ccSwitchWSL: ClientConfigOverview["cc_switch_wsl"],
+): ClientConfigOverview {
+  const home = (wsl: string | null, root: string) =>
+    statuses(
+      { paths: [`${root}\\.claude\\settings.json`] },
+      { paths: [`${root}\\.codex\\config.toml`] },
+      { paths: [`${root}\\.pi\\agent\\models.json`] },
+    ).clients.map((status) => ({ ...status, wsl }));
+  return overview(
+    [
+      ...home(null, "C:\\Users\\codbitz"),
+      ...home("Ubuntu-24.04", "\\\\wsl$\\Ubuntu-24.04\\home\\codbitz"),
+    ],
+    { wsl_localhost: true, cc_switch_wsl: ccSwitchWSL },
+  );
 }
 
 function dialog(): HTMLElement {
@@ -130,6 +156,16 @@ function card(label: string): HTMLButtonElement {
 
 function cardText(label: string): string {
   return card(label).closest("label")?.textContent ?? "";
+}
+
+function placeOption(label: string): HTMLButtonElement {
+  const match = [
+    ...dialog().querySelectorAll<HTMLButtonElement>(
+      '[data-slot="segmented-control-item"]',
+    ),
+  ].find((item) => item.textContent?.startsWith(label));
+  if (!match) throw new Error(`Missing place: ${label}`);
+  return match;
 }
 
 async function setInput(selector: string, value: string): Promise<void> {
@@ -746,6 +782,85 @@ describe("ClientSetupDialog", () => {
     expect(dialog().textContent).not.toContain("networkingMode");
     await act(async () => card("Codex").click());
     expect(place("本机").getAttribute("data-state")).toBe("on");
+  });
+
+  it("offers CC Switch's import only in the place it writes", async () => {
+    bridgeMocks.isCCSwitchInstalled.mockResolvedValue(true);
+    bridgeMocks.getClientConfigStatus.mockResolvedValue(
+      windowsPlaces({ claude: null, codex: null }),
+    );
+    await renderDialog();
+    await act(async () => card("Codex").click());
+
+    // By default CC Switch writes the Codex on this computer.
+    expect(placeOption("本机").getAttribute("data-state")).toBe("on");
+    expect(button("改用 CC Switch 导入")).toBeTruthy();
+    expect(dialog().textContent).toContain(
+      "在 CC Switch 中切换供应商会覆盖这里写入的配置。",
+    );
+    expect(dialog().textContent).not.toContain("配置目录覆盖");
+
+    await act(async () => placeOption("WSL · Ubuntu-24.04").click());
+    const text = dialog().textContent;
+    expect(text).not.toContain("改用 CC Switch 导入");
+    expect(text).not.toContain("在 CC Switch 中切换供应商");
+    expect(text).not.toContain("用 CC Switch 导入的配置里没有这项设置");
+    expect(text).toContain(
+      "用 CC Switch 导入时，配置会写入 Codex（本机）。要写入 Codex（WSL · Ubuntu-24.04），在 CC Switch「设置」的「配置目录覆盖（高级）」中，把「Codex 配置目录」设为 \\\\wsl$\\Ubuntu-24.04\\home\\codbitz\\.codex，然后重新打开此窗口。",
+    );
+  });
+
+  it("follows CC Switch's directory settings into WSL, in any case", async () => {
+    bridgeMocks.isCCSwitchInstalled.mockResolvedValue(true);
+    bridgeMocks.openCCSwitchImport.mockResolvedValue(undefined);
+    bridgeMocks.getClientConfigStatus.mockResolvedValue(
+      windowsPlaces({ claude: "ubuntu-24.04", codex: "ubuntu-24.04" }),
+    );
+    const notice = vi.spyOn(notify, "successWithSteps");
+    await renderDialog();
+
+    let text = dialog().textContent;
+    expect(placeOption("本机").getAttribute("data-state")).toBe("on");
+    expect(text).not.toContain("改用 CC Switch 导入");
+    expect(text).not.toContain("通过 CC Switch 导入时不包含 Fable。");
+    expect(text).toContain(
+      "用 CC Switch 导入时，配置会写入 Claude Code（WSL · ubuntu-24.04）。要写入 Claude Code（本机），在 CC Switch「设置」的「配置目录覆盖（高级）」中，把「Claude Code 配置目录」设为 C:\\Users\\codbitz\\.claude，然后重新打开此窗口。",
+    );
+    await act(async () => placeOption("WSL · Ubuntu-24.04").click());
+    text = dialog().textContent;
+    expect(text).toContain("通过 CC Switch 导入时不包含 Fable。");
+    expect(text).not.toContain("配置目录覆盖");
+
+    await act(async () => card("Codex").click());
+    await act(async () => placeOption("WSL · Ubuntu-24.04").click());
+    await setInput("#client-setup-model", "gpt-5");
+    await act(async () => button("改用 CC Switch 导入").click());
+    expect(bridgeMocks.openCCSwitchImport).toHaveBeenCalledExactlyOnceWith({
+      tokenId: token.id,
+      client: "codex",
+      models: { model: "gpt-5" },
+      inferenceUrl: "http://127.0.0.1:8317",
+    });
+    // CC Switch may drop a link that starts it, and AstrLink cannot tell.
+    expect(notice).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("这时让它保持打开，再导入一次。"),
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("shows nothing of CC Switch in any place while it is not installed", async () => {
+    bridgeMocks.getClientConfigStatus.mockResolvedValue(
+      windowsPlaces({ claude: null, codex: "Ubuntu-24.04" }),
+    );
+    await renderDialog();
+    await act(async () => card("Codex").click());
+
+    for (const label of ["本机", "WSL · Ubuntu-24.04"]) {
+      await act(async () => placeOption(label).click());
+      expect(placeOption(label).getAttribute("data-state")).toBe("on");
+      expect(dialog().textContent).not.toContain("改用 CC Switch 导入");
+      expect(dialog().textContent).not.toContain("配置目录覆盖");
+    }
   });
 
   it("writes Pi itself, even while CC Switch is installed", async () => {

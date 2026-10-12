@@ -332,6 +332,16 @@ pub struct ClientOverview {
     pub wsl_unchecked: Vec<String>,
     /// Whether WSL clients reach the gateway at `localhost`.
     pub wsl_localhost: bool,
+    /// Where CC Switch's import writes Claude Code and Codex.
+    pub cc_switch_wsl: CcSwitchWsl,
+}
+
+/// The WSL distribution whose config CC Switch writes, by client; `None` for
+/// the desktop user's.
+#[derive(Debug, Serialize)]
+pub struct CcSwitchWsl {
+    pub claude: Option<String>,
+    pub codex: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
