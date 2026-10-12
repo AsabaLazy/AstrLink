@@ -67,8 +67,12 @@ const MAX_SUBSCRIPTION_SERVICES: usize = 8;
 const MAX_WINDOWS_PER_SUBSCRIPTION: usize = 6;
 const MAX_WINDOW_LABEL_CHARS: usize = 40;
 
+/// Width of the popover page in CSS pixels; `TRAY_POPOVER_WIDTH` in the
+/// frontend.
 pub const POPOVER_WIDTH: f64 = 360.0;
 const POPOVER_INITIAL_HEIGHT: f64 = 320.0;
+/// Windows text size tops out at 225%; anything beyond is a bogus report.
+const POPOVER_MAX_ZOOM: f64 = 3.0;
 const POPOVER_MIN_HEIGHT: f64 = 96.0;
 /// Upper bound before the work area itself clamps the window; a folded
 /// subscription list of ten rows plus today's numbers fits under this.
@@ -986,7 +990,8 @@ struct TrayRuntime {
     last_click_refresh: Option<Instant>,
     refresh_in_flight: bool,
     anchor: Option<PopoverAnchor>,
-    popover_height: f64,
+    /// Logical window size the popover page last asked for.
+    popover_size: (f64, f64),
     popover_shown_at: Option<Instant>,
     popover_hidden_at: Option<Instant>,
     /// The app the popover took the foreground from, if not AstrLink.
@@ -1005,7 +1010,7 @@ impl Default for TrayState {
     fn default() -> Self {
         Self {
             inner: Mutex::new(TrayRuntime {
-                popover_height: POPOVER_INITIAL_HEIGHT,
+                popover_size: (POPOVER_WIDTH, POPOVER_INITIAL_HEIGHT),
                 ..TrayRuntime::default()
             }),
         }
@@ -1418,10 +1423,15 @@ fn copy_address(app: &AppHandle) -> Result<(), String> {
 // Popover window
 // ---------------------------------------------------------------------------
 
-fn build_popover_window(app: &AppHandle, x: f64, y: f64, height: f64) -> Result<(), String> {
+fn build_popover_window(
+    app: &AppHandle,
+    x: f64,
+    y: f64,
+    (width, height): (f64, f64),
+) -> Result<(), String> {
     let mut builder = WebviewWindowBuilder::new(app, POPOVER_LABEL, WebviewUrl::default())
         .title("AstrLink")
-        .inner_size(POPOVER_WIDTH, height)
+        .inner_size(width, height)
         .position(x, y)
         .decorations(false)
         .transparent(true)
@@ -1448,14 +1458,18 @@ fn build_popover_window(app: &AppHandle, x: f64, y: f64, height: f64) -> Result<
     Ok(())
 }
 
-fn place_popover(app: &AppHandle, anchor: PopoverAnchor, height: f64) -> Option<(f64, f64)> {
+fn place_popover(
+    app: &AppHandle,
+    anchor: PopoverAnchor,
+    (width, height): (f64, f64),
+) -> Option<(f64, f64)> {
     let window = app.get_webview_window(POPOVER_LABEL)?;
     // Never taller than the work area it hangs in; the panel scrolls inside.
     let height = height
         .min(anchor.work.height - 2.0 * POPOVER_MARGIN_Y)
         .max(POPOVER_MIN_HEIGHT);
-    let (x, y) = popover_placement(anchor.icon, anchor.work, (POPOVER_WIDTH, height));
-    let _ = window.set_size(LogicalSize::new(POPOVER_WIDTH, height));
+    let (x, y) = popover_placement(anchor.icon, anchor.work, (width, height));
+    let _ = window.set_size(LogicalSize::new(width, height));
     let _ = window.set_position(LogicalPosition::new(x, y));
     Some((x, y))
 }
@@ -1475,7 +1489,7 @@ fn toggle_popover(app: &AppHandle, position: PhysicalPosition<f64>, rect: Rect) 
         crate::show_main_window(app);
         return;
     };
-    let height = {
+    let size = {
         let mut runtime = state.lock();
         if runtime
             .popover_hidden_at
@@ -1485,22 +1499,22 @@ fn toggle_popover(app: &AppHandle, position: PhysicalPosition<f64>, rect: Rect) 
             return;
         }
         runtime.anchor = Some(anchor);
-        runtime.popover_height
+        runtime.popover_size
     };
     if app.get_webview_window(POPOVER_LABEL).is_some() {
-        place_popover(app, anchor, height);
+        place_popover(app, anchor, size);
         present_popover(app);
         return;
     }
     // First open: the webview does not exist yet. Native window creation
     // stays off the event loop (WebView2 deadlocks when a callback creates a
     // webview) and off the async workers, exactly like the inspector windows.
-    let (x, y) = popover_placement(anchor.icon, anchor.work, (POPOVER_WIDTH, height));
+    let (x, y) = popover_placement(anchor.icon, anchor.work, size);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let build_app = app.clone();
         let built = tauri::async_runtime::spawn_blocking(move || {
-            build_popover_window(&build_app, x, y, height)
+            build_popover_window(&build_app, x, y, size)
         })
         .await
         .map_err(|error| format!("popover build task failed: {error}"))
@@ -1639,9 +1653,9 @@ fn return_foreground(_pid: i32) -> bool {
     false
 }
 
-/// The popover reports its content height; the window follows it and stays
-/// anchored to the tray icon.
-pub fn resize_popover(app: &AppHandle, height: f64) -> Result<(), String> {
+/// The popover reports its content height and the pixel ratio it draws at;
+/// the window follows them and stays anchored to the tray icon.
+pub fn resize_popover(app: &AppHandle, height: f64, device_pixel_ratio: f64) -> Result<(), String> {
     if !height.is_finite() {
         return Err("popover height must be finite".to_string());
     }
@@ -1649,15 +1663,37 @@ pub fn resize_popover(app: &AppHandle, height: f64) -> Result<(), String> {
     let Some(state) = app.try_state::<TrayState>() else {
         return Ok(());
     };
+    let scale_factor = app
+        .get_webview_window(POPOVER_LABEL)
+        .and_then(|window| window.scale_factor().ok())
+        .unwrap_or(device_pixel_ratio);
+    let size = popover_size(height, device_pixel_ratio, scale_factor);
     let anchor = {
         let mut runtime = state.lock();
-        runtime.popover_height = height;
+        runtime.popover_size = size;
         runtime.anchor
     };
     if let Some(anchor) = anchor {
-        place_popover(app, anchor, height);
+        place_popover(app, anchor, size);
     }
     Ok(())
+}
+
+/// The logical window size for popover content `height` CSS pixels tall,
+/// drawn at `device_pixel_ratio` in a window with `scale_factor`. Windows
+/// folds its Text size accessibility setting into the page's pixel ratio but
+/// not into the window's scale factor, so at 110% the page lays out 10%
+/// larger than its window and loses its right and bottom edges.
+fn popover_size(height: f64, device_pixel_ratio: f64, scale_factor: f64) -> (f64, f64) {
+    let zoom = device_pixel_ratio / scale_factor;
+    // A ratio read just before a move to a sharper monitor must not shrink
+    // the window below its content.
+    let zoom = if zoom.is_finite() {
+        zoom.clamp(1.0, POPOVER_MAX_ZOOM)
+    } else {
+        1.0
+    };
+    (POPOVER_WIDTH * zoom, height * zoom)
 }
 
 // ---------------------------------------------------------------------------
@@ -2597,6 +2633,23 @@ mod tests {
         assert_eq!(y, 1032.0 - 480.0 - POPOVER_MARGIN_Y);
         assert_eq!(x, 1700.0 + 12.0 - POPOVER_WIDTH / 2.0);
         assert!(!anchor_below(icon, work));
+    }
+
+    #[test]
+    fn popover_grows_with_the_windows_text_size() {
+        // 150% display scale and 110% text size: WebView2 draws at 1.65.
+        let (width, height) = popover_size(400.0, 1.65, 1.5);
+        assert!((width - POPOVER_WIDTH * 1.1).abs() < 1e-9);
+        assert!((height - 440.0).abs() < 1e-9);
+        // Elsewhere CSS pixels are the window's logical pixels.
+        assert_eq!(popover_size(400.0, 2.0, 2.0), (POPOVER_WIDTH, 400.0));
+        assert_eq!(popover_size(400.0, 1.0, 2.0), (POPOVER_WIDTH, 400.0));
+        assert_eq!(popover_size(400.0, f64::NAN, 1.0), (POPOVER_WIDTH, 400.0));
+        assert_eq!(popover_size(400.0, 1.0, 0.0), (POPOVER_WIDTH, 400.0));
+        assert_eq!(
+            popover_size(400.0, 10.0, 1.0),
+            (POPOVER_WIDTH * POPOVER_MAX_ZOOM, 400.0 * POPOVER_MAX_ZOOM)
+        );
     }
 
     #[test]

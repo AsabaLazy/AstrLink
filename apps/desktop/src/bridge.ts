@@ -284,9 +284,12 @@ export async function trayAction(action: TrayAction): Promise<void> {
   await invoke<void>("tray_action", { action });
 }
 
-export async function trayPopoverResize(height: number): Promise<void> {
+export async function trayPopoverResize(
+  height: number,
+  devicePixelRatio: number,
+): Promise<void> {
   requireNativeBridge();
-  await invoke<void>("tray_popover_resize", { height });
+  await invoke<void>("tray_popover_resize", { height, devicePixelRatio });
 }
 
 export async function trayPopoverHide(): Promise<void> {

@@ -889,15 +889,32 @@ export function TrayPopoverWindow() {
     const report = () => {
       frame = 0;
       const height = Math.ceil(root.getBoundingClientRect().height);
-      if (height > 0) void trayPopoverResize(height).catch(() => {});
+      if (height > 0)
+        void trayPopoverResize(height, window.devicePixelRatio).catch(() => {});
     };
-    const observer = new ResizeObserver(() => {
+    const schedule = () => {
       if (frame === 0) frame = window.requestAnimationFrame(report);
-    });
+    };
+    const observer = new ResizeObserver(schedule);
     observer.observe(root);
+    // Windows folds its text size setting into the pixel ratio, which can
+    // change while the panel keeps its size in CSS pixels.
+    const watchResolution = () => {
+      const query = window.matchMedia(
+        `(resolution: ${window.devicePixelRatio}dppx)`,
+      );
+      query.addEventListener("change", onResolutionChange, { once: true });
+      return query;
+    };
+    let resolution = watchResolution();
+    function onResolutionChange() {
+      resolution = watchResolution();
+      schedule();
+    }
     report();
     return () => {
       observer.disconnect();
+      resolution.removeEventListener("change", onResolutionChange);
       if (frame !== 0) window.cancelAnimationFrame(frame);
     };
   }, []);

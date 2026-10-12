@@ -101,6 +101,47 @@ describe("TrayPopoverPanel", () => {
     expect(bridge.trayAction).not.toHaveBeenCalled();
   });
 
+  it("reports its height with the pixel ratio it draws at", async () => {
+    // Windows at 150% scale and 110% text size.
+    let ratio = 1.65;
+    const ratioSpy = vi
+      .spyOn(window, "devicePixelRatio", "get")
+      .mockImplementation(() => ratio);
+    const resolutionListeners: (() => void)[] = [];
+    const matchMediaSpy = vi.spyOn(window, "matchMedia").mockImplementation(
+      (query) =>
+        ({
+          matches: false,
+          addEventListener: (_type: string, listener: () => void) => {
+            if (query.startsWith("(resolution:"))
+              resolutionListeners.push(listener);
+          },
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList,
+    );
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(0, 0, 360, 412.4));
+    try {
+      bridge.getTrayState.mockResolvedValue(parseTrayState(readyTrayState));
+      bridge.trayPopoverResize.mockReset().mockResolvedValue(undefined);
+      await act(async () => root.render(<TrayPopoverWindow />));
+      expect(bridge.trayPopoverResize).toHaveBeenLastCalledWith(413, 1.65);
+
+      // Raising the text size to 125% changes only the pixel ratio.
+      ratio = 1.875;
+      await act(async () => {
+        resolutionListeners.at(-1)!();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      expect(bridge.trayPopoverResize).toHaveBeenLastCalledWith(413, 1.875);
+    } finally {
+      ratioSpy.mockRestore();
+      matchMediaSpy.mockRestore();
+      rectSpy.mockRestore();
+    }
+  });
+
   it("opens the popover when the host snapshot includes Antigravity usage", async () => {
     const snapshot = {
       ...readyTrayState,

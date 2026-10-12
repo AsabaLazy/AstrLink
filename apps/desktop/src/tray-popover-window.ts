@@ -18,7 +18,10 @@ export const TRAY_NAVIGATE_EVENT = "tray:navigate";
  */
 export const TRAY_FAILED_TODAY_PAGE = "failedToday";
 
-/** Logical width of the popover window, fixed by the host. */
+/**
+ * Width of the popover page in CSS pixels. The host sizes the window to fit
+ * it at the pixel ratio the page reports.
+ */
 export const TRAY_POPOVER_WIDTH = 360;
 
 export function isTrayPopoverWindow(): boolean {

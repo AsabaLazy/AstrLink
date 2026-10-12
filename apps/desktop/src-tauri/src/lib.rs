@@ -577,8 +577,12 @@ fn tray_action(app: tauri::AppHandle, action: tray::TrayAction) -> Result<(), St
 }
 
 #[tauri::command]
-fn tray_popover_resize(app: tauri::AppHandle, height: f64) -> Result<(), String> {
-    tray::resize_popover(&app, height)
+fn tray_popover_resize(
+    app: tauri::AppHandle,
+    height: f64,
+    device_pixel_ratio: f64,
+) -> Result<(), String> {
+    tray::resize_popover(&app, height, device_pixel_ratio)
 }
 
 #[tauri::command]
