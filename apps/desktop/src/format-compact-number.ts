@@ -1,4 +1,10 @@
-import { i18n } from "./i18n";
+import { currentLocale, type Locale } from "./i18n";
+
+interface CompactUnit {
+  threshold: number;
+  divisor: number;
+  suffix: string;
+}
 
 /**
  * Compact number rendering, written by hand rather than through
@@ -6,26 +12,19 @@ import { i18n } from "./i18n";
  * different grouping (thousands versus myriads) and the engine's rounding of
  * `4664.6695万` is not stable across runtimes.
  */
-const EN_UNITS = [
-  { threshold: 1_000_000_000, divisor: 1_000_000_000, suffix: "B" },
-  { threshold: 1_000_000, divisor: 1_000_000, suffix: "M" },
-  { threshold: 1_000, divisor: 1_000, suffix: "K" },
-] as const;
-
-const ZH_UNITS = [
-  { threshold: 100_000_000, divisor: 100_000_000, suffix: "亿" },
-  { threshold: 10_000, divisor: 10_000, suffix: "万" },
-] as const;
+const UNITS: Readonly<Record<Locale, readonly CompactUnit[]>> = {
+  en: [
+    { threshold: 1_000_000_000, divisor: 1_000_000_000, suffix: "B" },
+    { threshold: 1_000_000, divisor: 1_000_000, suffix: "M" },
+    { threshold: 1_000, divisor: 1_000, suffix: "K" },
+  ],
+  "zh-CN": [
+    { threshold: 100_000_000, divisor: 100_000_000, suffix: "亿" },
+    { threshold: 10_000, divisor: 10_000, suffix: "万" },
+  ],
+};
 
 const MAX_FRACTION_DIGITS = 2;
-
-function numberLocale(): string {
-  return i18n.language === "zh-CN" ? "zh-CN" : "en";
-}
-
-function isMyriadLocale(): boolean {
-  return i18n.language === "zh-CN";
-}
 
 /**
  * Rounds to at most two fraction digits and drops trailing zeros, so `1.00万`
@@ -38,7 +37,7 @@ function trimFraction(value: number): string {
 /** Full grouped digits, used for exact tooltips beside a compact value. */
 export function formatExactNumber(value: number): string {
   if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString(numberLocale());
+  return value.toLocaleString(currentLocale());
 }
 
 /**
@@ -48,8 +47,7 @@ export function formatExactNumber(value: number): string {
 export function formatCompactNumber(value: number): string {
   if (!Number.isFinite(value)) return "—";
   const magnitude = Math.abs(value);
-  const units = isMyriadLocale() ? ZH_UNITS : EN_UNITS;
-  for (const unit of units) {
+  for (const unit of UNITS[currentLocale()]) {
     if (magnitude < unit.threshold) continue;
     return `${trimFraction(value / unit.divisor)}${unit.suffix}`;
   }

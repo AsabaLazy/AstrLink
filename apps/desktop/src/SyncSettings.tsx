@@ -24,7 +24,7 @@ import {
   runSync,
   setSyncPassphrase,
 } from "./bridge";
-import { i18n, useT } from "./i18n";
+import { currentLocale, i18n, useT } from "./i18n";
 import { notify } from "./notify";
 import {
   defaultSyncFolder,
@@ -70,7 +70,7 @@ function timestampLabel(value: string | undefined): string {
   if (!value) return i18n.t("settings.sync.never");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(i18n.language === "zh-CN" ? "zh-CN" : "en", {
+  return new Intl.DateTimeFormat(currentLocale(), {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);

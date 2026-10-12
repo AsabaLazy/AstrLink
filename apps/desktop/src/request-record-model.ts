@@ -1,4 +1,5 @@
 import { i18n } from "./i18n";
+import { invalidData, type DataProblem } from "./ipc-data-error";
 
 export const CLIENT_TYPES = [
   "unknown",
@@ -447,20 +448,24 @@ const statuses = new Set<RequestStatus>([
 
 const sessionStatuses = new Set<SessionStatus>([...statuses, "interrupted"]);
 
-function invalid(path: string, message: string): never {
-  throw new Error(`请求记录数据无效（${path}）：${message}`);
+function invalid(
+  path: string,
+  problem: DataProblem,
+  values?: Record<string, number>,
+): never {
+  return invalidData("requestRecord", path, problem, values);
 }
 
 function objectAt(value: unknown, path: string): JsonObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return invalid(path, "应为对象");
+    return invalid(path, "object");
   }
   return value as JsonObject;
 }
 
 function stringAt(value: unknown, path: string): string {
   if (typeof value !== "string") {
-    return invalid(path, "应为字符串");
+    return invalid(path, "string");
   }
   return value;
 }
@@ -472,7 +477,7 @@ function nullableStringAt(value: unknown, path: string): string | null {
 
 function intAt(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isInteger(value)) {
-    return invalid(path, "应为整数");
+    return invalid(path, "integer");
   }
   return value;
 }
@@ -484,7 +489,7 @@ function nullableIntAt(value: unknown, path: string): number | null {
 
 function boolAt(value: unknown, path: string): boolean {
   if (typeof value !== "boolean") {
-    return invalid(path, "应为布尔值");
+    return invalid(path, "boolean");
   }
   return value;
 }
@@ -637,10 +642,10 @@ function parsePrivacyRestore(
     visibleRestoredCount < 0 ||
     toolArgumentRestoredCount < 0
   ) {
-    return invalid(path, "计数不得为负数");
+    return invalid(path, "nonNegativeInteger");
   }
   if (visibleRestoredCount + toolArgumentRestoredCount > restoredCount) {
-    return invalid(path, "分通道还原计数不得超过总数");
+    return invalid(path, "exceedsTotal");
   }
   const parsed: PrivacyRestoreSummary = {
     enabled: boolAt(summary.enabled, `${path}.enabled`),
@@ -658,7 +663,7 @@ function parsePrivacyRestore(
 
 function parsePrivacyHits(value: unknown, path: string): PrivacyHitCount[] {
   if (!Array.isArray(value)) {
-    return invalid(path, "应为数组");
+    return invalid(path, "array");
   }
   const seen = new Set<string>();
   return value.map((item, index) => {
@@ -666,13 +671,13 @@ function parsePrivacyHits(value: unknown, path: string): PrivacyHitCount[] {
     const kind = stringAt(hit.kind, `${path}[${index}].kind`);
     const count = intAt(hit.count, `${path}[${index}].count`);
     if (!privacyHitKinds.has(kind)) {
-      return invalid(`${path}[${index}].kind`, "类别无效");
+      return invalid(`${path}[${index}].kind`, "unknownType");
     }
     if (count < 1) {
-      return invalid(`${path}[${index}].count`, "计数必须为正整数");
+      return invalid(`${path}[${index}].count`, "positiveInteger");
     }
     if (seen.has(kind)) {
-      return invalid(`${path}[${index}].kind`, "类别重复");
+      return invalid(`${path}[${index}].kind`, "duplicate");
     }
     seen.add(kind);
     return { kind, count };
@@ -682,13 +687,17 @@ function parsePrivacyHits(value: unknown, path: string): PrivacyHitCount[] {
 function parseRecovery(value: unknown, path: string): RequestRecovery {
   const record = objectAt(value, path);
   const delay = intAt(record.delay_ms, `${path}.delay_ms`);
-  if (delay < 0 || delay > 60000) invalid(path, "invalid recovery delay");
+  if (delay < 0 || delay > 60000)
+    invalid(`${path}.delay_ms`, "integerBetween", {
+      minimum: 0,
+      maximum: 60000,
+    });
   if (
     record.action !== undefined &&
     record.action !== "retry" &&
     record.action !== "failover"
   )
-    invalid(path, "invalid recovery action");
+    invalid(`${path}.action`, "unexpectedValue");
   const result: RequestRecovery = { delay_ms: delay };
   if (record.action) result.action = record.action as RequestRecovery["action"];
   for (const key of [
@@ -703,7 +712,7 @@ function parseRecovery(value: unknown, path: string): RequestRecovery {
     if (record[key] !== undefined) {
       const text = stringAt(record[key], `${path}.${key}`);
       if ([...text].length > (key === "upstream_model" ? 256 : 128))
-        invalid(path, "recovery text too long");
+        invalid(`${path}.${key}`, "tooLong");
       result[key] = text;
     }
   }
@@ -719,7 +728,7 @@ function parseModelRedirect(
   const from = stringAt(redirect.from, `${path}.from`);
   const to = stringAt(redirect.to, `${path}.to`);
   if (!from || !to || [...from].length > 256 || [...to].length > 256)
-    invalid(path, "模型重定向无效");
+    invalid(path, "badFormat");
   return { from, to };
 }
 
@@ -759,8 +768,8 @@ function optionalRoutingDecision(
 ): { routing_decision?: RequestRoutingDecision } {
   if (value == null) return {};
   const decision = objectAt(value, path);
-  if (!Array.isArray(decision.skipped)) invalid(`${path}.skipped`, "应为数组");
-  if (decision.skipped.length > 64) invalid(`${path}.skipped`, "条目过多");
+  if (!Array.isArray(decision.skipped)) invalid(`${path}.skipped`, "array");
+  if (decision.skipped.length > 64) invalid(`${path}.skipped`, "tooMany");
   const parsed: RequestRoutingDecision = {
     skipped: decision.skipped.map((item, index) => {
       const skip = objectAt(item, `${path}.skipped[${index}]`);
@@ -768,7 +777,7 @@ function optionalRoutingDecision(
         typeof skip.reason !== "string" ||
         !routingSkipReasons.has(skip.reason as RoutingSkipReason)
       ) {
-        invalid(`${path}.skipped[${index}].reason`, "跳过原因无效");
+        invalid(`${path}.skipped[${index}].reason`, "unknownReason");
       }
       return {
         service_id: stringAt(
@@ -784,7 +793,7 @@ function optionalRoutingDecision(
       typeof decision.selected !== "string" ||
       !routingSelections.has(decision.selected as RoutingSelection)
     ) {
-      invalid(`${path}.selected`, "选择原因无效");
+      invalid(`${path}.selected`, "unknownReason");
     }
     parsed.selected = decision.selected as RoutingSelection;
   }
@@ -799,8 +808,8 @@ function optionalConversionDiagnostics(
   path: string,
 ): { conversion_diagnostics?: ConversionDiagnostic[] } {
   if (value == null) return {};
-  if (!Array.isArray(value)) invalid(path, "应为数组");
-  if (value.length > 64) invalid(path, "条目过多");
+  if (!Array.isArray(value)) invalid(path, "array");
+  if (value.length > 64) invalid(path, "tooMany");
   if (value.length === 0) return {};
   return {
     conversion_diagnostics: value.map((item, index) => {
@@ -810,16 +819,16 @@ function optionalConversionDiagnostics(
         typeof diagnostic.phase !== "string" ||
         !conversionPhases.has(diagnostic.phase)
       ) {
-        invalid(`${at}.phase`, "转换阶段无效");
+        invalid(`${at}.phase`, "unexpectedValue");
       }
       if (
         typeof diagnostic.severity !== "string" ||
         !conversionSeverities.has(diagnostic.severity)
       ) {
-        invalid(`${at}.severity`, "影响程度无效");
+        invalid(`${at}.severity`, "unexpectedValue");
       }
       const code = stringAt(diagnostic.code, `${at}.code`);
-      if (!code) invalid(`${at}.code`, "不得为空");
+      if (!code) invalid(`${at}.code`, "empty");
       const parsed: ConversionDiagnostic = {
         phase: diagnostic.phase as ConversionDiagnostic["phase"],
         severity: diagnostic.severity as ConversionDiagnostic["severity"],
@@ -852,12 +861,12 @@ export function parseRequestRecord(value: unknown): RequestRecord {
 
 function parseRequestRecordAt(value: unknown, path: string): RequestRecord {
   const record = objectAt(value, path);
-  if (!Object.hasOwn(record, "id")) invalid(`${path}.id`, "缺少字段");
+  if (!Object.hasOwn(record, "id")) invalid(`${path}.id`, "missing");
   if (
     typeof record.status !== "string" ||
     !statuses.has(record.status as RequestStatus)
   ) {
-    invalid(`${path}.status`, "状态枚举无效");
+    invalid(`${path}.status`, "unknownStatus");
   }
 
   const attemptIndex = Object.hasOwn(record, "attempt_index")
@@ -866,8 +875,8 @@ function parseRequestRecordAt(value: unknown, path: string): RequestRecord {
   const childCount = Object.hasOwn(record, "child_count")
     ? intAt(record.child_count, `${path}.child_count`)
     : 0;
-  if (attemptIndex < 0) invalid(`${path}.attempt_index`, "不得为负数");
-  if (childCount < 0) invalid(`${path}.child_count`, "不得为负数");
+  if (attemptIndex < 0) invalid(`${path}.attempt_index`, "nonNegativeInteger");
+  if (childCount < 0) invalid(`${path}.child_count`, "nonNegativeInteger");
 
   return {
     ...(record.recovery === undefined
@@ -963,7 +972,7 @@ function sessionCursorKindAt(value: unknown, path: string): SessionCursorKind {
     typeof value !== "string" ||
     !sessionCursorKinds.has(value as SessionCursorKind)
   ) {
-    return invalid(path, "游标类型无效");
+    return invalid(path, "unknownType");
   }
   return value as SessionCursorKind;
 }
@@ -973,7 +982,7 @@ function sessionCursorKindAt(value: unknown, path: string): SessionCursorKind {
 function parseTurnIndex(value: unknown, path: string): number | null {
   if (value === undefined || value === null) return null;
   const turn = intAt(value, path);
-  if (turn < 1) return invalid(path, "轮次必须至少为 1");
+  if (turn < 1) return invalid(path, "integerAtLeast", { minimum: 1 });
   return turn;
 }
 
@@ -988,12 +997,12 @@ function parseSessionLink(value: unknown, path: string): SessionLink | null {
 
 function parseSessionCursors(value: unknown, path: string): SessionCursor[] {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) return invalid(path, "应为数组");
+  if (!Array.isArray(value)) return invalid(path, "array");
   return value.map((item, index) => {
     const cursor = objectAt(item, `${path}[${index}]`);
     const direction = cursor.direction;
     if (direction !== "in" && direction !== "out") {
-      return invalid(`${path}[${index}].direction`, "游标方向无效");
+      return invalid(`${path}[${index}].direction`, "unexpectedValue");
     }
     return {
       kind: sessionCursorKindAt(cursor.kind, `${path}[${index}].kind`),
@@ -1017,20 +1026,20 @@ function parseRequestEvents(value: unknown, path: string): RequestEvent[] {
   // A record with no trajectory arrives as a nil Go slice, i.e. `null`, and
   // records written before events existed omit the key. Both mean "no events".
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) invalid(path, "应为数组");
+  if (!Array.isArray(value)) invalid(path, "array");
   return value.map((item, index) => {
     const event = objectAt(item, `${path}[${index}]`);
     if (
       typeof event.kind !== "string" ||
       !eventKinds.has(event.kind as RequestEventKind)
     ) {
-      invalid(`${path}[${index}].kind`, "事件类型无效");
+      invalid(`${path}[${index}].kind`, "unknownType");
     }
     if (
       typeof event.status !== "string" ||
       !statuses.has(event.status as RequestStatus)
     ) {
-      invalid(`${path}[${index}].status`, "状态枚举无效");
+      invalid(`${path}[${index}].status`, "unknownStatus");
     }
     return {
       kind: event.kind as RequestEventKind,
@@ -1062,7 +1071,7 @@ function optionalPerformanceNumber(
     value < 0 ||
     (integer && !Number.isInteger(value))
   ) {
-    return invalid(path, "应为非负有效数值");
+    return invalid(path, integer ? "nonNegativeInteger" : "nonNegativeNumber");
   }
   return value;
 }
@@ -1073,24 +1082,23 @@ function parseRequestSessionAt(value: unknown, path: string): RequestSession {
     typeof session.status !== "string" ||
     !sessionStatuses.has(session.status as SessionStatus)
   ) {
-    invalid(`${path}.status`, "状态枚举无效");
+    invalid(`${path}.status`, "unknownStatus");
   }
   const turnCount = intAt(session.turn_count, `${path}.turn_count`);
   const callCount = intAt(session.call_count, `${path}.call_count`);
   if (turnCount < 1 || callCount < 1) {
-    invalid(path, "计数必须至少为 1");
+    invalid(path, "integerAtLeast", { minimum: 1 });
   }
   const durationMs = intAt(session.duration_ms, `${path}.duration_ms`);
-  if (durationMs < 0) invalid(`${path}.duration_ms`, "应为非负整数");
+  if (durationMs < 0) invalid(`${path}.duration_ms`, "nonNegativeInteger");
   if (!Array.isArray(session.active_request_starts)) {
-    invalid(`${path}.active_request_starts`, "应为数组");
+    invalid(`${path}.active_request_starts`, "array");
   }
   const activeRequestStarts = session.active_request_starts.map(
     (value, index) => {
       const itemPath = `${path}.active_request_starts[${index}]`;
       const started = stringAt(value, itemPath);
-      if (!Number.isFinite(Date.parse(started)))
-        invalid(itemPath, "时间戳无效");
+      if (!Number.isFinite(Date.parse(started))) invalid(itemPath, "timestamp");
       return started;
     },
   );
@@ -1148,7 +1156,7 @@ function parseRequestSessionAt(value: unknown, path: string): RequestSession {
 
 export function parseRequestSessionPage(value: unknown): RequestSessionPage {
   const page = objectAt(value, "$");
-  if (!Array.isArray(page.items)) invalid("$.items", "应为数组");
+  if (!Array.isArray(page.items)) invalid("$.items", "array");
   const nextCursor =
     page.next_cursor === null
       ? null
@@ -1166,7 +1174,7 @@ export function parseRequestSessionDetail(
 ): RequestSessionDetail {
   const session = parseRequestSessionAt(value, "$");
   const detail = objectAt(value, "$");
-  if (!Array.isArray(detail.turns)) invalid("$.turns", "应为数组");
+  if (!Array.isArray(detail.turns)) invalid("$.turns", "array");
   return {
     ...session,
     turns: detail.turns.map((item, index) =>
@@ -1177,7 +1185,7 @@ export function parseRequestSessionDetail(
 
 export function parseRequestRecordPage(value: unknown): RequestRecordPage {
   const page = objectAt(value, "$");
-  if (!Array.isArray(page.items)) invalid("$.items", "应为数组");
+  if (!Array.isArray(page.items)) invalid("$.items", "array");
   const nextCursor =
     page.next_cursor === null
       ? null
@@ -1223,14 +1231,14 @@ function parseAuditContentPart(
   const captured_bytes = intAt(part.captured_bytes, `${path}.captured_bytes`);
   if (Object.hasOwn(part, "withheld")) {
     if (boolAt(part.withheld, `${path}.withheld`) !== true) {
-      invalid(`${path}.withheld`, "应为 true");
+      invalid(`${path}.withheld`, "unexpectedValue");
     }
     if (Object.hasOwn(part, "content")) {
-      invalid(`${path}.content`, "未读部分不应含正文");
+      invalid(`${path}.content`, "unsupportedField");
     }
     const reason = stringAt(part.reason, `${path}.reason`);
     if (!auditWithheldReasons.has(reason as AuditWithheldReason)) {
-      invalid(`${path}.reason`, "未知原因");
+      invalid(`${path}.reason`, "unknownReason");
     }
     return {
       withheld: {
@@ -1251,7 +1259,7 @@ function parseAuditContentPart(
   if (Object.hasOwn(part, "exposure")) {
     const exposure = stringAt(part.exposure, `${path}.exposure`);
     if (exposure !== "shareable" && exposure !== "raw") {
-      invalid(`${path}.exposure`, "应为 shareable 或 raw");
+      invalid(`${path}.exposure`, "unexpectedValue");
     }
     readable.exposure = exposure;
   }
@@ -1264,7 +1272,7 @@ function parseAuditPrivacyFinding(
 ): AuditPrivacyFinding {
   const finding = objectAt(value, path);
   const kind = stringAt(finding.kind, `${path}.kind`);
-  if (kind === "") invalid(`${path}.kind`, "不能为空");
+  if (kind === "") invalid(`${path}.kind`, "empty");
   return {
     kind,
     json_path: stringAt(finding.json_path, `${path}.json_path`),
@@ -1288,10 +1296,10 @@ function parseAuditHTTPMeta(
   if (value === null) return null;
   const meta = objectAt(value, path);
   if (!Array.isArray(meta.request_headers)) {
-    invalid(`${path}.request_headers`, "应为数组");
+    invalid(`${path}.request_headers`, "array");
   }
   if (!Array.isArray(meta.response_headers)) {
-    invalid(`${path}.response_headers`, "应为数组");
+    invalid(`${path}.response_headers`, "array");
   }
   return {
     method: stringAt(meta.method, `${path}.method`),
@@ -1316,7 +1324,7 @@ export function parseAuditContent(value: unknown): AuditContent {
     ? stringAt(content.view, "$.view")
     : "full";
   if (view !== "shareable" && view !== "full") {
-    invalid("$.view", "应为 shareable 或 full");
+    invalid("$.view", "unexpectedValue");
   }
   const withheld: AuditContent["withheld"] = {};
   const parts = {} as Record<AuditBodyPartName, AuditContentPart | null>;
@@ -1330,7 +1338,7 @@ export function parseAuditContent(value: unknown): AuditContent {
     ? content.privacy_findings
     : [];
   if (!Array.isArray(findings)) {
-    invalid("$.privacy_findings", "应为数组");
+    invalid("$.privacy_findings", "array");
   }
   return {
     request_id: stringAt(content.request_id, "$.request_id"),

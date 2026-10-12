@@ -3350,11 +3350,11 @@ fn validate_privacy_policy_value(policy: &serde_json::Value) -> Result<(), Strin
         ],
         "privacy policy",
     )?;
-    if object["id"] != "policy_privacy_default"
-        || object["name"] != "隐私保护"
-        || object["priority"] != 0
-    {
+    if object["id"] != "policy_privacy_default" || object["priority"] != 0 {
         return Err("Core returned an unexpected privacy policy singleton".to_string());
+    }
+    if !object["name"].as_str().is_some_and(|name| !name.is_empty()) {
+        return Err("privacy policy name must be a non-empty string".to_string());
     }
     if !object["enabled"].is_boolean() {
         return Err("privacy policy enabled must be a boolean".to_string());

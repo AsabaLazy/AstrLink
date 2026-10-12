@@ -209,8 +209,7 @@ describe("Overview", () => {
       root.render(
         <Overview
           catalog={overrides.catalog ?? readyCatalog}
-          copyError={null}
-          copyFeedback={null}
+          copyState="idle"
           isNativeApp={overrides.isNativeApp ?? true}
           isReady={overrides.isReady ?? true}
           isRestarting={overrides.isRestarting ?? false}

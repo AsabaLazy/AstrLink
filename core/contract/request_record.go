@@ -708,8 +708,9 @@ func (record RequestRecord) EffectiveStatus() RequestStatus {
 
 type RequestSession struct {
 	// ClientType mirrors the latest call, like the model and provider fields.
-	ClientType    ClientType `json:"client_type,omitempty"`
-	ID            SessionID  `json:"id"`
+	ClientType ClientType `json:"client_type,omitempty"`
+	ID         SessionID  `json:"id"`
+	// Title is empty when no call has a preview or model; clients name it.
 	Title         string     `json:"title"`
 	StartedAt     time.Time  `json:"started_at"`
 	LastStartedAt time.Time  `json:"last_started_at"`
@@ -740,7 +741,7 @@ func (session RequestSession) Validate() error {
 	if err := session.ID.Validate(); err != nil {
 		return err
 	}
-	if err := validateBoundedText("title", session.Title, MaxSessionTitleRunes, false); err != nil {
+	if err := validateBoundedText("title", session.Title, MaxSessionTitleRunes, true); err != nil {
 		return err
 	}
 	if session.StartedAt.IsZero() || session.LastStartedAt.IsZero() {

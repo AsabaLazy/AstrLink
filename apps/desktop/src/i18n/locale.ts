@@ -4,6 +4,12 @@ export type Locale = (typeof LOCALES)[number];
 
 export const DEFAULT_LOCALE: Locale = "en";
 
+/** Each language named in itself, so a reader can find their own. */
+export const LOCALE_NAMES: Readonly<Record<Locale, string>> = {
+  en: "English",
+  "zh-CN": "简体中文",
+};
+
 export function isLocale(value: unknown): value is Locale {
-  return value === "en" || value === "zh-CN";
+  return (LOCALES as readonly unknown[]).includes(value);
 }

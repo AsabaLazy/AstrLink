@@ -47,7 +47,15 @@ import {
   type AppSnapshot,
   type NetworkAddress,
 } from "./core-model";
-import { applyLocale, i18n, useT, type Locale } from "./i18n";
+import {
+  applyLocale,
+  currentLocale,
+  i18n,
+  LOCALE_NAMES,
+  LOCALES,
+  useT,
+  type Locale,
+} from "./i18n";
 import {
   MAX_MAX_CONCURRENT_INSPECTIONS,
   MAX_REQUEST_BODY_MIB,
@@ -175,7 +183,7 @@ function DataBackupNotice({ files }: { files: DataBackupFile[] }) {
   const date =
     newest === null
       ? "—"
-      : new Intl.DateTimeFormat(i18n.language === "zh-CN" ? "zh-CN" : "en", {
+      : new Intl.DateTimeFormat(currentLocale(), {
           dateStyle: "medium",
         }).format(new Date(newest * 1000));
   return (
@@ -762,18 +770,15 @@ export function SettingsCenter({
                     }
                     value={prefs.locale}
                   >
-                    <ChoiceCard
-                      description={t("settings.languageHint")}
-                      label="English"
-                      selected={prefs.locale === "en"}
-                      value="en"
-                    />
-                    <ChoiceCard
-                      description={t("settings.languageHint")}
-                      label="简体中文"
-                      selected={prefs.locale === "zh-CN"}
-                      value="zh-CN"
-                    />
+                    {LOCALES.map((locale) => (
+                      <ChoiceCard
+                        description={t("settings.languageHint")}
+                        key={locale}
+                        label={LOCALE_NAMES[locale]}
+                        selected={prefs.locale === locale}
+                        value={locale}
+                      />
+                    ))}
                   </RadioGroup>
                 </div>
 

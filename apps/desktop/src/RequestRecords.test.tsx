@@ -234,7 +234,7 @@ function sessionFromRecord(
 ): RequestSession {
   return {
     id: record.session_id ?? record.id,
-    title: record.input_preview ?? record.requested_model ?? "未命名会话",
+    title: record.input_preview ?? record.requested_model ?? "",
     started_at: record.started_at,
     last_started_at: record.started_at,
     completed_at: record.completed_at,
@@ -588,6 +588,19 @@ describe("RequestRecords", () => {
     expect(badge?.textContent).toBe("high");
     expect(badge?.parentElement?.textContent).toContain("gpt-4.1");
     expect(rows[1]?.querySelector('[aria-label^="思考强度:"]')).toBeNull();
+  });
+
+  it("names a session Core left untitled in the operator's language", async () => {
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [sessionFromRecord(firstRecord, { title: "" })],
+      next_cursor: null,
+    });
+    await renderRecords();
+    const title = container.querySelector(
+      '[data-testid="request-session-row"] strong',
+    );
+    expect(title?.textContent).toBe("未命名会话");
+    expect(title?.getAttribute("title")).toBe("未命名会话");
   });
 
   it("renders a session stream instead of a wide table", async () => {
@@ -2518,7 +2531,7 @@ describe("RequestRecords", () => {
     vi.useFakeTimers();
     const discovery = sessionFromRecord(firstRecord, {
       id: "req_discovery",
-      title: "未命名会话",
+      title: "",
       input_protocol: "openai.models",
       requested_model: null,
       service_id: null,

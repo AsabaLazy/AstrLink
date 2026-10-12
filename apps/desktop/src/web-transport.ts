@@ -1,5 +1,4 @@
 import { i18n } from "./i18n";
-import { webText } from "./web-copy";
 
 export const CONSOLE_SIGNED_OUT = "astrlink:console-signed-out";
 export const RAW_CHANGED = "astrlink:web-raw-changed";
@@ -14,7 +13,7 @@ export class ConsoleError extends Error {
   ) {
     super(
       code === "oauth_loopback_callback_unavailable"
-        ? webText("loopback")
+        ? i18n.t("webConsole.loopback")
         : code,
     );
   }
@@ -303,7 +302,7 @@ const commands: Record<string, Command> = {
     return result;
   },
   set_raw_password: (a) => {
-    if (a.action !== "change") throw new Error(webText("forgot"));
+    if (a.action !== "change") throw new Error(i18n.t("webConsole.forgot"));
     return raw("raw-password", {
       action: a.action,
       password: a.password,

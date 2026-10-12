@@ -1,5 +1,4 @@
 import { isWebEdition } from "./edition";
-import { webText } from "./web-copy";
 import { useWorkspaceSnapshot } from "./workspace-snapshots";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -4385,7 +4384,7 @@ export function SafetyPolicy({
                       <span>{t("safety.localPathField")}</span>
                       {isWebEdition && (
                         <p className="text-xs text-muted-foreground">
-                          {webText("serverPath")}
+                          {t("webConsole.serverPath")}
                         </p>
                       )}
                       <Input

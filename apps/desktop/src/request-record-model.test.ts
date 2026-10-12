@@ -173,10 +173,10 @@ describe("model redirect metadata", () => {
     ]) {
       expect(() =>
         parseRequestRecord({ ...fullRecord, model_redirect }),
-      ).toThrow("模型重定向无效");
+      ).toThrow("model_redirect）：格式无效");
       expect(() =>
         parseRequestSession({ ...fullSession, model_redirect }),
-      ).toThrow("模型重定向无效");
+      ).toThrow("model_redirect）：格式无效");
     }
     // 256 runes is the limit, counted as characters rather than UTF-16 units.
     const wide = "模".repeat(256);
@@ -295,11 +295,11 @@ describe("routing decision metadata", () => {
     for (const [routing_decision, message] of [
       ["priority", "应为对象"],
       [{ selected: "priority" }, "应为数组"],
-      [{ selected: "cheapest", skipped: [] }, "选择原因无效"],
-      [{ selected: null, skipped: [] }, "选择原因无效"],
+      [{ selected: "cheapest", skipped: [] }, "selected）：未知原因"],
+      [{ selected: null, skipped: [] }, "selected）：未知原因"],
       [
         { skipped: [{ service_id: "service_a", reason: "slow" }] },
-        "跳过原因无效",
+        "reason）：未知原因",
       ],
       [{ skipped: [{ reason: "disabled" }] }, "应为字符串"],
       [{ skipped: ["service_a"] }, "应为对象"],
@@ -358,8 +358,8 @@ describe("conversion diagnostics", () => {
     for (const [conversion_diagnostics, message] of [
       [valid, "应为数组"],
       [["tools[0]"], "应为对象"],
-      [[{ ...valid, phase: "routing" }], "转换阶段无效"],
-      [[{ ...valid, severity: "fatal" }], "影响程度无效"],
+      [[{ ...valid, phase: "routing" }], "phase）：取值无效"],
+      [[{ ...valid, severity: "fatal" }], "severity）：取值无效"],
       [[{ ...valid, code: "" }], "不得为空"],
       [[{ ...valid, path: 0 }], "应为字符串"],
       [Array.from({ length: 65 }, () => valid), "条目过多"],
@@ -631,7 +631,7 @@ describe("request-record IPC contract", () => {
     const { id: _id, ...missingId } = fullRecord;
     expect(() => parseRequestRecord(missingId)).toThrow("缺少字段");
     expect(() => parseRequestRecord({ ...fullRecord, status: "ok" })).toThrow(
-      "状态枚举无效",
+      "status）：未知状态",
     );
     expect(() =>
       parseRequestRecordPage({ items: {}, next_cursor: null }),
@@ -816,7 +816,7 @@ describe("request-record IPC contract", () => {
     ).toBe("interrupted");
     expect(() =>
       parseRequestSession({ ...fullSession, status: "stopped" }),
-    ).toThrow("状态枚举无效");
+    ).toThrow("status）：未知状态");
   });
 
   it("treats a completed HTTP error as failed", () => {

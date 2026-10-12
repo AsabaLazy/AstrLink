@@ -6451,7 +6451,7 @@ components:
           $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
         title:
           type: string
-          minLength: 1
+          description: Empty when no call has a preview or model; clients supply a localized name.
           maxLength: 80
         started_at:
           type: string

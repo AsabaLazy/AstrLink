@@ -58,7 +58,7 @@ import {
 } from "./bridge";
 import type { AccessTokenSummary } from "./access-token-model";
 import type { ClientConfigStatus, DirectClient } from "./client-config-model";
-import { i18n } from "./i18n";
+import { currentLocale, i18n } from "./i18n";
 import { notify } from "./notify";
 import { PageHeader } from "./PageHeader";
 import { startOfTodayIso, type ServicePerformance } from "./usage-range";
@@ -109,13 +109,15 @@ function messageOf(error: unknown, fallback: string): string {
 }
 
 function clientList(clients: readonly DirectClient[]): string {
-  return clients.map(clientLabel).join(i18n.language === "zh-CN" ? "、" : ", ");
+  return new Intl.ListFormat(currentLocale(), { style: "narrow" }).format(
+    clients.map(clientLabel),
+  );
 }
 
 function createdAtLabel(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return i18n.t("tokens.unknown");
-  return new Intl.DateTimeFormat(i18n.language === "zh-CN" ? "zh-CN" : "en", {
+  return new Intl.DateTimeFormat(currentLocale(), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

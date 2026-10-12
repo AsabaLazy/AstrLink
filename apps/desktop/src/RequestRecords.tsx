@@ -89,7 +89,7 @@ import {
 } from "./bridge";
 import { copyButtonLabel, useCopyFeedback } from "./copy-feedback";
 import { formatCompactNumber } from "./format-compact-number";
-import { i18n, useT } from "./i18n";
+import { currentLocale, i18n, useT } from "./i18n";
 import { useLiveClock } from "./live-clock";
 import { notify } from "./notify";
 import { PageHeader } from "./PageHeader";
@@ -2356,6 +2356,7 @@ const SessionRow = memo(function SessionRow({
   const nowMs = useLiveClock(session.active_request_starts.length > 0);
   const service = requestServiceIdentity(session, services);
   const behavior = rowBehavior(session, checked, selected, onOpen, t);
+  const title = session.title || t("records.untitledSession");
   return (
     <DataRow
       asChild
@@ -2393,9 +2394,9 @@ const SessionRow = memo(function SessionRow({
         )}
         <strong
           className="col-span-2 col-start-3 row-start-1 min-w-0 truncate text-sm font-medium @[560px]/request-list:col-span-1"
-          title={session.title}
+          title={title}
         >
-          {session.title}
+          {title}
         </strong>
         <span className="col-span-full row-start-3 grid min-w-0 grid-cols-[minmax(0,1fr)_8rem] items-center gap-x-3 gap-y-1 text-xs leading-5 @[560px]/request-list:col-span-3 @[560px]/request-list:col-start-2 @[560px]/request-list:row-start-2 @[560px]/request-list:grid-cols-[minmax(0,1fr)_minmax(0,0.75fr)_minmax(0,1.7fr)_4rem]">
           <code
@@ -2674,7 +2675,7 @@ function RecordDetail({
         title={
           isModelDiscoveryProtocol(session.input_protocol)
             ? t("records.fetchModels")
-            : session.title
+            : session.title || t("records.untitledSession")
         }
         titleId="request-detail-heading"
         titlePrefix={<ClientTypeIcon clientType={record.client_type} />}
@@ -3691,10 +3692,6 @@ function serviceLabel(
   return services.find((service) => service.id === serviceId)?.name ?? null;
 }
 
-function dateTimeLocale(): string {
-  return i18n.language === "zh-CN" ? "zh-CN" : "en";
-}
-
 // Same output as toLocaleString / toLocaleTimeString with `hour12: false`,
 // which build a new formatter per call; the list formats two times per row.
 const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
@@ -3702,7 +3699,7 @@ const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
 function formatDate(value: string, withDate: boolean): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  const locale = dateTimeLocale();
+  const locale = currentLocale();
   const key = `${locale}:${withDate}`;
   let format = dateTimeFormats.get(key);
   if (!format) {

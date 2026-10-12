@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "./components/ui/dialog";
 import { FormMessage } from "./components/FormMessage";
-import { useWebText } from "./web-copy";
+import { useT } from "./i18n";
 
 export type WebClient =
   | "claude"
@@ -85,7 +85,7 @@ export function webClientSnippet(client: WebClient, origin: string): string {
   }
 }
 export function WebClientSetup({ onClose }: { onClose: () => void }) {
-  const t = useWebText();
+  const t = useT();
   const [client, setClient] = useState<WebClient>("claude");
   const [feedback, setFeedback] = useState("");
   const snippet = webClientSnippet(client, window.location.origin);
@@ -98,8 +98,8 @@ export function WebClientSetup({ onClose }: { onClose: () => void }) {
     >
       <DialogContent className="flex max-h-[90dvh] flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{t("config")}</DialogTitle>
-          <DialogDescription>{t("configHint")}</DialogDescription>
+          <DialogTitle>{t("webConsole.config")}</DialogTitle>
+          <DialogDescription>{t("webConsole.configHint")}</DialogDescription>
         </DialogHeader>
         <Tabs
           value={client}
@@ -117,7 +117,7 @@ export function WebClientSetup({ onClose }: { onClose: () => void }) {
           </TabsList>
         </Tabs>
         <Textarea
-          aria-label={t("config")}
+          aria-label={t("webConsole.config")}
           className="min-h-48 flex-1 font-mono text-xs"
           readOnly
           value={snippet}
@@ -128,13 +128,13 @@ export function WebClientSetup({ onClose }: { onClose: () => void }) {
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(snippet);
-              setFeedback(t("copied"));
+              setFeedback(t("common.copied"));
             } catch {
-              setFeedback(t("clipboard"));
+              setFeedback(t("webConsole.clipboard"));
             }
           }}
         >
-          {t("copy")}
+          {t("webConsole.copy")}
         </Button>
       </DialogContent>
     </Dialog>

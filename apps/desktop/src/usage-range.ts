@@ -1,4 +1,4 @@
-import { i18n } from "./i18n";
+import { currentLocale, i18n } from "./i18n";
 import {
   displayRequestStatus,
   isModelDiscoveryProtocol,
@@ -715,8 +715,5 @@ function compareUsageThenName(
     return right.total_tokens - left.total_tokens;
   }
   if (right.requests !== left.requests) return right.requests - left.requests;
-  return left.name.localeCompare(
-    right.name,
-    i18n.language === "zh-CN" ? "zh" : "en",
-  );
+  return left.name.localeCompare(right.name, currentLocale());
 }

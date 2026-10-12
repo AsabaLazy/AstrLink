@@ -715,9 +715,6 @@ export function parsePrivacyPolicy(value: unknown, path = "$"): PrivacyPolicy {
   if (id !== "policy_privacy_default") {
     invalid(`${path}.id`, "unexpected singleton policy ID");
   }
-  if (name !== "隐私保护") {
-    invalid(`${path}.name`, "unexpected singleton policy name");
-  }
   const priority = safeIntegerAt(policy.priority, `${path}.priority`);
   if (priority !== 0) {
     invalid(`${path}.priority`, "unexpected singleton policy priority");

@@ -49,6 +49,7 @@ import {
 import { Overview, type ServiceCatalog } from "./Overview";
 import { GettingStarted } from "./GettingStarted";
 import { useOnboarding } from "./use-onboarding";
+import type { CopyState } from "./copy-feedback";
 import { i18n, useT } from "./i18n";
 import { RequestGate } from "./request-gate";
 import { RequestRecords } from "./RequestRecords";
@@ -262,8 +263,7 @@ export default function App() {
   const [pendingPage, setPendingPage] = useState<WorkspacePage | null>(null);
   // Overview and the guide add providers through the same type picker as the list.
   const [serviceKindPickerOpen, setServiceKindPickerOpen] = useState(false);
-  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
-  const [copyError, setCopyError] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<CopyState>("idle");
   const editorDirtyRef = useRef(false);
   const requestGateRef = useRef<RequestGate | null>(null);
   const catalogGeneration = useRef(0);
@@ -591,22 +591,21 @@ export default function App() {
     [],
   );
 
-  const copyValue = async (value: string, label: string) => {
+  const copyValue = async (value: string) => {
     if (!value) return;
+    if (copyFeedbackTimer.current !== null) {
+      window.clearTimeout(copyFeedbackTimer.current);
+      copyFeedbackTimer.current = null;
+    }
     try {
       await navigator.clipboard.writeText(value);
-      setCopyError(null);
-      setCopyFeedback(i18n.t("copy.copiedNamed", { label }));
-      if (copyFeedbackTimer.current !== null) {
-        window.clearTimeout(copyFeedbackTimer.current);
-      }
+      setCopyState("copied");
       copyFeedbackTimer.current = window.setTimeout(
-        () => setCopyFeedback(null),
+        () => setCopyState("idle"),
         1_800,
       );
     } catch {
-      setCopyFeedback(null);
-      setCopyError(i18n.t("copy.manualSelect"));
+      setCopyState("failed");
     }
   };
 
@@ -995,13 +994,12 @@ export default function App() {
             ) : page.kind === "overview" ? (
               <Overview
                 catalog={catalog}
-                copyError={copyError}
-                copyFeedback={copyFeedback}
+                copyState={copyState}
                 isNativeApp={isNativeApp}
                 isReady={isReady}
                 isRestarting={isRestarting}
                 onAddService={() => setServiceKindPickerOpen(true)}
-                onCopy={(value, label) => void copyValue(value, label)}
+                onCopy={(value) => void copyValue(value)}
                 onManageServices={() => navigate({ kind: "list" })}
                 onManageTokens={() => navigate({ kind: "tokens" })}
                 onOpenOnboarding={isWebEdition ? undefined : onboarding.open}

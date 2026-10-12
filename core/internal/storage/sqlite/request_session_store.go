@@ -544,14 +544,14 @@ func sessionFromTurns(turns []contract.RequestRecord) (contract.RequestSession, 
 	} else if first.SessionID != nil {
 		id = *first.SessionID
 	}
-	title := "未命名会话"
+	title := ""
 	for _, turn := range turns {
 		if turn.InputPreview != nil && *turn.InputPreview != "" {
 			title = contract.ClampRunes(*turn.InputPreview, contract.MaxSessionTitleRunes)
 			break
 		}
 	}
-	if title == "未命名会话" && latest.RequestedModel != nil && *latest.RequestedModel != "" {
+	if title == "" && latest.RequestedModel != nil && *latest.RequestedModel != "" {
 		title = contract.ClampRunes(*latest.RequestedModel, contract.MaxSessionTitleRunes)
 	}
 	callCount := 0
