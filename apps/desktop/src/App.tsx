@@ -937,7 +937,6 @@ export default function App() {
           valueKey={page.kind === "edit" ? `edit:${page.serviceId}` : page.kind}
           initialOpacity={0}
           duration={280}
-          offsetY={8}
         >
           <main
             className={cn(
