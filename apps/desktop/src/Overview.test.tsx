@@ -1194,11 +1194,20 @@ describe("Overview", () => {
       ];
       expect(bands).toHaveLength(1);
       for (const band of bands) {
-        const cellSize = Number(
+        const [, columns, cellWidth] = band.style.gridTemplateColumns
+          .match(/repeat\((\d+), ([\d.]+)px\)/)!
+          .map(Number);
+        const rowHeight = Number(
           band.style.gridTemplateRows.match(/repeat\(7, ([\d.]+)px\)/)?.[1],
         );
-        expect(cellSize).toBeGreaterThanOrEqual(14);
-        expect(cellSize).toBeLessThanOrEqual(18);
+        expect(cellWidth).toBeGreaterThanOrEqual(14);
+        expect(rowHeight).toBeGreaterThanOrEqual(14);
+        expect(rowHeight).toBeLessThanOrEqual(Math.min(22, cellWidth));
+        // Wide panels are filled edge to edge; narrow ones scroll instead.
+        const minimumWidth = columns * 14 + (columns - 1) * 3;
+        expect(columns * cellWidth + (columns - 1) * 3).toBeCloseTo(
+          Math.max(minimumWidth, width - 28 - 3),
+        );
       }
       const cells = [
         ...container.querySelectorAll<HTMLButtonElement>(
