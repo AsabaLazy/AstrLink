@@ -250,7 +250,8 @@ function PrivacyOverviewBody({
       <Panel>
         <PrivacyTrendChart summary={summary} />
       </Panel>
-      <div className="grid min-w-0 items-start gap-3 @[720px]/privacy:grid-cols-2">
+      {/* Side by side, the shorter card stretches to the taller one. */}
+      <div className="grid min-w-0 gap-3 @[720px]/privacy:grid-cols-2">
         <PrivacyKindsPanel kinds={summary.by_kind} />
         <PrivacyOutcomesPanel totals={totals} />
       </div>
@@ -552,16 +553,16 @@ function PrivacyKindsPanel({ kinds }: { kinds: PrivacyKindCount[] }) {
   const t = useT();
   const { rows } = privacyKindShares(kinds);
   return (
-    <Panel data-slot="privacy-kinds">
+    <Panel className="flex flex-col" data-slot="privacy-kinds">
       <PanelHeader size="sm">
         <h3 className="text-sm font-medium">{t("privacyStats.kinds")}</h3>
       </PanelHeader>
-      <div className="px-4 py-3">
-        {rows.length === 0 ? (
-          <p className="py-6 text-center text-xs text-muted-foreground">
-            {t("privacyStats.kindsEmpty")}
-          </p>
-        ) : (
+      {rows.length === 0 ? (
+        <p className="flex flex-1 items-center justify-center px-4 py-9 text-center text-xs text-muted-foreground">
+          {t("privacyStats.kindsEmpty")}
+        </p>
+      ) : (
+        <div className="flex-1 px-4 py-3">
           <UsageMeterGrid
             aria-label={t("privacyStats.kinds")}
             className="gap-y-2"
@@ -581,8 +582,8 @@ function PrivacyKindsPanel({ kinds }: { kinds: PrivacyKindCount[] }) {
               />
             ))}
           </UsageMeterGrid>
-        )}
-      </div>
+        </div>
+      )}
     </Panel>
   );
 }
@@ -598,7 +599,7 @@ function PrivacyOutcomesPanel({ totals }: { totals: PrivacyTotals }) {
     title: `${t(`privacyStats.outcome.${key}`)} ${formatExactNumber(totals[key])}`,
   }));
   return (
-    <Panel data-slot="privacy-outcomes">
+    <Panel className="flex flex-col" data-slot="privacy-outcomes">
       <PanelHeader
         actions={
           <span className="text-xs text-muted-foreground tabular-nums">
@@ -611,7 +612,7 @@ function PrivacyOutcomesPanel({ totals }: { totals: PrivacyTotals }) {
       >
         <h3 className="text-sm font-medium">{t("privacyStats.outcomes")}</h3>
       </PanelHeader>
-      <div className="grid gap-3 px-4 py-3">
+      <div className="grid flex-1 content-start gap-3 px-4 py-3">
         <StackedBar label={t("privacyStats.outcomeBar")} segments={segments} />
         <ul className="grid gap-2">
           {segments
