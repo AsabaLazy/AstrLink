@@ -42,7 +42,10 @@ export function webClientSnippet(client: WebClient, origin: string): string {
         },
       });
     case "codex":
-      return `model_provider = "astrlink"\nmodel = "${model}"\n\n[model_providers.astrlink]\nname = "AstrLink"\nbase_url = "${base}/v1"\nwire_api = "responses"\nexperimental_bearer_token = "${token}"\n`;
+      // Codex shows its own image generation and web search tools only when
+      // the provider sets this header, as the desktop's Codex config does.
+      // The gateway strips it before forwarding.
+      return `model_provider = "astrlink"\nmodel = "${model}"\n\n[model_providers.astrlink]\nname = "AstrLink"\nbase_url = "${base}/v1"\nwire_api = "responses"\nexperimental_bearer_token = "${token}"\nhttp_headers = { x-openai-actor-authorization = "codex-imagegen" }\n`;
     case "gemini":
       return `GOOGLE_GEMINI_BASE_URL=${base}\nGEMINI_API_KEY=${token}\nGEMINI_MODEL=${model}\n`;
     case "opencode":
