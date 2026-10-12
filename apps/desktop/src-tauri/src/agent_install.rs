@@ -1524,6 +1524,9 @@ fn remove_one_rule(items: &mut Vec<Value>, rule: &str) {
     }
 }
 
+/// Codex loads `AGENTS.md` into every session, so this section only says what
+/// to avoid. Pointing at the skill here made agents load it for unrelated
+/// questions; the skill's own description decides when it applies.
 fn codex_guard_block(
     home: Home,
     data_directory: Option<&Path>,
@@ -1545,7 +1548,6 @@ fn codex_guard_block(
          \n\
          AstrLink added this section with its agent debugging tools and removes it when they are uninstalled.\n\
          \n\
-         - Inspect AstrLink only through the read-only CLI that the `astrlink-debug` skill describes.\n\
          - Do not read, copy, search, or open {data}, any `astrlink.db*` file, or `{session}`, and do not run `sqlite3` on them.\n\
          - The control socket and the session token only carry observer access. Do not use them to change AstrLink settings.\n\
          {CODEX_GUARD_END}"
@@ -1553,9 +1555,12 @@ fn codex_guard_block(
 }
 
 fn codex_guard_range(raw: &str) -> Option<(usize, usize)> {
-    let start = raw.find(CODEX_GUARD_BEGIN)?;
-    let end = raw[start..].find(CODEX_GUARD_END)? + start + CODEX_GUARD_END.len();
-    Some((start, end))
+    let first = raw.find(CODEX_GUARD_BEGIN)?;
+    let end = raw[first..].find(CODEX_GUARD_END)? + first;
+    // A begin marker left behind by a hand edit must not pull the user's text
+    // after it into the section.
+    let start = raw[..end].rfind(CODEX_GUARD_BEGIN)?;
+    Some((start, end + CODEX_GUARD_END.len()))
 }
 
 /// Replaces AstrLink's marked section or appends it after the user's text.
@@ -3337,6 +3342,7 @@ mod tests {
         let block = codex_guard_block(desktop(), Some(Path::new("/data/astrlink")), None);
         assert!(block.contains("/data/astrlink"));
         assert!(block.contains("observer access"));
+        assert!(!block.contains("skill"));
         assert!(!block.contains("raw key pin file"));
         let pinned = codex_guard_block(
             desktop(),
@@ -3360,6 +3366,21 @@ mod tests {
         assert_eq!(remove_codex_agents_guard(&fresh), "");
         let middle = format!("before\n\n{block}\n\nafter\n");
         assert_eq!(remove_codex_agents_guard(&middle), "before\n\nafter\n");
+    }
+
+    #[test]
+    fn a_leftover_begin_marker_keeps_the_user_text_after_it() {
+        // The user deleted the section by hand but kept its begin marker, then
+        // installed again.
+        let user = format!("# My rules\n\n{CODEX_GUARD_BEGIN}\nKeep this.\n");
+        let block = codex_guard_block(desktop(), Some(Path::new("/data/astrlink")), None);
+        let merged = merge_codex_agents_guard(Some(&user), &block);
+        assert_eq!(remove_codex_agents_guard(&merged), user);
+
+        let other = codex_guard_block(desktop(), Some(Path::new("/elsewhere")), None);
+        let replaced = merge_codex_agents_guard(Some(&merged), &other);
+        assert!(replaced.starts_with(user.as_str()));
+        assert!(replaced.contains("/elsewhere") && !replaced.contains("/data/astrlink"));
     }
 
     #[test]
