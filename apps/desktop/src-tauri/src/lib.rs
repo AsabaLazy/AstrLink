@@ -10,6 +10,7 @@ mod dev_reload;
 mod failure_policy;
 mod host_files;
 mod i18n;
+mod instance;
 mod kek_store;
 #[cfg(target_os = "macos")]
 mod macos_app;
@@ -391,6 +392,16 @@ fn raw_key_pin_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         .map(std::path::Path::to_path_buf)
 }
 
+/// Refuses the isolated instance's writes to the real home's client configs
+/// and agent tools; see [`instance::real_home_writes`].
+fn real_home_writes(app: &tauri::AppHandle) -> Result<(), String> {
+    instance::real_home_writes(
+        app.try_state::<Arc<PreferencesStore>>()
+            .map(|store| store.snapshot().values.locale)
+            .unwrap_or_default(),
+    )
+}
+
 #[tauri::command]
 async fn agent_debug_status(
     app: tauri::AppHandle,
@@ -410,6 +421,7 @@ async fn install_agent_debug(
     skill_ids: Vec<agent_install::AgentSkillId>,
     tools: Vec<agent_install::AgentToolTarget>,
 ) -> Result<agent_install::InstallReceipt, String> {
+    real_home_writes(&app)?;
     home_task(move || {
         let distributions = tools
             .iter()
@@ -425,6 +437,7 @@ async fn install_agent_debug(
 /// so no skill is left pointing at the removed CLI.
 #[tauri::command]
 async fn uninstall_agent_debug(app: tauri::AppHandle) -> Result<(), String> {
+    real_home_writes(&app)?;
     home_task(move || {
         let distributions = agent_install::recorded_wsl(&control_session::user_home()?);
         let (context, _) = app_agent_install_context(&app, wsl::Reach::RunningAnd(&distributions))?;
@@ -596,7 +609,7 @@ fn receive_deep_links(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
     if let Some(url) = urls
         .iter()
         .rev()
-        .find(|url| url.scheme() == provider_import::SCHEME)
+        .find(|url| url.scheme() == instance::link_scheme())
     {
         provider_import::receive(app, url.as_str());
     }
@@ -1925,12 +1938,14 @@ async fn cc_switch_installed() -> Result<bool, String> {
 
 #[tauri::command]
 async fn open_cc_switch_import(
+    app: tauri::AppHandle,
     token_id: String,
     client: client_config::Client,
     models: client_config::Models,
     inference_url: String,
     manager: State<'_, Arc<CoreManager>>,
 ) -> Result<(), String> {
+    real_home_writes(&app)?;
     let home = control_session::user_home()?;
     cc_switch::open_import(&manager, home, &token_id, client, &models, &inference_url).await
 }
@@ -1999,17 +2014,18 @@ fn client_home(wsl: Option<String>) -> Result<agent_home::OwnedHome, String> {
 
 #[tauri::command]
 async fn apply_client_config(
+    app: tauri::AppHandle,
     token_id: String,
     client: client_config::Client,
     models: client_config::Models,
     inference_url: String,
     replace: bool,
     wsl: Option<String>,
-    manager: State<'_, Arc<CoreManager>>,
 ) -> Result<client_config::ApplyOutcome, String> {
+    real_home_writes(&app)?;
     let target = home_task(move || client_home(wsl)).await?;
     client_config::apply(
-        &manager,
+        &app.state::<Arc<CoreManager>>(),
         target,
         token_id,
         client,
@@ -2022,9 +2038,11 @@ async fn apply_client_config(
 
 #[tauri::command]
 async fn remove_client_config(
+    app: tauri::AppHandle,
     client: client_config::Client,
     wsl: Option<String>,
 ) -> Result<(), String> {
+    real_home_writes(&app)?;
     home_task(move || client_config::remove(client_home(wsl)?.home(), client)).await
 }
 
@@ -2240,6 +2258,8 @@ fn platform_initialization_script(platform: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before the development bundle is staged: `make dev` stages its own.
+    let context = instance::configure(tauri::generate_context!());
     // Cocoa must see the .app before NSApplication is initialized. Replacing
     // this process preserves the PID and Tauri dev's signal/restart handling.
     #[cfg(all(target_os = "macos", dev))]
@@ -2482,7 +2502,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("failed to build AstrLink desktop app");
 
     app.run(|app_handle, event| {

@@ -42,7 +42,7 @@ pub fn user_home() -> Result<PathBuf, String> {
 }
 
 pub fn astrlink_home(home: &Path) -> PathBuf {
-    home.join(".astrlink")
+    home.join(crate::instance::home_directory_name())
 }
 
 pub fn session_path(home: &Path) -> PathBuf {

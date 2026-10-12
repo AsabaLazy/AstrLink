@@ -253,7 +253,7 @@ impl Default for Preferences {
             core_auto_start: true,
             core_auto_recover: true,
             use_system_proxy: true,
-            inference_port: DEFAULT_INFERENCE_PORT,
+            inference_port: crate::instance::default_inference_port(),
             inference_listen: InferenceListen::Loopback,
             max_concurrent_inspections: DEFAULT_MAX_CONCURRENT_INSPECTIONS,
             response_start_timeout_seconds: DEFAULT_RESPONSE_START_TIMEOUT_SECONDS,
@@ -330,7 +330,7 @@ impl PreferencesStore {
             inference_port: if has_existing_data {
                 LEGACY_INFERENCE_PORT
             } else {
-                DEFAULT_INFERENCE_PORT
+                crate::instance::default_inference_port()
             },
             ..Preferences::default()
         };
