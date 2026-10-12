@@ -101,6 +101,27 @@ pub fn split_dirs(dirs: ToolDirs) -> (ToolDirs, Vec<WslDirs>) {
 /// The distribution a `\\wsl$` or `\\wsl.localhost` path lies in, and the
 /// home it lies in: `/home/<user>` or `/root`, reached through the same share.
 fn share_location(path: &Path) -> Option<(String, Option<PathBuf>)> {
+    let (server, distribution, parts) = share_parts(path)?;
+    let parts = parts.iter().map(String::as_str).collect::<Vec<_>>();
+    let home = match parts.as_slice() {
+        ["home", user, ..] => Some(format!(r"\\{server}\{distribution}\home\{user}")),
+        ["root", ..] => Some(format!(r"\\{server}\{distribution}\root")),
+        _ => None,
+    };
+    Some((distribution, home.map(PathBuf::from)))
+}
+
+/// The distribution a `\\wsl$` or `\\wsl.localhost` path lies in, and the
+/// path as the distribution sees it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn inside_share(path: &Path) -> Option<(String, String)> {
+    let (_, distribution, parts) = share_parts(path)?;
+    Some((distribution, format!("/{}", parts.join("/"))))
+}
+
+/// A share path's server, its distribution, and its segments inside the
+/// distribution.
+fn share_parts(path: &Path) -> Option<(String, String, Vec<String>)> {
     let raw = path.to_str()?.replace('/', "\\");
     let raw = match raw.strip_prefix(r"\\?\UNC\") {
         Some(rest) => format!(r"\\{rest}"),
@@ -115,16 +136,75 @@ fn share_location(path: &Path) -> Option<(String, Option<PathBuf>)> {
         return None;
     }
     let distribution = parts.next()?;
-    let parts = parts.collect::<Vec<_>>();
-    if parts.contains(&"..") {
+    let parts = parts.map(str::to_string).collect::<Vec<_>>();
+    if parts.iter().any(|part| part == "..") {
         return None;
     }
-    let home = match parts.as_slice() {
-        ["home", user, ..] => Some(format!(r"\\{server}\{distribution}\home\{user}")),
-        ["root", ..] => Some(format!(r"\\{server}\{distribution}\root")),
-        _ => None,
-    };
-    Some((distribution.to_string(), home.map(PathBuf::from)))
+    Some((server.to_string(), distribution.to_string(), parts))
+}
+
+/// Gives `temporary`, staged in a WSL share to replace `target`, the Linux
+/// mode the write should leave, before its contents land: owner-only for a
+/// secret, else the mode of the file it replaces. Windows cannot set Linux
+/// modes through the share, so the distribution's default user, who owns
+/// what the share creates, sets them. Returns whether the files lie in a
+/// share.
+pub fn settle_share_mode(temporary: &Path, target: &Path, secret: bool) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        let (Some((distribution, staged)), Some((_, replaced))) =
+            (inside_share(temporary), inside_share(target))
+        else {
+            return Ok(false);
+        };
+        let mode = if secret {
+            "600".to_string()
+        } else if target.exists() {
+            let output = platform::run(
+                &[
+                    "--distribution",
+                    distribution.as_str(),
+                    "--exec",
+                    "stat",
+                    "-c",
+                    "%a",
+                    replaced.as_str(),
+                ],
+                platform::MODE_TIMEOUT,
+            )?;
+            file_mode(&output)
+                .ok_or_else(|| format!("{replaced} reported an unusable mode {output:?}"))?
+        } else {
+            // A new file keeps the distribution's default mode, as it would anywhere.
+            return Ok(true);
+        };
+        platform::run(
+            &[
+                "--distribution",
+                distribution.as_str(),
+                "--exec",
+                "chmod",
+                mode.as_str(),
+                staged.as_str(),
+            ],
+            platform::MODE_TIMEOUT,
+        )?;
+        Ok(true)
+    }
+    #[cfg(not(windows))]
+    {
+        // Only Windows reaches WSL homes through their share.
+        let _ = (temporary, target, secret);
+        Ok(false)
+    }
+}
+
+/// The permission bits `stat -c %a` prints, as `chmod` takes them.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn file_mode(output: &str) -> Option<String> {
+    let mode = output.trim();
+    ((1..=4).contains(&mode.len()) && mode.chars().all(|c| matches!(c, '0'..='7')))
+        .then(|| mode.to_string())
 }
 
 pub struct Distribution {
@@ -386,6 +466,8 @@ mod platform {
     const LIST_TIMEOUT: Duration = Duration::from_secs(10);
     /// Covers starting a stopped distribution, which may boot the WSL VM.
     pub const HOME_TIMEOUT: Duration = Duration::from_secs(60);
+    /// The distribution already runs: the write through its share started it.
+    pub const MODE_TIMEOUT: Duration = Duration::from_secs(10);
 
     pub fn distributions() -> Vec<Distribution> {
         let Ok(all) = run(&["--list", "--quiet"], LIST_TIMEOUT) else {
@@ -569,6 +651,40 @@ mod tests {
                 Some(PathBuf::from(r"\\wsl.localhost\Ubuntu\home\a"))
             ))
         );
+    }
+
+    #[test]
+    fn share_writes_set_modes_on_the_paths_the_distribution_sees() {
+        assert_eq!(
+            inside_share(Path::new(
+                r"\\wsl$\Ubuntu-24.04\home\ada\.codex\config.toml"
+            )),
+            Some((
+                "Ubuntu-24.04".to_string(),
+                "/home/ada/.codex/config.toml".to_string()
+            ))
+        );
+        assert_eq!(
+            inside_share(Path::new(r"\\?\UNC\wsl.localhost\Debian\root\.pi\agent")),
+            Some(("Debian".to_string(), "/root/.pi/agent".to_string()))
+        );
+        assert_eq!(inside_share(Path::new(r"C:\Users\ada\.codex")), None);
+        assert_eq!(
+            inside_share(Path::new(r"\\wsl$\Ubuntu\home\..\etc\passwd")),
+            None
+        );
+        assert_eq!(
+            inside_share(Path::new(r"\\wsl$\Ubuntu\home\ada lovelace\.a.tmp-7-0"))
+                .map(|(_, path)| path),
+            Some("/home/ada lovelace/.a.tmp-7-0".to_string())
+        );
+
+        assert_eq!(file_mode("644\n").as_deref(), Some("644"));
+        assert_eq!(file_mode(" 4755\r\n").as_deref(), Some("4755"));
+        assert_eq!(file_mode("0").as_deref(), Some("0"));
+        for output in ["", "64x", "12345", "-rw-r--r--"] {
+            assert_eq!(file_mode(output), None, "{output}");
+        }
     }
 
     #[test]
