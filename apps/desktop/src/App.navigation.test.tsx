@@ -306,6 +306,10 @@ describe("tray navigation targets", () => {
   it("opens known pages and today's failed requests and ignores the rest", () => {
     expect(trayNavigationTarget("records")).toEqual({ kind: "records" });
     expect(trayNavigationTarget("settings")).toEqual({ kind: "settings" });
+    expect(trayNavigationTarget("privacyOverview")).toEqual({
+      kind: "safety",
+      view: "overview",
+    });
     const now = new Date(2026, 9, 12, 15, 30);
     expect(trayNavigationTarget("failedToday", now)).toEqual({
       kind: "records",

@@ -10,6 +10,7 @@ import {
   Plus,
   RotateCcw,
   ScanText as ScanLine,
+  ShieldCheck,
   SlidersHorizontal,
   type AnimatedIcon,
 } from "@/components/icons";
@@ -20,6 +21,7 @@ import { ListToolbar } from "@/components/ListToolbar";
 import { HelpDisclosure } from "@/components/HelpDisclosure";
 import { HelpPopover } from "@/components/HelpPopover";
 import { SplitWorkspace } from "@/components/SplitWorkspace";
+import { UsageRangeSelect } from "@/components/UsageRangeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FormMessage } from "@/components/FormMessage";
@@ -64,6 +66,7 @@ import {
   getPrivacyModelReleases,
   getPrivacyPolicy,
   getPrivacyRegexBuiltinRules,
+  getPrivacySummary,
   installPrivacyModel,
   listPrivacyModelInstallations,
   pausePrivacyModelInstallation,
@@ -111,6 +114,9 @@ import {
   type PrivacyRegexSource,
 } from "./privacy-policy-model";
 import { PageHeader } from "./PageHeader";
+import { PrivacyOverview } from "./PrivacyOverview";
+import { hasPrivacyActivity } from "./privacy-summary-model";
+import { resolveUsageWindow, type UsageRangePreset } from "./usage-range";
 import { RawPasswordEntry } from "./RawSealingControls";
 import {
   privacyDryRunError,
@@ -124,13 +130,22 @@ import {
 import type { DryRunTextSpan } from "./privacy-dry-run-model";
 
 type SafetyPolicyStatus = "blocked" | "loading" | "ready" | "error";
-type WorkspaceView = "detection" | "redaction" | "dryRun" | "models";
+type WorkspaceView =
+  | "overview"
+  | "detection"
+  | "redaction"
+  | "dryRun"
+  | "models";
 type ModelView = "catalog" | "installed" | "custom" | "local";
 type ProbeView = Extract<ModelView, "custom" | "local">;
 
 // Core replies once the worker has exited, which is usually instant; keep the
 // unload notice up long enough to read.
 const MODEL_UNLOAD_MIN_VISIBLE_MS = 800;
+
+// With protection on and nothing checked yet, look again for the first
+// checked call so the overview tab appears without a manual refresh.
+const OVERVIEW_RECHECK_MS = 30_000;
 
 interface CatalogPreparation {
   catalogID: string;
@@ -160,8 +175,11 @@ type PendingModelAction =
 
 export interface SafetyPolicyProps {
   coreSessionKey: string | null;
-  /** Opens on the models tab, as when following a model update reminder. */
-  initialView?: "models";
+  /**
+   * Opens on the models tab, as when following a model update reminder, or on
+   * the overview, as when following the tray's privacy statistics link.
+   */
+  initialView?: "models" | "overview";
   isReady: boolean;
   /** Opens the agent tools page to install the placeholder skill. */
   onInstallPlaceholderSkill?: () => void;
@@ -1177,8 +1195,23 @@ export function SafetyPolicy({
   const [status, setStatus] = useState<SafetyPolicyStatus>(
     record ? "ready" : "blocked",
   );
-  const initialWorkspace: WorkspaceView = initialView ?? "detection";
+  // The overview tab exists only once a call in the last year went through the
+  // privacy check; null until the first check answers.
+  const [overviewAvailable, cacheOverviewAvailable] = useWorkspaceSnapshot<
+    boolean | null
+  >(`privacy-activity:${coreSessionKey}`, null);
+  // The tray offers its statistics link only once today has checked calls, so
+  // that request shows the tab before this visit's own check confirms it.
+  const overviewRequested = initialView === "overview";
+  const showOverview = overviewAvailable === true || overviewRequested;
+  const initialWorkspace: WorkspaceView =
+    initialView ?? (overviewAvailable ? "overview" : "detection");
   const [workspace, setWorkspace] = useState<WorkspaceView>(initialWorkspace);
+  const [statsRange, setStatsRange] = useWorkspaceSnapshot<UsageRangePreset>(
+    "privacy-summary-range",
+    "7d",
+    "desktop",
+  );
   const [allowlistQuery, setAllowlistQuery] = useState("");
   const [view, setView] = useState<ModelView>("catalog");
   const [selectedVariants, setSelectedVariants] = useState<
@@ -1316,16 +1349,59 @@ export function SafetyPolicy({
     }
   };
 
+  /**
+   * Whether any call in the last year went through the privacy check, or null
+   * when Core could not say. The rest of the page never waits on a failure.
+   */
+  const loadOverviewAvailability = async (): Promise<boolean | null> => {
+    try {
+      const summary = await getPrivacySummary(
+        resolveUsageWindow("1y", new Date()),
+      );
+      return hasPrivacyActivity(summary.totals);
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Shows or hides the overview tab. `pickDefault` is set only while the page
+   * is still loading for the first time, so opening on the overview never
+   * pulls the operator away from a tab already on screen.
+   */
+  const applyOverviewAvailability = (
+    available: boolean | null,
+    pickDefault: boolean,
+  ) => {
+    if (available === null) return;
+    cacheOverviewAvailable(available);
+    setWorkspace((current) => {
+      if (!available && current === "overview" && !overviewRequested) {
+        return "detection";
+      }
+      if (available && pickDefault && current === "detection") {
+        return "overview";
+      }
+      return current;
+    });
+  };
+
   // Only the operator's refresh skips Core's release cache.
-  const load = async (generation: number, refreshReleases = false) => {
+  const load = async (
+    generation: number,
+    refreshReleases = false,
+    pickDefault = false,
+  ) => {
     const version = policyMutationVersion.current;
     void loadReleases(generation, refreshReleases);
     try {
-      const [nextRecord, nextCatalog, nextInstallations] = await Promise.all([
-        getPrivacyPolicy(),
-        getPrivacyModelCatalog(),
-        listPrivacyModelInstallations(),
-      ]);
+      const [nextRecord, nextCatalog, nextInstallations, available] =
+        await Promise.all([
+          getPrivacyPolicy(),
+          getPrivacyModelCatalog(),
+          listPrivacyModelInstallations(),
+          loadOverviewAvailability(),
+        ]);
       if (generationRef.current !== generation) return;
       if (policyMutationVersion.current === version) {
         cacheRecord(nextRecord);
@@ -1347,6 +1423,7 @@ export function SafetyPolicy({
           }),
         ),
       );
+      applyOverviewAvailability(available, pickDefault);
       setStatus("ready");
     } catch (loadError) {
       if (
@@ -1403,7 +1480,9 @@ export function SafetyPolicy({
 
     setRecord(savedRecord);
     setStatus(savedRecord ? "ready" : "loading");
-    void load(generation);
+    // Without a cached record the tabs are not on screen yet, so the first
+    // load may still open the page on the overview.
+    void load(generation, false, savedRecord === null && !initialView);
 
     return () => {
       if (generationRef.current === generation) {
@@ -1411,6 +1490,38 @@ export function SafetyPolicy({
       }
     };
   }, [coreSessionKey, isReady]);
+
+  const privacyEnabled = record?.policy.enabled ?? false;
+  useEffect(() => {
+    if (
+      !isReady ||
+      coreSessionKey === null ||
+      !privacyEnabled ||
+      overviewAvailable === true
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const recheck = () => {
+      if (document.hidden) return;
+      void loadOverviewAvailability().then((available) => {
+        // The tab appears beside the one in use; it does not take focus.
+        if (!cancelled && available === true) cacheOverviewAvailable(true);
+      });
+    };
+    const timer = window.setInterval(recheck, OVERVIEW_RECHECK_MS);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [coreSessionKey, isReady, privacyEnabled, overviewAvailable]);
+
+  // A tray link can name a tab while this page is already open.
+  useEffect(() => {
+    if (initialView) setWorkspace(initialView);
+  }, [initialView]);
 
   const downloadingIDs = useMemo(
     () =>
@@ -2658,32 +2769,69 @@ export function SafetyPolicy({
           onValueChange={(value) => setWorkspace(value as WorkspaceView)}
           value={workspace}
         >
-          <TabsList
-            aria-label={t("safety.workspace")}
-            className="shrink-0"
-            scrollable
-          >
-            <TabsTrigger value="detection">
-              <ScanLine aria-hidden="true" />
-              {t("safety.detectionAndRestore")}
-            </TabsTrigger>
-            <TabsTrigger value="redaction">
-              <SlidersHorizontal aria-hidden="true" />
-              {t("safety.redactionRules")}
-            </TabsTrigger>
-            <TabsTrigger
-              aria-label={t("safety.run")}
-              onClick={() => setWorkspace("dryRun")}
-              value="dryRun"
+          <div className="flex min-w-0 shrink-0 items-center justify-between gap-2">
+            <TabsList
+              aria-label={t("safety.workspace")}
+              className="shrink-0"
+              scrollable
             >
-              <FlaskConical aria-hidden="true" />
-              {t("safety.run")}
-            </TabsTrigger>
-            <TabsTrigger onClick={() => setWorkspace("models")} value="models">
-              <Boxes aria-hidden="true" />
-              {t("safety.tabModels")}
-            </TabsTrigger>
-          </TabsList>
+              {/* Without any checked call there is nothing to chart yet. */}
+              {showOverview ? (
+                <TabsTrigger value="overview">
+                  <ShieldCheck aria-hidden="true" />
+                  {t("safety.tabOverview")}
+                </TabsTrigger>
+              ) : null}
+              <TabsTrigger value="detection">
+                <ScanLine aria-hidden="true" />
+                {t("safety.detectionAndRestore")}
+              </TabsTrigger>
+              <TabsTrigger value="redaction">
+                <SlidersHorizontal aria-hidden="true" />
+                {t("safety.redactionRules")}
+              </TabsTrigger>
+              <TabsTrigger
+                aria-label={t("safety.run")}
+                onClick={() => setWorkspace("dryRun")}
+                value="dryRun"
+              >
+                <FlaskConical aria-hidden="true" />
+                {t("safety.run")}
+              </TabsTrigger>
+              <TabsTrigger
+                onClick={() => setWorkspace("models")}
+                value="models"
+              >
+                <Boxes aria-hidden="true" />
+                {t("safety.tabModels")}
+              </TabsTrigger>
+            </TabsList>
+            {/* The range scopes the whole overview, so it sits above it. */}
+            {showOverview && workspace === "overview" ? (
+              <UsageRangeSelect
+                label={t("privacyStats.range")}
+                onChange={setStatsRange}
+                preset={statsRange}
+              />
+            ) : null}
+          </div>
+
+          {showOverview ? (
+            <TabsContent
+              className="min-h-0 min-w-0 flex-1 overflow-y-clip"
+              forceMount
+              hidden={workspace !== "overview"}
+              value="overview"
+            >
+              <PrivacyOverview
+                active={workspace === "overview"}
+                coreSessionKey={coreSessionKey}
+                enabled={policy.enabled}
+                isReady={isReady}
+                preset={statsRange}
+              />
+            </TabsContent>
+          ) : null}
 
           <TabsContent
             className="min-h-0 min-w-0 flex-1 overflow-y-clip"

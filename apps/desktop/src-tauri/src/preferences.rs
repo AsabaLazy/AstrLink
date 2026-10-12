@@ -138,6 +138,8 @@ pub enum TrayPage {
 pub struct TrayUsagePreferences {
     pub today: bool,
     pub cost: bool,
+    /// What the privacy policy replaced, restored and blocked today.
+    pub privacy: bool,
     pub subscription_windows: bool,
     pub top_model: bool,
     pub compare_yesterday: bool,
@@ -152,6 +154,7 @@ impl Default for TrayUsagePreferences {
         Self {
             today: true,
             cost: true,
+            privacy: true,
             subscription_windows: true,
             top_model: true,
             compare_yesterday: false,
@@ -172,6 +175,7 @@ impl TrayUsagePreferences {
     pub fn needs_anything(&self) -> bool {
         self.needs_usage_summary()
             || self.cost
+            || self.privacy
             || self.subscription_windows
             || self.top_client
             || self.last_request

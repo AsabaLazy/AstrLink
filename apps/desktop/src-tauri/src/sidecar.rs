@@ -1780,6 +1780,29 @@ impl CoreManager {
             .map_err(|error| format!("usage summary returned invalid JSON: {error}"))
     }
 
+    /// What the privacy policy did over a window, with the usage summary's
+    /// window, time zone and bucket rules.
+    pub async fn get_privacy_summary(
+        &self,
+        from: &str,
+        to: &str,
+        time_zone: &str,
+        bucket: &str,
+    ) -> Result<serde_json::Value, String> {
+        let path = format!(
+            "/control/v1/privacy-summary?from={}&to={}&time_zone={}&bucket={}",
+            percent_encode_query(from),
+            percent_encode_query(to),
+            percent_encode_query(time_zone),
+            percent_encode_query(bucket)
+        );
+        let (_, body) = self
+            .authenticated_control(Method::GET, &path, None, None)
+            .await?;
+        serde_json::from_slice(&body)
+            .map_err(|error| format!("privacy summary returned invalid JSON: {error}"))
+    }
+
     pub async fn list_access_token_usage(
         &self,
         today_from: &str,

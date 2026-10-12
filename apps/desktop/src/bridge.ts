@@ -26,6 +26,10 @@ import {
   type ProviderImportNotice,
 } from "./provider-import-model";
 import { parseUsageSummary } from "./usage-summary-model";
+import {
+  parsePrivacySummary,
+  type PrivacySummary,
+} from "./privacy-summary-model";
 import type { UsageSummary, UsageWindow } from "./usage-range";
 
 import {
@@ -834,6 +838,22 @@ export async function getUsageSummary(
   requireNativeBridge();
   return parseUsageSummary(
     await invoke<unknown>("get_usage_summary", {
+      from: window.from,
+      to: window.to,
+      timeZone: window.time_zone || "UTC",
+      bucket: window.preset === "1d" ? "hour" : "day",
+    }),
+    window,
+  );
+}
+
+/** What the privacy policy did over the window, in the usage summary's buckets. */
+export async function getPrivacySummary(
+  window: UsageWindow,
+): Promise<PrivacySummary> {
+  requireNativeBridge();
+  return parsePrivacySummary(
+    await invoke<unknown>("get_privacy_summary", {
       from: window.from,
       to: window.to,
       timeZone: window.time_zone || "UTC",

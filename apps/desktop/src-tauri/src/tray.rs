@@ -66,6 +66,8 @@ const MAX_SUBSCRIPTION_SERVICES: usize = 8;
 /// Primary, secondary and a handful of named limits per plan.
 const MAX_WINDOWS_PER_SUBSCRIPTION: usize = 6;
 const MAX_WINDOW_LABEL_CHARS: usize = 40;
+/// Core names ten kinds today; the bound leaves room for newer ones.
+const MAX_PRIVACY_KINDS: usize = 16;
 
 /// Width of the popover page in CSS pixels; `TRAY_POPOVER_WIDTH` in the
 /// frontend.
@@ -108,7 +110,7 @@ const SUBSCRIPTION_KINDS: [&str; 10] = [
     "opencode_go",
 ];
 
-const NAVIGATION_KINDS: [&str; 9] = [
+const NAVIGATION_KINDS: [&str; 10] = [
     "overview",
     "list",
     "tokens",
@@ -116,6 +118,8 @@ const NAVIGATION_KINDS: [&str; 9] = [
     "records",
     // Request records narrowed to the calls behind today's failure count.
     "failedToday",
+    // The safety page opened on its privacy statistics.
+    "privacyOverview",
     "routing",
     "agentTools",
     "settings",
@@ -202,6 +206,32 @@ pub struct SubscriptionDigest {
     pub windows: Vec<WindowDigest>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PrivacyKindCount {
+    pub kind: String,
+    pub count: i64,
+}
+
+/// What the privacy policy did to today's calls. Values and placeholders
+/// never reach the host; these are counts only.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct PrivacyDigest {
+    /// The policy switch right now; None when it could not be read.
+    pub enabled: Option<bool>,
+    /// Calls the policy finished checking.
+    pub checked: i64,
+    pub redacted: i64,
+    pub warned: i64,
+    pub blocked: i64,
+    /// Calls that went upstream unchecked because the check failed.
+    pub unchecked: i64,
+    pub replaced: i64,
+    pub restored: i64,
+    pub unrestored: i64,
+    /// Kinds found, the most frequent first.
+    pub kinds: Vec<PrivacyKindCount>,
+}
+
 /// Everything the popover's usage cards need, collected in one pass. Each
 /// field is independent: a failed lookup hides its card, not the whole panel.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -212,6 +242,7 @@ pub struct UsageDigest {
     pub yesterday_tokens: Option<i64>,
     pub top_model: Option<Share>,
     pub cost_today: Option<CostDigest>,
+    pub privacy: Option<PrivacyDigest>,
     pub top_client: Option<Share>,
     pub last_request: Option<LastRequest>,
     pub month_tokens: Option<i64>,
@@ -561,6 +592,38 @@ fn cost_from(value: &serde_json::Value) -> Option<CostDigest> {
     })
 }
 
+fn privacy_from(summary: &serde_json::Value, enabled: Option<bool>) -> Option<PrivacyDigest> {
+    let totals = summary.get("totals")?;
+    let count = |key: &str| totals.get(key).and_then(|value| value.as_i64());
+    let redacted = count("redacted")?;
+    let warned = count("warned")?;
+    let blocked = count("blocked")?;
+    let kinds = summary
+        .get("by_kind")?
+        .as_array()?
+        .iter()
+        .filter_map(|kind| {
+            Some(PrivacyKindCount {
+                kind: kind.get("kind")?.as_str()?.to_string(),
+                count: kind.get("count")?.as_i64()?,
+            })
+        })
+        .take(MAX_PRIVACY_KINDS)
+        .collect();
+    Some(PrivacyDigest {
+        enabled,
+        checked: count("allowed")? + warned + redacted + blocked,
+        redacted,
+        warned,
+        blocked,
+        unchecked: count("fail_open")?,
+        replaced: count("replaced")?,
+        restored: count("restored")?,
+        unrestored: count("unrestored")?,
+        kinds,
+    })
+}
+
 fn top_client_from(tokens: &serde_json::Value, usage: &serde_json::Value) -> Option<Share> {
     let names: std::collections::HashMap<&str, &str> = tokens
         .get("items")?
@@ -817,6 +880,27 @@ async fn collect_digest(
             .await
             .ok()
             .and_then(|summary| cost_from(&summary));
+    }
+
+    if prefs.privacy {
+        if let Ok(summary) = manager
+            .get_privacy_summary(
+                &windows.today_from,
+                &windows.today_to,
+                &windows.time_zone,
+                "day",
+            )
+            .await
+        {
+            // Read beside the counts, so the card can say protection is off
+            // instead of showing zeros that look like a clean day.
+            let enabled = manager
+                .get_privacy_policy()
+                .await
+                .ok()
+                .and_then(|record| record.policy.get("enabled")?.as_bool());
+            digest.privacy = privacy_from(&summary, enabled);
+        }
     }
 
     if prefs.top_client {
@@ -1982,6 +2066,21 @@ mod tests {
                 amount_usd: 0.834,
                 unpriced: 0,
             }),
+            privacy: Some(PrivacyDigest {
+                enabled: Some(true),
+                checked: 120,
+                redacted: 9,
+                warned: 0,
+                blocked: 1,
+                unchecked: 0,
+                replaced: 23,
+                restored: 17,
+                unrestored: 0,
+                kinds: vec![PrivacyKindCount {
+                    kind: "email".to_string(),
+                    count: 14,
+                }],
+            }),
             top_client: None,
             last_request: None,
             month_tokens: None,
@@ -2392,6 +2491,26 @@ mod tests {
         let idle = serde_json::json!({"items": [{"token_id": "tok_a", "today_tokens": 0, "total_tokens": 1}]});
         assert!(top_client_from(&tokens, &idle).is_none());
 
+        let privacy = serde_json::json!({
+            "totals": {"requests": 40, "allowed": 30, "warned": 1, "redacted": 6, "blocked": 2,
+                       "fail_open": 1, "replaced": 11, "restored": 7, "restored_visible": 5,
+                       "restored_tool_arguments": 2, "unrestored": 1},
+            "by_day": [], "by_hour": [],
+            "by_kind": [{"kind": "email", "count": 8}, {"kind": "phone", "count": 3}]
+        });
+        let digest = privacy_from(&privacy, Some(false)).unwrap();
+        assert_eq!(digest.enabled, Some(false));
+        // Off and failed checks are calls, not checks.
+        assert_eq!(digest.checked, 39);
+        assert_eq!(digest.unchecked, 1);
+        assert_eq!(
+            (digest.replaced, digest.restored, digest.unrestored),
+            (11, 7, 1)
+        );
+        assert_eq!(digest.kinds[0].kind, "email");
+        assert_eq!(digest.kinds.len(), 2);
+        assert!(privacy_from(&serde_json::json!({"totals": {}}), None).is_none());
+
         let records = serde_json::json!({"items": [{
             "started_at": "2026-09-22T10:00:00Z", "requested_model": "gpt-5",
             "latency_ms": 2100, "status": "failed"
@@ -2500,6 +2619,9 @@ mod tests {
         assert_eq!(value["popover_below"], true);
         assert_eq!(value["view"]["inference_url"], "http://127.0.0.1:8317");
         assert_eq!(value["digest"]["today"]["requests"], 128);
+        assert_eq!(value["digest"]["privacy"]["enabled"], true);
+        assert_eq!(value["digest"]["privacy"]["replaced"], 23);
+        assert_eq!(value["digest"]["privacy"]["kinds"][0]["kind"], "email");
         assert_eq!(
             value["digest"]["hourly_tokens"].as_array().unwrap().len(),
             24
@@ -2550,7 +2672,13 @@ mod tests {
 
     #[test]
     fn navigation_accepts_only_known_pages() {
-        for page in ["records", "failedToday", "settings", "agentTools"] {
+        for page in [
+            "records",
+            "failedToday",
+            "privacyOverview",
+            "settings",
+            "agentTools",
+        ] {
             assert_eq!(check_navigation(page), Ok(()), "{page}");
         }
         for page in ["", "explode", "Records", "records?status=failed"] {

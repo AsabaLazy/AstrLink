@@ -87,6 +87,7 @@ x-astrlink-implementation:
     - GET /control/v1/access-tokens
     - GET /control/v1/access-token-usage
     - GET /control/v1/usage-summary
+    - GET /control/v1/privacy-summary
     - POST /control/v1/access-tokens
     - GET /control/v1/access-tokens/{token_id}/secret
     - DELETE /control/v1/access-tokens/{token_id}
@@ -1231,6 +1232,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UsageSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /control/v1/privacy-summary:
+    x-astrlink-implementation-status: implemented
+    get:
+      x-astrlink-role: observer
+      tags: [Requests]
+      operationId: getPrivacySummary
+      summary: Summarize what the privacy policy did to retained root requests in a calendar window.
+      description: >-
+        Counts finished root inference requests by privacy decision, sums the
+        values replaced and restored, and counts the kinds found, with sparse
+        calendar buckets in one response. Retry children, pending requests and
+        model discovery are excluded; blocked and cancelled requests are
+        included. Records from before decisions were stored count as blocked
+        when their status is blocked and as redacted when they carry a restore
+        summary. Replaced values are distinct per request, so a value repeated
+        across requests counts once per request. Kinds count distinct replaced
+        values for redacted requests and matches for warned or blocked ones.
+        No values or placeholders are returned. Calendar buckets use the
+        supplied IANA zone, including DST transitions.
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Inclusive whole-second RFC3339 timestamp.
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: true
+          description: Exclusive whole-second RFC3339 timestamp, at most 366 days after from.
+          schema: { type: string, format: date-time }
+        - name: time_zone
+          in: query
+          required: true
+          schema: { type: string, examples: [Asia/Tokyo] }
+        - name: bucket
+          in: query
+          required: true
+          description: Day buckets are always included; hour also includes local-hour buckets.
+          schema: { type: string, enum: [day, hour] }
+      responses:
+        "200":
+          description: Complete privacy statistics for the retained window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrivacySummary"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -3765,6 +3818,88 @@ components:
           type: array
           items: { $ref: "#/components/schemas/UsageGroup" }
         scanned_records: { type: integer, minimum: 0 }
+    PrivacyTotals:
+      type: object
+      description: >-
+        Each request lands in at most one decision count; a request no policy
+        applied to is counted in requests alone.
+      required:
+        [
+          requests,
+          allowed,
+          warned,
+          redacted,
+          blocked,
+          fail_open,
+          replaced,
+          restored,
+          restored_visible,
+          restored_tool_arguments,
+          unrestored,
+        ]
+      properties:
+        requests: { type: integer, minimum: 0 }
+        allowed: { type: integer, minimum: 0 }
+        warned: { type: integer, minimum: 0 }
+        redacted: { type: integer, minimum: 0 }
+        blocked: { type: integer, minimum: 0 }
+        fail_open:
+          type: integer
+          minimum: 0
+          description: Requests forwarded unchecked because the check failed.
+        replaced:
+          type: integer
+          minimum: 0
+          description: Distinct values each request replaced before forwarding, summed over requests.
+        restored: { type: integer, minimum: 0 }
+        restored_visible: { type: integer, minimum: 0 }
+        restored_tool_arguments: { type: integer, minimum: 0 }
+        unrestored:
+          type: integer
+          minimum: 0
+          description: Response parts left with replacements in them.
+    PrivacyDayBucket:
+      allOf:
+        - $ref: "#/components/schemas/PrivacyTotals"
+        - type: object
+          required: [date]
+          properties:
+            date: { type: string, format: date }
+      unevaluatedProperties: false
+    PrivacyHourBucket:
+      allOf:
+        - $ref: "#/components/schemas/PrivacyTotals"
+        - type: object
+          required: [date, hour]
+          properties:
+            date: { type: string, format: date }
+            hour: { type: integer, minimum: 0, maximum: 23 }
+      unevaluatedProperties: false
+    PrivacyKindCount:
+      type: object
+      additionalProperties: false
+      required: [kind, count]
+      properties:
+        kind: { type: string }
+        count: { type: integer, minimum: 1 }
+    PrivacySummary:
+      type: object
+      additionalProperties: false
+      required: [totals, by_day, by_hour, by_kind]
+      properties:
+        totals:
+          $ref: "#/components/schemas/PrivacyTotals"
+          unevaluatedProperties: false
+        by_day:
+          type: array
+          items: { $ref: "#/components/schemas/PrivacyDayBucket" }
+        by_hour:
+          type: array
+          items: { $ref: "#/components/schemas/PrivacyHourBucket" }
+        by_kind:
+          type: array
+          description: Most frequent kind first.
+          items: { $ref: "#/components/schemas/PrivacyKindCount" }
     AccessTokenUsageResponse:
       type: object
       additionalProperties: false

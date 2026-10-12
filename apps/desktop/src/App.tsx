@@ -78,6 +78,7 @@ import type { Service } from "./service-model";
 import {
   TRAY_FAILED_TODAY_PAGE,
   TRAY_NAVIGATE_EVENT,
+  TRAY_PRIVACY_OVERVIEW_PAGE,
 } from "./tray-popover-window";
 import {
   DEFAULT_USAGE_RANGE_PRESET,
@@ -91,7 +92,7 @@ import {
 type WorkspacePage =
   | { kind: "overview" }
   | { kind: "tokens" }
-  | { kind: "safety"; view?: "models" }
+  | { kind: "safety"; view?: "models" | "overview" }
   | {
       kind: "records";
       tokenId?: string;
@@ -167,6 +168,8 @@ export function trayNavigationTarget(
     case TRAY_FAILED_TODAY_PAGE:
       // The same local day the tray counted its failures over.
       return { kind: "records", failedWithin: localDayWindow(now) };
+    case TRAY_PRIVACY_OVERVIEW_PAGE:
+      return { kind: "safety", view: "overview" };
     case "overview":
     case "tokens":
     case "safety":

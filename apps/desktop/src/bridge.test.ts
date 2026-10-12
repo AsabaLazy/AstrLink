@@ -50,6 +50,7 @@ import {
   listRequestRecords,
   listAccessTokens,
   listAccessTokenUsage,
+  getPrivacySummary,
   getUsageSummary,
   listPrivacyModelInstallations,
   listPrivacyPolicies,
@@ -85,6 +86,7 @@ import {
   uninstallAgentDebug,
 } from "./bridge";
 import { defaultPrivacyKindRules } from "./privacy-policy-model";
+import { emptyPrivacyTotals } from "./privacy-summary-model";
 import { emptyUsageTotals, resolveUsageWindow } from "./usage-range";
 
 function validSnapshot(): Record<string, unknown> {
@@ -387,6 +389,24 @@ describe("desktop bridge contract", () => {
     });
     expect(result.by_hour).toHaveLength(24);
     expect(result.capped).toBe(false);
+  });
+  it("asks Core for a privacy summary in the usage window's buckets", async () => {
+    const window = resolveUsageWindow("7d", new Date(2026, 8, 19, 12));
+    invokeMock.mockResolvedValueOnce({
+      totals: emptyPrivacyTotals(),
+      by_day: [],
+      by_hour: [],
+      by_kind: [{ kind: "email", count: 2 }],
+    });
+    const result = await getPrivacySummary(window);
+    expect(invokeMock).toHaveBeenCalledWith("get_privacy_summary", {
+      from: window.from,
+      to: window.to,
+      timeZone: window.time_zone,
+      bucket: "day",
+    });
+    expect(result.by_day).toHaveLength(7);
+    expect(result.by_kind).toEqual([{ kind: "email", count: 2 }]);
   });
   it("roundtrips ordered service IDs and rejects malformed order responses", async () => {
     const record = {

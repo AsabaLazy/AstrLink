@@ -349,6 +349,85 @@ describe("TrayPopoverPanel", () => {
     expect(container.textContent).not.toContain("次失败");
   });
 
+  it("sums up today's privacy protection in one row of the day", async () => {
+    await render(readyTrayState);
+    const row = container.querySelector('[data-slot="tray-privacy"]')!;
+    expect(
+      row.querySelector('[data-slot="tray-privacy-status"]')?.textContent,
+    ).toBe("替换 23 · 还原 17 · 阻止 1");
+    // The three most frequent kinds, then a count of the rest.
+    expect(
+      row.querySelector('[data-slot="tray-privacy-kinds"]')?.textContent,
+    ).toBe("邮箱 14 · 常见密钥 6 · 电话 3 · 另有 1 类");
+    // A row of the usage area itself, not a section with its own divider.
+    expect(row.parentElement?.getAttribute("data-slot")).toBe("tray-usage");
+
+    act(() =>
+      row
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="在安全页查看隐私保护统计"]',
+        )!
+        .click(),
+    );
+    expect(actions).toEqual([{ kind: "navigate", page: "privacyOverview" }]);
+  });
+
+  it("keeps a quiet privacy day to one line or leaves it out", async () => {
+    const privacy = readyTrayState.digest.privacy;
+    const quiet = {
+      ...privacy,
+      redacted: 0,
+      blocked: 0,
+      replaced: 0,
+      restored: 0,
+      kinds: [],
+    };
+    const withPrivacy = (value: typeof privacy) => ({
+      ...readyTrayState,
+      digest: { ...readyTrayState.digest, privacy: value },
+    });
+    const row = () => container.querySelector('[data-slot="tray-privacy"]');
+    const status = () =>
+      row()?.querySelector('[data-slot="tray-privacy-status"]')?.textContent;
+
+    await render(withPrivacy(quiet));
+    expect(status()).toBe("今天未发现隐私内容");
+    expect(row()?.querySelectorAll("p")).toHaveLength(0);
+
+    await render(withPrivacy({ ...quiet, unchecked: 2 }));
+    expect(status()).toBe("今天未发现隐私内容");
+    expect(row()?.textContent).toContain("2 次检查失败，请求按原文发出");
+
+    await render(withPrivacy({ ...quiet, checked: 0, unchecked: 2 }));
+    expect(status()).toBe("2 次检查失败，请求按原文发出");
+    expect(row()?.querySelectorAll("p")).toHaveLength(0);
+
+    await render(withPrivacy({ ...privacy, enabled: false }));
+    expect(status()).toBe("已关闭，请求按原文发出");
+    expect(row()?.querySelector('[data-slot="tray-privacy-kinds"]')).toBeNull();
+
+    // Nothing checked yet and protection on: nothing to say.
+    await render(withPrivacy({ ...quiet, checked: 0 }));
+    expect(row()).toBeNull();
+
+    // Off with nothing checked: there are no statistics to open.
+    await render(withPrivacy({ ...quiet, enabled: false, checked: 0 }));
+    act(() =>
+      row()!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="在安全页查看隐私保护统计"]',
+        )!
+        .click(),
+    );
+    expect(actions.at(-1)).toEqual({ kind: "navigate", page: "safety" });
+
+    await render(readyTrayState, {
+      ...defaultTrayPreferences(),
+      usage: { ...defaultTrayPreferences().usage, privacy: false },
+    });
+    expect(row()).toBeNull();
+  });
+
   it("offers a start button and hides usage while the gateway is down", async () => {
     await render({
       ...readyTrayState,

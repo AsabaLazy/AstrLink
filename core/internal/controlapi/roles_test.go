@@ -97,6 +97,7 @@ func TestControlRoleMatrix(t *testing.T) {
 		{http.MethodGet, RequestsPath + "/req_missing/children", "", RoleObserver},
 		{http.MethodGet, RequestSessionsPath, "", RoleObserver},
 		{http.MethodGet, UsageSummaryPath, "", RoleObserver},
+		{http.MethodGet, PrivacySummaryPath, "", RoleObserver},
 		{http.MethodGet, AccessTokenUsagePath, "", RoleObserver},
 		{http.MethodGet, AuditSettingsPath, "", RoleObserver},
 		// Observers get the reduced raw_available view.

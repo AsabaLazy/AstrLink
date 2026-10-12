@@ -321,6 +321,10 @@ const commands: Record<string, Command> = {
     (a) =>
       `/usage-summary${query({ from: a.from, to: a.to, time_zone: a.timeZone, bucket: a.bucket })}`,
   ),
+  get_privacy_summary: route(
+    (a) =>
+      `/privacy-summary${query({ from: a.from, to: a.to, time_zone: a.timeZone, bucket: a.bucket })}`,
+  ),
   create_access_token: route("/access-tokens", "POST", (a) => ({
     name: a.name,
   })),

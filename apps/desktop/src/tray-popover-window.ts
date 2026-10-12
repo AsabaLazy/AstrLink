@@ -19,6 +19,12 @@ export const TRAY_NAVIGATE_EVENT = "tray:navigate";
 export const TRAY_FAILED_TODAY_PAGE = "failedToday";
 
 /**
+ * The safety page opened on its privacy statistics. Must match
+ * `NAVIGATION_KINDS` in `src-tauri/src/tray.rs`.
+ */
+export const TRAY_PRIVACY_OVERVIEW_PAGE = "privacyOverview";
+
+/**
  * Width of the popover page in CSS pixels. The host sizes the window to fit
  * it at the pixel ratio the page reports.
  */

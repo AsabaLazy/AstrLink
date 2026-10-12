@@ -1864,6 +1864,19 @@ async fn get_usage_summary(
 }
 
 #[tauri::command]
+async fn get_privacy_summary(
+    from: String,
+    to: String,
+    time_zone: String,
+    bucket: String,
+    manager: State<'_, Arc<CoreManager>>,
+) -> Result<serde_json::Value, String> {
+    manager
+        .get_privacy_summary(&from, &to, &time_zone, &bucket)
+        .await
+}
+
+#[tauri::command]
 async fn list_access_token_usage(
     today_from: String,
     manager: State<'_, Arc<CoreManager>>,
@@ -2343,6 +2356,7 @@ pub fn run() {
             list_network_addresses,
             list_access_token_usage,
             get_usage_summary,
+            get_privacy_summary,
             create_access_token,
             copy_access_token,
             cc_switch_installed,

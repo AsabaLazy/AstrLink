@@ -13,6 +13,7 @@ const bridgeMocks = vi.hoisted(() => ({
   getPrivacyModelReleases: vi.fn(),
   getPrivacyPolicy: vi.fn(),
   getPrivacyRegexBuiltinRules: vi.fn(),
+  getPrivacySummary: vi.fn(),
   getRawSealingStatus: vi.fn(),
   installPrivacyModel: vi.fn(),
   listenRawSealingChanged: vi.fn(async () => () => {}),
@@ -35,6 +36,8 @@ vi.mock("./notify", () => ({ notify: notifyMocks }));
 
 import { SafetyPolicy } from "./SafetyPolicy";
 import { defaultPrivacyKindRules } from "./privacy-policy-model";
+import { emptyPrivacySummary } from "./privacy-summary-model";
+import type { UsageWindow } from "./usage-range";
 import type {
   PrivacyCatalogModel,
   PrivacyLabelMapping,
@@ -307,6 +310,9 @@ describe("SafetyPolicy", () => {
     bridgeMocks.getPrivacyModelReleases.mockResolvedValue({ items: [] });
     bridgeMocks.listPrivacyModelInstallations.mockResolvedValue({ items: [] });
     bridgeMocks.getRawSealingStatus.mockResolvedValue(rawSealing());
+    bridgeMocks.getPrivacySummary.mockImplementation(
+      async (window: UsageWindow) => emptyPrivacySummary(window),
+    );
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -319,13 +325,118 @@ describe("SafetyPolicy", () => {
     container.remove();
   });
 
-  async function renderPolicy(session = "session-1"): Promise<void> {
+  async function renderPolicy(
+    session = "session-1",
+    initialView?: "models" | "overview",
+  ): Promise<void> {
     await act(async () => {
-      root.render(<SafetyPolicy coreSessionKey={session} isReady />);
+      root.render(
+        <SafetyPolicy
+          coreSessionKey={session}
+          initialView={initialView}
+          isReady
+        />,
+      );
       await Promise.resolve();
     });
     await flush();
   }
+
+  function tabLabels(): string[] {
+    return [...container.querySelectorAll('[role="tab"]')].map(
+      (tab) => tab.textContent ?? "",
+    );
+  }
+
+  function selectedTab(): string | null {
+    return (
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent ?? null
+    );
+  }
+
+  function checkedSummary(window: UsageWindow) {
+    const summary = emptyPrivacySummary(window);
+    summary.totals = {
+      ...summary.totals,
+      requests: 3,
+      allowed: 2,
+      redacted: 1,
+      replaced: 2,
+    };
+    return summary;
+  }
+
+  it("leaves the overview out until a call went through the privacy check", async () => {
+    await renderPolicy();
+
+    expect(tabLabels()).not.toContain("概览");
+    expect(selectedTab()).toBe("检测与还原");
+    expect(
+      container.querySelector('[role="combobox"][aria-label="统计范围"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-slot="privacy-overview"]'),
+    ).toBeNull();
+    // One look over the last year decides; the empty range is never charted.
+    expect(bridgeMocks.getPrivacySummary).toHaveBeenCalledTimes(1);
+    expect(bridgeMocks.getPrivacySummary.mock.calls[0][0].preset).toBe("1y");
+  });
+
+  it("opens on the overview once the last year has checked calls", async () => {
+    bridgeMocks.getPrivacySummary.mockImplementation(
+      async (window: UsageWindow) => checkedSummary(window),
+    );
+    await renderPolicy();
+
+    expect(tabLabels()[0]).toBe("概览");
+    expect(selectedTab()).toBe("概览");
+    expect(
+      bridgeMocks.getPrivacySummary.mock.calls.map(([window]) => window.preset),
+    ).toEqual(["1y", "7d"]);
+    expect(
+      container.querySelector('[role="combobox"][aria-label="统计范围"]'),
+    ).not.toBeNull();
+
+    await openPolicySection("检测与还原");
+    expect(
+      container.querySelector('[role="combobox"][aria-label="统计范围"]'),
+    ).toBeNull();
+  });
+
+  it("opens the overview the tray asks for, also on a page already open", async () => {
+    // An earlier visit found nothing, but the tray has seen checked calls.
+    await renderPolicy();
+    expect(tabLabels()).not.toContain("概览");
+
+    await renderPolicy("session-1", "overview");
+    expect(tabLabels()[0]).toBe("概览");
+    expect(selectedTab()).toBe("概览");
+    expect(
+      container.querySelector('[data-slot="privacy-overview"]'),
+    ).not.toBeNull();
+  });
+
+  it("adds the overview beside the open tab when the first call is checked", async () => {
+    vi.useFakeTimers();
+    bridgeMocks.getPrivacyPolicy.mockResolvedValue(
+      policyRecord({ enabled: true }),
+    );
+    await renderPolicy();
+    expect(tabLabels()).not.toContain("概览");
+
+    bridgeMocks.getPrivacySummary.mockImplementation(
+      async (window: UsageWindow) => checkedSummary(window),
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(tabLabels()[0]).toBe("概览");
+    expect(selectedTab()).toBe("检测与还原");
+  });
 
   it("keeps the raw password one click away in the page header", async () => {
     bridgeMocks.getRawSealingStatus.mockResolvedValue(
