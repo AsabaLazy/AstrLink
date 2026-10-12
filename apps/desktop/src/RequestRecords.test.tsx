@@ -2527,6 +2527,125 @@ describe("RequestRecords", () => {
     });
   });
 
+  it("lists the conversations behind the tray's failure count until cleared", async () => {
+    const today = {
+      from: "2026-07-24T15:00:00.000Z",
+      to: "2026-07-25T15:00:00.000Z",
+    };
+    const scoped = { status: "failed", ...today };
+    const renderScoped = async (failedWithin?: typeof today) => {
+      await act(async () => {
+        reactRoot.render(
+          <RequestRecords
+            accessTokens={[]}
+            accessTokensReady
+            coreSessionKey="session-1"
+            initialFailedWithin={failedWithin}
+            services={[service]}
+            isReady
+          />,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => await Promise.resolve());
+    };
+
+    await renderScoped(today);
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      ...scoped,
+    });
+    // Core matched a failed call, so a conversation that recovered still lists.
+    expect(
+      container.querySelector(`[data-session-id="${firstRecord.id}"]`),
+    ).not.toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      ...scoped,
+    });
+    await act(async () => exactButton("加载更早记录").click());
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      cursor: "cursor-1",
+      ...scoped,
+    });
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="清除筛选：今天有失败的会话"]',
+        )!
+        .click(),
+    );
+    expect(container.textContent).not.toContain("今天有失败的会话");
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+    });
+
+    // Another tray click is a new target and brings the narrowing back.
+    await renderScoped({ ...today });
+    expect(container.textContent).toContain("今天有失败的会话");
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      ...scoped,
+    });
+
+    // The count covers model calls only, so model discovery drops the
+    // narrowing rather than listing failures the tray never counted.
+    await act(async () => exactButton("模型获取").focus());
+    expect(container.textContent).not.toContain("今天有失败的会话");
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "discovery",
+    });
+  });
+
+  it("counts failed and blocked calls apart in the conversation summary", async () => {
+    const blocked: RequestRecord = {
+      ...firstRecord,
+      id: "req_cccccccccccccccccccccccccccccccc",
+      status: "blocked",
+      http_status: 403,
+    };
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [sessionFromRecord(firstRecord)],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValue({
+      ...sessionFromRecord(firstRecord, { turn_count: 3, call_count: 3 }),
+      turns: [secondRecord, blocked, firstRecord],
+    });
+    await renderRecords();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          `[data-session-id="${firstRecord.id}"]`,
+        )!
+        .click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="session-failed-calls"]')
+          ?.textContent,
+      ).toBe("1 次失败"),
+    );
+    expect(
+      container.querySelector('[data-testid="session-blocked-calls"]')
+        ?.textContent,
+    ).toBe("1 次拦截");
+  });
+
   it("defaults to model calls and separates compact discovery rows with their own pagination and polling", async () => {
     vi.useFakeTimers();
     const discovery = sessionFromRecord(firstRecord, {

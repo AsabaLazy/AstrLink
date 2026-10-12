@@ -117,7 +117,7 @@ vi.mock("./use-privacy-model-update", () => ({
   usePrivacyModelUpdate: () => modelUpdate.current,
 }));
 
-import App from "./App";
+import App, { trayNavigationTarget } from "./App";
 import type { AppSnapshot } from "./core-model";
 import { defaultTrayPreferences } from "./preferences-model";
 import { defaultFailurePolicy } from "./failure-policy-model";
@@ -300,6 +300,31 @@ async function pressEscape(): Promise<void> {
     );
   });
 }
+
+describe("tray navigation targets", () => {
+  it("opens known pages and today's failed requests and ignores the rest", () => {
+    expect(trayNavigationTarget("records")).toEqual({ kind: "records" });
+    expect(trayNavigationTarget("settings")).toEqual({ kind: "settings" });
+    const now = new Date(2026, 9, 12, 15, 30);
+    expect(trayNavigationTarget("failedToday", now)).toEqual({
+      kind: "records",
+      failedWithin: {
+        from: new Date(2026, 9, 12).toISOString(),
+        to: new Date(2026, 9, 13).toISOString(),
+      },
+    });
+    for (const payload of [
+      "explode",
+      "failed",
+      "",
+      null,
+      3,
+      { kind: "records" },
+    ]) {
+      expect(trayNavigationTarget(payload)).toBeNull();
+    }
+  });
+});
 
 describe("App workspace navigation", () => {
   let container: HTMLDivElement;

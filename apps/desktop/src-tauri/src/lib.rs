@@ -1523,18 +1523,24 @@ async fn list_request_record_children(
 
 #[tauri::command]
 async fn delete_request_record(
+    app: tauri::AppHandle,
     request_id: String,
     manager: State<'_, Arc<CoreManager>>,
 ) -> Result<(), String> {
-    manager.delete_request_record(&request_id).await
+    manager.delete_request_record(&request_id).await?;
+    tray::records_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
 async fn purge_request_records(
+    app: tauri::AppHandle,
     input: serde_json::Value,
     manager: State<'_, Arc<CoreManager>>,
 ) -> Result<serde_json::Value, String> {
-    manager.purge_request_records(input).await
+    let purged = manager.purge_request_records(input).await?;
+    tray::records_changed(&app);
+    Ok(purged)
 }
 
 #[tauri::command]

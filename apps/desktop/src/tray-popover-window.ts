@@ -6,8 +6,17 @@ export const TRAY_POPOVER_LABEL = "tray-popover";
 /** Emitted by the host with a fresh `TrayState` whenever it changes. */
 export const TRAY_STATE_EVENT = "tray:state";
 
-/** Emitted to the main window with the `WorkspacePage.kind` to open. */
+/**
+ * Emitted to the main window with the `WorkspacePage.kind` to open, or a named
+ * view of one such as {@link TRAY_FAILED_TODAY_PAGE}.
+ */
 export const TRAY_NAVIGATE_EVENT = "tray:navigate";
+
+/**
+ * Request records narrowed to the calls behind today's failure count. Must
+ * match `NAVIGATION_KINDS` in `src-tauri/src/tray.rs`.
+ */
+export const TRAY_FAILED_TODAY_PAGE = "failedToday";
 
 /** Logical width of the popover window, fixed by the host. */
 export const TRAY_POPOVER_WIDTH = 360;

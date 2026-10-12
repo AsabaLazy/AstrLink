@@ -54,7 +54,11 @@ import {
   type TrayState,
   type TraySubscription,
 } from "./tray-model";
-import { TRAY_POPOVER_WIDTH, TRAY_STATE_EVENT } from "./tray-popover-window";
+import {
+  TRAY_FAILED_TODAY_PAGE,
+  TRAY_POPOVER_WIDTH,
+  TRAY_STATE_EVENT,
+} from "./tray-popover-window";
 
 const COPY_FEEDBACK_MS = 1_500;
 const CLOCK_TICK_MS = 30_000;
@@ -543,12 +547,26 @@ export function TrayPopoverPanel({
                 <div className="flex items-center gap-2">
                   <SectionKicker>{t("tray.today")}</SectionKicker>
                   {usage.today && digest?.today && digest.today.failed > 0 ? (
-                    <Badge
-                      className="border-destructive/30 text-destructive"
+                    <Button
+                      aria-label={t("tray.failedCountDetail", {
+                        count: digest.today.failed,
+                      })}
+                      className="border-destructive/30 text-destructive hover:bg-danger-wash hover:text-destructive"
+                      onClick={() =>
+                        onAction({
+                          kind: "navigate",
+                          page: TRAY_FAILED_TODAY_PAGE,
+                        })
+                      }
+                      size="xs"
+                      title={t("tray.failedCountDetail", {
+                        count: digest.today.failed,
+                      })}
+                      type="button"
                       variant="outline"
                     >
                       {t("tray.failedCount", { count: digest.today.failed })}
-                    </Badge>
+                    </Button>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-1 text-micro text-muted-foreground">

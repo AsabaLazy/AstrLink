@@ -35,7 +35,8 @@ use crate::{
 pub const TRAY_ID: &str = "main";
 /// The popover webview. Must match `TRAY_POPOVER_LABEL` in the frontend.
 pub const POPOVER_LABEL: &str = "tray-popover";
-/// Emitted to the main window with the `WorkspacePage.kind` to open.
+/// Emitted to the main window with the `WorkspacePage.kind` to open, or a
+/// named view of one such as `failedToday`.
 pub const NAVIGATE_EVENT: &str = "tray:navigate";
 /// Emitted to the popover with a fresh [`TrayStateSnapshot`].
 pub const STATE_EVENT: &str = "tray:state";
@@ -103,12 +104,14 @@ const SUBSCRIPTION_KINDS: [&str; 10] = [
     "opencode_go",
 ];
 
-const NAVIGATION_KINDS: [&str; 8] = [
+const NAVIGATION_KINDS: [&str; 9] = [
     "overview",
     "list",
     "tokens",
     "safety",
     "records",
+    // Request records narrowed to the calls behind today's failure count.
+    "failedToday",
     "routing",
     "agentTools",
     "settings",
@@ -1295,9 +1298,7 @@ pub fn perform(app: &AppHandle, action: TrayAction) -> Result<(), String> {
             crate::show_main_window(app);
         }
         TrayAction::Navigate { page } => {
-            if !NAVIGATION_KINDS.contains(&page.as_str()) {
-                return Err("unknown tray navigation target".to_string());
-            }
+            check_navigation(&page)?;
             hide_popover(app);
             navigate(app, &page);
         }
@@ -1358,6 +1359,15 @@ fn run_core(app: &AppHandle, op: CoreOp) {
                 }
             });
         }
+    }
+}
+
+/// The main window follows only the pages it knows; anything else is refused.
+fn check_navigation(page: &str) -> Result<(), String> {
+    if NAVIGATION_KINDS.contains(&page) {
+        Ok(())
+    } else {
+        Err("unknown tray navigation target".to_string())
     }
 }
 
@@ -1784,6 +1794,13 @@ fn popover_visible(app: &AppHandle) -> bool {
     app.get_webview_window(POPOVER_LABEL)
         .and_then(|window| window.is_visible().ok())
         .unwrap_or(false)
+}
+
+/// Request records were deleted. Today's figures are counted from them, so the
+/// local numbers are read again now instead of at the next scheduled pass.
+/// Plan quotas are unaffected and stay cached.
+pub fn records_changed(app: &AppHandle) {
+    request_usage_refresh(app, true, PlanRefresh::Reuse);
 }
 
 /// Schedules a usage refresh. Clicks are debounced; state transitions are not.
@@ -2479,11 +2496,30 @@ mod tests {
             }
         );
         let action: TrayAction =
+            serde_json::from_value(serde_json::json!({"kind": "navigate", "page": "failedToday"}))
+                .unwrap();
+        assert_eq!(
+            action,
+            TrayAction::Navigate {
+                page: "failedToday".to_string()
+            }
+        );
+        let action: TrayAction =
             serde_json::from_value(serde_json::json!({"kind": "raw_access"})).unwrap();
         assert_eq!(action, TrayAction::RawAccess);
         assert!(
             serde_json::from_value::<TrayAction>(serde_json::json!({"kind": "explode"})).is_err()
         );
+    }
+
+    #[test]
+    fn navigation_accepts_only_known_pages() {
+        for page in ["records", "failedToday", "settings", "agentTools"] {
+            assert_eq!(check_navigation(page), Ok(()), "{page}");
+        }
+        for page in ["", "explode", "Records", "records?status=failed"] {
+            assert!(check_navigation(page).is_err(), "{page}");
+        }
     }
 
     #[test]

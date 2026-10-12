@@ -289,6 +289,25 @@ describe("TrayPopoverPanel", () => {
     ]);
   });
 
+  it("opens today's failed requests from the failure count", async () => {
+    await render(readyTrayState);
+    const failures = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="今天 3 次失败，在请求记录中查看"]',
+    );
+    expect(failures?.textContent).toBe("3 次失败");
+    act(() => failures!.click());
+    expect(actions).toEqual([{ kind: "navigate", page: "failedToday" }]);
+
+    await render({
+      ...readyTrayState,
+      digest: {
+        ...readyTrayState.digest,
+        today: { ...readyTrayState.digest.today, failed: 0 },
+      },
+    });
+    expect(container.textContent).not.toContain("次失败");
+  });
+
   it("offers a start button and hides usage while the gateway is down", async () => {
     await render({
       ...readyTrayState,

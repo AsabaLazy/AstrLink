@@ -21,6 +21,7 @@ import {
   RefreshCw,
   SlidersHorizontal as Settings2,
   Shredder as Trash2,
+  X,
 } from "@/components/icons";
 
 import { ConfirmDialog as AppConfirmDialog } from "@/components/ConfirmDialog";
@@ -148,6 +149,7 @@ import {
   sessionSummary,
 } from "./session-live-model";
 import { protocolEntryPath } from "./service-presets";
+import type { UsageWindow } from "./usage-range";
 
 const PAGE_LIMIT = 50;
 const POLL_INTERVAL_MS = 1000;
@@ -302,6 +304,7 @@ export function RequestRecords({
   accessTokensReady,
   coreSessionKey,
   initialDetailTab = "conversation",
+  initialFailedWithin,
   initialLocalAccessTokenId,
   isReady,
   services,
@@ -311,6 +314,8 @@ export function RequestRecords({
   coreSessionKey: string | null;
   /** The reading tab a session opens on until the operator picks one. */
   initialDetailTab?: "conversation" | "trajectory";
+  /** Lists the conversations with a call that failed in this window. */
+  initialFailedWithin?: Pick<UsageWindow, "from" | "to">;
   initialLocalAccessTokenId?: string;
   isReady: boolean;
   services: (RoutableService & RequestService)[];
@@ -337,9 +342,23 @@ export function RequestRecords({
       ? filters.localAccessTokenIds
       : undefined;
   const localAccessTokenFilterKey = filters.localAccessTokenIds.join("\u0000");
+  const [failedWithin, setFailedWithin] = useState(initialFailedWithin ?? null);
+  // Core matches the status of each call in the window, not a conversation's
+  // outcome, so a conversation that failed and then recovered still lists.
+  // That keeps every failure the tray counted for today on screen.
+  const failedQuery = failedWithin
+    ? {
+        status: "failed" as const,
+        from: failedWithin.from,
+        to: failedWithin.to,
+      }
+    : {};
+  const failedWithinKey = failedWithin
+    ? `:failed:${failedWithin.from}/${failedWithin.to}`
+    : "";
   // Core applies the token filter, so each selection retains its own list.
   const [live, setLive] = useWorkspaceSnapshot<LiveState>(
-    `request-list:${coreSessionKey}:${kind}:${localAccessTokenFilterKey}`,
+    `request-list:${coreSessionKey}:${kind}:${localAccessTokenFilterKey}${failedWithinKey}`,
     {
       items: [],
       queued: [],
@@ -349,7 +368,7 @@ export function RequestRecords({
   const [listStatus, setListStatus] = useWorkspaceSnapshot<
     "blocked" | "loading" | "ready" | "error"
   >(
-    `request-list-status:${coreSessionKey}:${kind}:${localAccessTokenFilterKey}`,
+    `request-list-status:${coreSessionKey}:${kind}:${localAccessTokenFilterKey}${failedWithinKey}`,
     "blocked",
   );
   const [listError, setListError] = useState<string | null>(null);
@@ -600,6 +619,10 @@ export function RequestRecords({
       }
       return { ...EMPTY_FILTERS, localAccessTokenIds: initialTokenIds };
     });
+    // Every tray click is a new target object, so clicking again restores the
+    // narrowing after the operator cleared it. The count covers model calls.
+    setFailedWithin(initialFailedWithin ?? null);
+    if (initialFailedWithin) setKind("inference");
     setSettingsOpen(false);
     setSettings(null);
     setSettingsDraft(null);
@@ -635,7 +658,7 @@ export function RequestRecords({
         if (generationRef.current !== generation) return;
         setRawSealingError(rawSealingErrorMessage(requestError));
       });
-  }, [coreSessionKey, initialLocalAccessTokenId, isReady]);
+  }, [coreSessionKey, initialFailedWithin, initialLocalAccessTokenId, isReady]);
 
   useEffect(() => {
     if (!accessTokensReady) return;
@@ -667,6 +690,7 @@ export function RequestRecords({
       limit: PAGE_LIMIT,
       kind: kind === "all" ? undefined : kind,
       local_access_token_ids: tokenFilter(),
+      ...failedQuery,
     })
       .then((page) => {
         if (listGenerationRef.current !== generation) return;
@@ -698,7 +722,13 @@ export function RequestRecords({
     return () => {
       listGenerationRef.current += 1;
     };
-  }, [coreSessionKey, isReady, kind, localAccessTokenFilterKey]);
+  }, [
+    coreSessionKey,
+    failedWithinKey,
+    isReady,
+    kind,
+    localAccessTokenFilterKey,
+  ]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -716,6 +746,7 @@ export function RequestRecords({
           limit: PAGE_LIMIT,
           kind: kind === "all" ? undefined : kind,
           local_access_token_ids: tokenFilter(),
+          ...failedQuery,
         });
         if (listGenerationRef.current !== generation) return;
         setLive((current) => {
@@ -786,7 +817,13 @@ export function RequestRecords({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       manualPollRef.current = null;
     };
-  }, [coreSessionKey, isReady, kind, localAccessTokenFilterKey]);
+  }, [
+    coreSessionKey,
+    failedWithinKey,
+    isReady,
+    kind,
+    localAccessTokenFilterKey,
+  ]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1079,6 +1116,7 @@ export function RequestRecords({
         limit: PAGE_LIMIT,
         kind: kind === "all" ? undefined : kind,
         local_access_token_ids: tokenFilter(),
+        ...failedQuery,
         cursor,
       });
       if (listGenerationRef.current !== generation) return;
@@ -1290,6 +1328,7 @@ export function RequestRecords({
         limit: PAGE_LIMIT,
         kind: kind === "all" ? undefined : kind,
         local_access_token_ids: tokenFilter(),
+        ...failedQuery,
       });
       if (listGenerationRef.current !== generation) return;
       setLive({
@@ -1548,6 +1587,9 @@ export function RequestRecords({
           onValueChange={(value) => {
             setKind(value as RecordsKind);
             setFilters((current) => ({ ...current, protocol: "" }));
+            // The tray counts model calls only. Kept on another list, the
+            // narrowing would add failed model discovery it never counted.
+            if (value !== "inference") setFailedWithin(null);
             setCheckedIds(new Set());
             setError(null);
           }}
@@ -1871,6 +1913,20 @@ export function RequestRecords({
                       value={filters.localAccessTokenIds}
                     />
                   </div>
+                  {failedWithin ? (
+                    <Button
+                      aria-label={t("records.clearFilterNamed", {
+                        label: t("records.failedToday"),
+                      })}
+                      onClick={() => setFailedWithin(null)}
+                      size="xs"
+                      type="button"
+                      variant="outline"
+                    >
+                      {t("records.failedToday")}
+                      <X aria-hidden="true" />
+                    </Button>
+                  ) : null}
                   <IconButton
                     className="ml-auto"
                     variant="outline"
@@ -1935,6 +1991,7 @@ export function RequestRecords({
                         : "records.empty",
                   )}
                   action={
+                    failedWithin ||
                     filters.status ||
                     filters.serviceId ||
                     filters.protocol ||
@@ -1943,7 +2000,10 @@ export function RequestRecords({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setFilters(EMPTY_FILTERS)}
+                        onClick={() => {
+                          setFilters(EMPTY_FILTERS);
+                          setFailedWithin(null);
+                        }}
                       >
                         {" "}
                         {t("records.clearFilters")}
@@ -2598,10 +2658,15 @@ function RecordDetail({
     () => [...turns, ...Object.values(childrenByRoot).flat()],
     [turns, childrenByRoot],
   );
-  const failedCalls = everyRecord.filter((item) => {
-    const status = displayRequestStatus(item.status, item.http_status);
-    return status === "failed" || status === "blocked";
-  }).length;
+  // A failure means what it means in the usage figures and the tray; a policy
+  // block is its own outcome, as on each call's badge. Unlike those figures,
+  // retried attempts count here, because they explain the conversation.
+  const failedCalls = everyRecord.filter(
+    (item) => displayRequestStatus(item.status, item.http_status) === "failed",
+  ).length;
+  const blockedCalls = everyRecord.filter(
+    (item) => item.status === "blocked",
+  ).length;
   const sessionTokens = everyRecord.reduce<{
     input: number;
     output: number;
@@ -2955,6 +3020,17 @@ function RecordDetail({
                   data-testid="session-failed-calls"
                 >
                   {t("conversation.failures", { count: failedCalls })}
+                </dd>
+              </div>
+            ) : null}
+            {blockedCalls > 0 ? (
+              <div className="flex items-center">
+                <dt className="sr-only">{t("status.blocked")}</dt>
+                <dd
+                  className="tabular-nums text-blocked-foreground"
+                  data-testid="session-blocked-calls"
+                >
+                  {t("conversation.blocked", { count: blockedCalls })}
                 </dd>
               </div>
             ) : null}

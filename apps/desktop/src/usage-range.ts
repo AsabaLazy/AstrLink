@@ -264,6 +264,14 @@ export function startOfTodayIso(now: Date): string {
   return startOfLocalDay(now).toISOString();
 }
 
+/** Today from local midnight to the next, the day the tray's figures cover. */
+export function localDayWindow(now: Date): Pick<UsageWindow, "from" | "to"> {
+  const from = startOfLocalDay(now);
+  const to = new Date(from);
+  to.setDate(to.getDate() + 1);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
 /**
  * The window for a preset ending now. `1d` is the rolling last 24 local
  * hours (current hour included). `7d` / `30d` are calendar days ending

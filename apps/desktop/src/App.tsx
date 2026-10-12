@@ -75,19 +75,29 @@ import { ProviderImportDialog } from "./ProviderImportDialog";
 import { useProviderImport } from "./use-provider-import";
 import { notify } from "./notify";
 import type { Service } from "./service-model";
-import { TRAY_NAVIGATE_EVENT } from "./tray-popover-window";
+import {
+  TRAY_FAILED_TODAY_PAGE,
+  TRAY_NAVIGATE_EVENT,
+} from "./tray-popover-window";
 import {
   DEFAULT_USAGE_RANGE_PRESET,
+  localDayWindow,
   resolveUsageWindow,
   type UsageRangePreset,
   type UsageState,
+  type UsageWindow,
 } from "./usage-range";
 
 type WorkspacePage =
   | { kind: "overview" }
   | { kind: "tokens" }
   | { kind: "safety"; view?: "models" }
-  | { kind: "records"; tokenId?: string }
+  | {
+      kind: "records";
+      tokenId?: string;
+      /** Conversations with a call that failed in this window. */
+      failedWithin?: Pick<UsageWindow, "from" | "to">;
+    }
   | { kind: "routing" }
   | { kind: "agentTools"; preselectSkill?: AgentSkillId }
   | { kind: "settings" }
@@ -149,8 +159,14 @@ function messageOf(error: unknown, fallback: string): string {
 }
 
 /** The pages the tray popover may open; anything else is ignored. */
-export function trayNavigationTarget(kind: unknown): WorkspacePage | null {
+export function trayNavigationTarget(
+  kind: unknown,
+  now = new Date(),
+): WorkspacePage | null {
   switch (kind) {
+    case TRAY_FAILED_TODAY_PAGE:
+      // The same local day the tray counted its failures over.
+      return { kind: "records", failedWithin: localDayWindow(now) };
     case "overview":
     case "tokens":
     case "safety":
@@ -1055,6 +1071,7 @@ export default function App() {
                 accessTokens={tokenCatalog.items}
                 accessTokensReady={tokenCatalog.status === "ready"}
                 coreSessionKey={coreSessionKey}
+                initialFailedWithin={page.failedWithin}
                 initialLocalAccessTokenId={page.tokenId}
                 services={catalog.items}
                 isReady={isReady}
