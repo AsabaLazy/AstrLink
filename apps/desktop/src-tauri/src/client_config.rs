@@ -45,6 +45,14 @@ const PI_STARTUP_KEYS: [&str; 2] = ["defaultProvider", "defaultModel"];
 const CODEX_HEADERS_KEY: &str = "model_providers.astrlink.http_headers";
 const CODEX_TOOLS_HEADER: &str = "x-openai-actor-authorization";
 const CODEX_TOOLS_HEADER_VALUE: &str = "codex-imagegen";
+/// Claude Code's model settings, by the `Models` field each comes from.
+const CLAUDE_MODEL_KEYS: [(&str, &str); 5] = [
+    ("model", "env.ANTHROPIC_MODEL"),
+    ("haikuModel", "env.ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+    ("sonnetModel", "env.ANTHROPIC_DEFAULT_SONNET_MODEL"),
+    ("opusModel", "env.ANTHROPIC_DEFAULT_OPUS_MODEL"),
+    ("fableModel", "env.ANTHROPIC_DEFAULT_FABLE_MODEL"),
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -223,7 +231,7 @@ impl Models {
             let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
                 continue;
             };
-            if value.chars().count() > 256 || value.chars().any(char::is_control) {
+            if !valid_model(value) {
                 return Err(format!("invalid {key}"));
             }
             values.push((key, value.to_string()));
@@ -233,6 +241,11 @@ impl Models {
         }
         Ok(values)
     }
+}
+
+/// Whether a trimmed, non-empty model name fits in a client config.
+fn valid_model(value: &str) -> bool {
+    value.chars().count() <= 256 && !value.chars().any(char::is_control)
 }
 
 /// `http://127.0.0.1:<port>` or `http://localhost:<port>` for the gateway's
@@ -322,6 +335,8 @@ pub struct ClientStatus {
     pub paths: Vec<String>,
     pub state: ClientState,
     pub token_id: Option<String>,
+    /// The models a config AstrLink wrote holds now, by `Models` field.
+    pub models: BTreeMap<&'static str, String>,
 }
 
 /// Client configs across the desktop user's home and WSL homes.
@@ -1164,15 +1179,9 @@ fn desired_keys(client: Client, connection: &Connection) -> Vec<(String, String)
             // AUTH_TOKEN, not API_KEY: an API key asks for approval in the
             // interactive client and conflicts with a login.
             keys.push(("env.ANTHROPIC_AUTH_TOKEN".into(), connection.token.into()));
-            for (field, key) in [
-                ("model", "ANTHROPIC_MODEL"),
-                ("haikuModel", "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
-                ("sonnetModel", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
-                ("opusModel", "ANTHROPIC_DEFAULT_OPUS_MODEL"),
-                ("fableModel", "ANTHROPIC_DEFAULT_FABLE_MODEL"),
-            ] {
+            for (field, path) in CLAUDE_MODEL_KEYS {
                 if let Some(model) = model(field) {
-                    keys.push((format!("env.{key}"), model));
+                    keys.push((path.into(), model));
                 }
             }
         }
@@ -1305,6 +1314,41 @@ pub fn inspect(
     }
 }
 
+/// The models a client's config holds now, by the `Models` field each would
+/// be written from. The client may have picked them itself since, like with
+/// Codex's `/model`. Names AstrLink could not write back are left out.
+fn current_models(client: Client, existing: &[Option<&str>]) -> BTreeMap<&'static str, String> {
+    let Ok(config) = Config::parse(client, existing) else {
+        return BTreeMap::new();
+    };
+    let read = |path: &str| {
+        config
+            .get(path)
+            .flatten()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty() && valid_model(value))
+    };
+    let models = match client {
+        Client::Codex => vec![("model", read("model"))],
+        // The model Pi starts with on AstrLink, else the one AstrLink's list
+        // offers.
+        Client::Pi => {
+            let starts_here =
+                config.get("defaultProvider").flatten().as_deref() == Some(PI_PROVIDER);
+            let startup = starts_here.then(|| read("defaultModel")).flatten();
+            vec![("model", startup.or_else(|| read(PI_MODELS_KEY)))]
+        }
+        _ => CLAUDE_MODEL_KEYS
+            .iter()
+            .map(|(field, path)| (*field, read(path)))
+            .collect(),
+    };
+    models
+        .into_iter()
+        .filter_map(|(field, model)| Some((field, model?)))
+        .collect()
+}
+
 /// Points an untouched config at the gateway's new port, and adds the keys
 /// a released build did not write yet. The token stays as written, so the
 /// sync never needs to reveal it.
@@ -1425,6 +1469,10 @@ pub fn status(home: Home, inference_url: Option<&str>) -> Result<Vec<ClientStatu
         let existing = read_files(&paths)?;
         let record = records.get(client);
         let state = records.state(client, &texts(&existing), origin.as_deref());
+        // Only a config AstrLink wrote names its token and models.
+        let token_id = record
+            .filter(|_| !matches!(state, ClientState::NotConfigured | ClientState::CcSwitch))
+            .map(|record| record.token_id.clone());
         statuses.push(ClientStatus {
             client,
             wsl: home.distribution().map(str::to_string),
@@ -1434,10 +1482,12 @@ pub fn status(home: Home, inference_url: Option<&str>) -> Result<Vec<ClientStatu
                 .map(|path| path.display().to_string())
                 .collect(),
             state,
-            // Only a config AstrLink wrote names its token.
-            token_id: record
-                .filter(|_| !matches!(state, ClientState::NotConfigured | ClientState::CcSwitch))
-                .map(|record| record.token_id.clone()),
+            models: if token_id.is_some() {
+                current_models(client, &texts(&existing))
+            } else {
+                BTreeMap::new()
+            },
+            token_id,
         });
     }
     Ok(statuses)
@@ -2470,6 +2520,74 @@ mod tests {
         remove(Home::local(&home), Client::Claude).unwrap();
         assert_eq!(fs::read_to_string(&settings).unwrap(), "{}\n");
         assert!(!records_path(&home).exists());
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn status_names_the_models_written_configs_hold_now() {
+        let home = unique_home("models");
+        fs::create_dir_all(home.join(".pi/agent")).unwrap();
+        let settings = home.join(".claude/settings.json");
+        // A model in a config AstrLink did not write is not its to show.
+        fs::write(&settings, "{\"env\": {\"ANTHROPIC_MODEL\": \"own\"}}\n").unwrap();
+        let models = || {
+            status(Home::local(&home), None)
+                .unwrap()
+                .into_iter()
+                .map(|status| status.models)
+                .collect::<Vec<_>>()
+        };
+        assert!(models().iter().all(BTreeMap::is_empty));
+
+        let claude = [
+            ("model", "main-route".to_string()),
+            ("opusModel", "opus-route".to_string()),
+        ];
+        for (client, models) in [
+            (Client::Claude, &claude[..]),
+            (Client::Codex, &codex_models()[..]),
+            (Client::Pi, &pi_models()[..]),
+        ] {
+            write(Home::local(&home), client, &connection(models), true).unwrap();
+        }
+        assert_eq!(
+            models(),
+            [
+                BTreeMap::from([
+                    ("model", "main-route".into()),
+                    ("opusModel", "opus-route".into())
+                ]),
+                BTreeMap::from([("model", "gpt-route".into())]),
+                BTreeMap::from([("model", "pi-route".into())]),
+            ]
+        );
+
+        // Models the clients picked since are the current ones, and a name
+        // AstrLink could not write back is left out.
+        let edit = |path: PathBuf, from: &str, to: &str| {
+            let text = fs::read_to_string(&path).unwrap();
+            assert!(text.contains(from));
+            fs::write(&path, text.replace(from, to)).unwrap();
+        };
+        edit(settings, "opus-route", &"x".repeat(257));
+        edit(
+            home.join(".codex/config.toml"),
+            "gpt-route",
+            "picked-in-tui",
+        );
+        let pi_settings = home.join(".pi/agent/settings.json");
+        edit(pi_settings.clone(), "\"pi-route\"", "\"pi-mini\"");
+        assert_eq!(
+            models(),
+            [
+                BTreeMap::from([("model", "main-route".into())]),
+                BTreeMap::from([("model", "picked-in-tui".into())]),
+                BTreeMap::from([("model", "pi-mini".into())]),
+            ]
+        );
+        // Pi starting on another provider still lists AstrLink's model.
+        edit(pi_settings, "\"astrlink\"", "\"anthropic\"");
+        assert_eq!(models()[2], BTreeMap::from([("model", "pi-route".into())]));
         fs::remove_dir_all(home).unwrap();
     }
 

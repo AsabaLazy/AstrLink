@@ -21,6 +21,7 @@ function statuses(
       paths: ["/Users/me/.claude/settings.json"],
       state: "not_configured",
       token_id: null,
+      models: {},
       ...claude,
     },
     {
@@ -30,6 +31,7 @@ function statuses(
       paths: ["/Users/me/.codex/config.toml"],
       state: "not_configured",
       token_id: null,
+      models: {},
       ...codex,
     },
     {
@@ -42,6 +44,7 @@ function statuses(
       ],
       state: "not_configured",
       token_id: null,
+      models: {},
       ...pi,
     },
   ];
@@ -148,10 +151,32 @@ describe("client-config IPC parsing", () => {
       "a client moved to CC Switch with a token",
       statuses({ state: "cc_switch", token_id: "token_01" }),
     ],
+    ["models that are not an object", statuses({ models: ["gpt-5"] })],
+    [
+      "a model tier outside Claude Code",
+      statuses({}, { models: { opusModel: "x" } }),
+    ],
+    ["an unknown model field", statuses({ models: { name: "x" } })],
+    ["an empty model", statuses({ models: { model: "" } })],
+    ["a multi-line model", statuses({ models: { model: "a\nb" } })],
+    ["an overlong model", statuses({ models: { model: "x".repeat(257) } })],
   ])("rejects %s", (_, value) => {
     expect(() => parseStatuses(value)).toThrow(
       "Invalid client-config IPC response",
     );
+  });
+
+  it("accepts the models each client takes", () => {
+    const value = statuses(
+      {
+        state: "configured",
+        token_id: "token_01",
+        models: { model: "main", haikuModel: "haiku", fableModel: "fable" },
+      },
+      { state: "configured", token_id: "token_01", models: { model: "gpt-5" } },
+      { state: "modified", token_id: "token_01", models: { model: "pi" } },
+    );
+    expect(parseStatuses(value)).toEqual(value);
   });
 
   it("accepts applied writes and key-only conflicts", () => {

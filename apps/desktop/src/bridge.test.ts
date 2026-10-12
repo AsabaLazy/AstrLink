@@ -849,6 +849,7 @@ describe("desktop bridge contract", () => {
         paths: ["/Users/me/.claude/settings.json"],
         state: "configured",
         token_id: "token_01",
+        models: { model: "claude-route", opusModel: "opus-route" },
       },
       {
         client: "codex",
@@ -857,6 +858,7 @@ describe("desktop bridge contract", () => {
         paths: ["/Users/me/.codex/config.toml"],
         state: "not_configured",
         token_id: null,
+        models: {},
       },
       {
         client: "pi",
@@ -868,6 +870,7 @@ describe("desktop bridge contract", () => {
         ],
         state: "not_configured",
         token_id: null,
+        models: {},
       },
     ];
     const inUbuntu = statuses.map((status) => ({

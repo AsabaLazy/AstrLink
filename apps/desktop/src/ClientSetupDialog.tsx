@@ -130,15 +130,36 @@ const claudeTiers = [
   "fableModel",
 ] as const;
 
+/** The model fields as the form holds them; only Claude Code shows the tiers. */
+type ModelFields = Record<"model" | (typeof claudeTiers)[number], string>;
+
+const noModels: ModelFields = {
+  model: "",
+  haikuModel: "",
+  sonnetModel: "",
+  opusModel: "",
+  fableModel: "",
+};
+
 const stateTones: Record<
-  Exclude<ClientConfigState, "not_configured" | "cc_switch">,
+  Exclude<ClientConfigState, "not_configured">,
   StatusTone
 > = {
   configured: "positive",
   outdated: "pending",
   modified: "pending",
+  cc_switch: "neutral",
   invalid: "negative",
 };
+
+/** A config's state, once AstrLink or CC Switch wrote it. */
+function stateBadge(status: ClientConfigStatus) {
+  return status.state === "not_configured" ? null : (
+    <StatusBadge tone={stateTones[status.state]}>
+      {i18n.t(`clientSetup.state.${status.state}`)}
+    </StatusBadge>
+  );
+}
 
 /** How a client card can be used right now. */
 type Availability = "loading" | "direct" | "cc-switch" | "missing";
@@ -246,14 +267,9 @@ function DesktopClientSetupDialog({
   const [placeChoice, setPlaceChoice] = useState<string | null | undefined>(
     undefined,
   );
-  const [model, setModel] = useState("");
-  const [claudeModels, setClaudeModels] = useState({
-    model: "",
-    haikuModel: "",
-    sonnetModel: "",
-    opusModel: "",
-    fableModel: "",
-  });
+  // What the user typed, by client and place. A config left alone shows the
+  // models it holds now.
+  const [drafts, setDrafts] = useState<Record<string, ModelFields>>({});
   const [busy, setBusy] = useState<"write" | "remove" | "cc-switch" | null>(
     null,
   );
@@ -376,7 +392,15 @@ function DesktopClientSetupDialog({
   const inWSL = place !== null;
   const label = client ? clientLabel(client) : "";
   const isClaude = client === "claude";
-  const modelRequired = !isClaude && !model.trim();
+  const draftKey = `${client}:${place ?? ""}`;
+  const currentModels = { ...noModels, ...status?.models };
+  const modelFields = drafts[draftKey] ?? currentModels;
+  const editModel = (field: keyof ModelFields, value: string) =>
+    setDrafts((current) => ({
+      ...current,
+      [draftKey]: { ...(current[draftKey] ?? currentModels), [field]: value },
+    }));
+  const modelRequired = !isClaude && !modelFields.model.trim();
   const configured = status?.token_id != null;
   // CC Switch writes a client where its directory settings point, which for
   // Claude Code and Codex can be one WSL distribution. Only that place
@@ -495,11 +519,11 @@ function DesktopClientSetupDialog({
   const models = (): ClientConfigModels =>
     isClaude
       ? Object.fromEntries(
-          Object.entries(claudeModels)
+          Object.entries(modelFields)
             .map(([key, value]) => [key, value.trim()])
             .filter(([, value]) => value),
         )
-      : { model: model.trim() };
+      : { model: modelFields.model.trim() };
 
   const begin = (next: NonNullable<typeof busy>) => {
     if (pending.current) return false;
@@ -671,7 +695,8 @@ function DesktopClientSetupDialog({
   };
 
   const cardNote = (id: ClientConfigClient) => {
-    const card = statusOf(id);
+    // The chosen card follows the chosen place.
+    const card = id === client ? status : statusOf(id);
     switch (availability(id)) {
       case "loading":
         return null;
@@ -687,11 +712,7 @@ function DesktopClientSetupDialog({
         if (!card || card.state === "not_configured") return null;
         // Reads like the clients only CC Switch configures.
         if (card.state === "cc_switch") return t("clientSetup.state.cc_switch");
-        return (
-          <StatusBadge tone={stateTones[card.state]}>
-            {t(`clientSetup.state.${card.state}`)}
-          </StatusBadge>
-        );
+        return stateBadge(card);
     }
   };
 
@@ -784,6 +805,7 @@ function DesktopClientSetupDialog({
                         item.wsl === null
                           ? t("clientSetup.placeLocal")
                           : t("agentDebug.wslPlace", { name: item.wsl }),
+                      badge: stateBadge(item),
                     }))}
                     value={place ?? localPlace}
                     onValueChange={(value) => {
@@ -898,21 +920,14 @@ function DesktopClientSetupDialog({
                   )}
                   options={modelOptions}
                   optionAdornment={optionAdornment}
-                  value={isClaude ? claudeModels.model : model}
+                  value={modelFields.model}
                   placeholder={t("clientSetup.modelPlaceholder")}
-                  onValueChange={(value) =>
-                    isClaude
-                      ? setClaudeModels((current) => ({
-                          ...current,
-                          model: value,
-                        }))
-                      : setModel(value)
-                  }
+                  onValueChange={(value) => editModel("model", value)}
                   maxLength={256}
                   disabled={working}
                 />
               </Field>
-              {entryNote(isClaude ? claudeModels.model : model)}
+              {entryNote(modelFields.model)}
               {isClaude && (
                 <div className="grid gap-3 min-[540px]:grid-cols-2">
                   {claudeTiers.map((key) => (
@@ -931,18 +946,13 @@ function DesktopClientSetupDialog({
                         aria-label={t(`clientSetup.${key}`)}
                         options={modelOptions}
                         optionAdornment={optionAdornment}
-                        value={claudeModels[key]}
-                        onValueChange={(value) =>
-                          setClaudeModels((current) => ({
-                            ...current,
-                            [key]: value,
-                          }))
-                        }
+                        value={modelFields[key]}
+                        onValueChange={(value) => editModel(key, value)}
                         placeholder={t("clientSetup.modelPlaceholder")}
                         maxLength={256}
                         disabled={working}
                       />
-                      {entryNote(claudeModels[key])}
+                      {entryNote(modelFields[key])}
                     </Field>
                   ))}
                 </div>

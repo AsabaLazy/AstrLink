@@ -59,6 +59,7 @@ function statuses(
       paths: ["/Users/me/.claude/settings.json"],
       state: "not_configured",
       token_id: null,
+      models: {},
       ...claude,
     },
     {
@@ -68,6 +69,7 @@ function statuses(
       paths: ["/Users/me/.codex/config.toml"],
       state: "not_configured",
       token_id: null,
+      models: {},
       ...codex,
     },
     {
@@ -80,6 +82,7 @@ function statuses(
       ],
       state: "not_configured",
       token_id: null,
+      models: {},
       ...pi,
     },
   ]);
@@ -598,6 +601,50 @@ describe("ClientSetupDialog", () => {
     expect(button("更新配置")).toBeTruthy();
   });
 
+  it("starts from the models each config holds and keeps what the user types", async () => {
+    bridgeMocks.getClientConfigStatus.mockResolvedValue(
+      statuses(
+        {
+          ...configured("configured"),
+          models: { model: "claude-main", opusModel: "claude-opus" },
+        },
+        { ...configured("configured"), models: { model: "gpt-5.4" } },
+      ),
+    );
+    bridgeMocks.applyClientConfig.mockResolvedValue({ status: "applied" });
+    await renderDialog();
+    const value = (field: string) =>
+      document.querySelector<HTMLInputElement>(`#client-setup-${field}`)?.value;
+
+    expect(value("model")).toBe("claude-main");
+    expect(value("opusModel")).toBe("claude-opus");
+    expect(value("haikuModel")).toBe("");
+    // An update keeps the models instead of dropping them.
+    await act(async () => button("更新配置").click());
+    expect(bridgeMocks.applyClientConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        client: "claude",
+        models: { model: "claude-main", opusModel: "claude-opus" },
+      }),
+    );
+
+    await act(async () => card("Codex").click());
+    expect(value("model")).toBe("gpt-5.4");
+    expect(button("更新配置").disabled).toBe(false);
+    await setInput("#client-setup-model", "gpt-5.5");
+    await act(async () => card("Pi").click());
+    expect(value("model")).toBe("");
+    await act(async () => card("Codex").click());
+    expect(value("model")).toBe("gpt-5.5");
+    await act(async () => button("更新配置").click());
+    expect(bridgeMocks.applyClientConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        client: "codex",
+        models: { model: "gpt-5.5" },
+      }),
+    );
+  });
+
   it("writes nothing when the replacement is cancelled", async () => {
     bridgeMocks.applyClientConfig.mockResolvedValue({
       status: "needs_confirmation",
@@ -743,7 +790,10 @@ describe("ClientSetupDialog", () => {
   });
 
   it("switches between this computer and WSL", async () => {
-    const local = statuses(configured("configured")).clients;
+    const local = statuses({
+      ...configured("configured"),
+      models: { model: "local-route" },
+    }).clients;
     bridgeMocks.getClientConfigStatus.mockResolvedValue(
       overview(
         [
@@ -754,29 +804,45 @@ describe("ClientSetupDialog", () => {
             paths: ["/wsl" + status.paths[0]],
             state: "not_configured" as const,
             token_id: null,
+            models: {},
           })),
         ],
         { wsl_localhost: true },
       ),
     );
     await renderDialog();
+    const places = () => [
+      ...dialog().querySelectorAll<HTMLButtonElement>(
+        '[data-slot="segmented-control-item"]',
+      ),
+    ];
     const place = (label: string) => {
-      const match = [
-        ...dialog().querySelectorAll<HTMLButtonElement>(
-          '[data-slot="segmented-control-item"]',
-        ),
-      ].find((item) => item.textContent === label);
+      const match = places().find((item) =>
+        item.textContent?.startsWith(label),
+      );
       if (!match) throw new Error(`Missing place: ${label}`);
       return match;
     };
     expect(place("本机").getAttribute("data-state")).toBe("on");
+    // Each place names its own state, so the configured one stands out.
+    expect(places().map((item) => item.textContent)).toEqual([
+      "本机已配置",
+      "WSL · Ubuntu",
+    ]);
+    expect(cardText("Claude Code")).toContain("已配置");
     expect(dialog().textContent).toContain("/Users/me/.claude/settings.json");
     expect(button("更新配置")).toBeTruthy();
+    const model = () =>
+      document.querySelector<HTMLInputElement>("#client-setup-model")?.value;
+    expect(model()).toBe("local-route");
     await act(async () => place("WSL · Ubuntu").click());
     expect(dialog().textContent).toContain(
       "/wsl/Users/me/.claude/settings.json",
     );
     expect(button("写入配置")).toBeTruthy();
+    // The chosen card and the models follow the chosen place.
+    expect(cardText("Claude Code")).not.toContain("已配置");
+    expect(model()).toBe("");
     expect(dialog().textContent).not.toContain("移除配置");
     // Mirrored networking shares localhost, so no network hint.
     expect(dialog().textContent).not.toContain("networkingMode");

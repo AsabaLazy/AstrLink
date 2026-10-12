@@ -63,6 +63,7 @@ function clientStatuses(
       paths: ["/Users/me/.claude/settings.json"],
       state: claudeToken ? "configured" : "not_configured",
       token_id: claudeToken,
+      models: {},
     },
     {
       client: "codex",
@@ -71,6 +72,7 @@ function clientStatuses(
       paths: ["/Users/me/.codex/config.toml"],
       state: codexToken ? "modified" : "not_configured",
       token_id: codexToken,
+      models: {},
     },
   ];
   return {
@@ -276,6 +278,7 @@ describe("AccessTokenManager", () => {
           paths: [String.raw`\\wsl$\Ubuntu\home\me\.claude\settings.json`],
           state: "configured",
           token_id: firstToken.id,
+          models: {},
         },
       ]),
     );

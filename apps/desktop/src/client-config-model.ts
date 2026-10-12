@@ -31,6 +31,15 @@ export interface ClientConfigModels {
   fableModel?: string;
 }
 
+/** Claude Code takes every field; the other clients take `model` only. */
+const modelFields = [
+  "model",
+  "haikuModel",
+  "sonnetModel",
+  "opusModel",
+  "fableModel",
+] as const satisfies readonly (keyof ClientConfigModels)[];
+
 export type ClientConfigState =
   | "not_configured"
   | "configured"
@@ -51,6 +60,11 @@ export interface ClientConfigStatus {
   paths: string[];
   state: ClientConfigState;
   token_id: string | null;
+  /**
+   * The models a config AstrLink wrote holds now. The client may have picked
+   * them itself since, like with Codex's `/model`.
+   */
+  models: ClientConfigModels;
 }
 
 export interface ClientConfigOverview {
@@ -144,11 +158,26 @@ function arrayAt(value: unknown, path: string): unknown[] {
   return value;
 }
 
+function parseModels(
+  value: unknown,
+  client: DirectClient,
+  path: string,
+): ClientConfigModels {
+  const fields: readonly string[] =
+    client === "claude" ? modelFields : ["model"];
+  return Object.fromEntries(
+    Object.entries(objectAt(value, path)).map(([key, model]) => {
+      if (!fields.includes(key)) invalid(`${path}.${key}`, "unexpected field");
+      return [key, lineAt(model, `${path}.${key}`, 256)];
+    }),
+  );
+}
+
 function parseStatus(value: unknown, path: string): ClientConfigStatus {
   const status = objectAt(value, path);
   exactKeys(
     status,
-    ["client", "wsl", "detected", "paths", "state", "token_id"],
+    ["client", "wsl", "detected", "paths", "state", "token_id", "models"],
     path,
   );
   if (
@@ -188,6 +217,11 @@ function parseStatus(value: unknown, path: string): ClientConfigStatus {
     paths,
     state,
     token_id: tokenID,
+    models: parseModels(
+      status.models,
+      status.client as DirectClient,
+      `${path}.models`,
+    ),
   };
 }
 
