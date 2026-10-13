@@ -1331,10 +1331,12 @@ paths:
       summary: List recent requests the privacy policy's warn action let through.
       description: >-
         Core keeps the latest 128 warnings in memory only and starts over when it
-        restarts. Events come oldest first and name the kinds found with their
-        counts, never a value or a fingerprint. notifiable is set when the
-        request carried a value no earlier warning of this Core process carried,
-        so a value resent with a conversation's history does not notify again.
+        restarts. Events come oldest first and name the kinds found whose kind
+        rule notifies, with their counts, never a value or a fingerprint; a
+        request that carried no such kind is left out. notifiable is set when the
+        request carried a value of those kinds no earlier warning of this Core
+        process carried, so a value resent with a conversation's history does
+        not notify again.
         A reader passes the last sequence it read as since; when epoch changes,
         sequences have started over and the reader reads again from 0.
       parameters:
@@ -5261,14 +5263,23 @@ components:
           type: boolean
         style:
           $ref: "#/components/schemas/PlaceholderStyle"
+        notify:
+          type: boolean
+          default: true
+          description: >
+            Under request_action warn, lets a value of this kind raise a
+            desktop notification. Off, the kind is still detected and its
+            findings recorded; it only stays out of the warnings feed. A rule
+            that omits the field notifies.
       additionalProperties: false
       description: >
-        Per-kind detection switch and placeholder shape. url, ip_address, and
-        private_date ship disabled because they are the dominant false-positive
-        sources for coding agents. common_secret, payment_card, account, phone,
-        private_person, private_address, and private_date are rejected with any
-        style other than token; models regroup, truncate, or remark on stand-in
-        numbers in ways restoration cannot follow.
+        Per-kind detection switch, placeholder shape, and warning notification.
+        url, ip_address, and private_date ship disabled because they are the
+        dominant false-positive sources for coding agents. common_secret,
+        payment_card, account, phone, private_person, private_address, and
+        private_date are rejected with any style other than token; models
+        regroup, truncate, or remark on stand-in numbers in ways restoration
+        cannot follow.
     PlaceholderStyle:
       type: string
       enum: [natural, token]
@@ -6607,11 +6618,12 @@ components:
         kinds:
           type: array
           maxItems: 10
+          description: The kinds found whose kind rule notifies.
           items:
             $ref: "#/components/schemas/PrivacyWarningKindCount"
         notifiable:
           type: boolean
-          description: Set when the request carried a value no earlier warning of this Core process carried.
+          description: Set when the request carried a value of those kinds no earlier warning of this Core process carried.
       additionalProperties: false
     PrivacyWarningKindCount:
       type: object

@@ -42,7 +42,8 @@ func TestPrivacyWarningsAPIServesKindsWithoutValues(t *testing.T) {
 			t.Fatalf("result = %#v, %v", result, err)
 		}
 		feed.Report(privacy.Warning{
-			RequestID: "request_warned", Findings: result.Findings, Fingerprints: result.Fingerprints,
+			RequestID: "request_warned", Findings: result.Findings,
+			Notified: result.Notified, Fingerprints: result.Fingerprints,
 		})
 	}
 

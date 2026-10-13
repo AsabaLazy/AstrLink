@@ -1843,6 +1843,46 @@ describe("SafetyPolicy", () => {
     });
   });
 
+  it("chooses per kind which warnings notify under warn and continue", async () => {
+    bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(
+      policyRecord({ request_action: "warn" }),
+    );
+    bridgeMocks.updatePrivacyPolicy.mockResolvedValueOnce(
+      policyRecord({ request_action: "warn" }),
+    );
+    await renderPolicy();
+    expect(container.textContent).toContain("把不需要通知的类型设为「仅记录」");
+    await openPolicySection("脱敏规则");
+
+    expect(sectionButton("逐类型检测与通知", "重置此组设置").disabled).toBe(
+      true,
+    );
+    expect(
+      container.querySelector('[aria-label="邮箱 占位符形态"]'),
+    ).toBeNull();
+    expect(
+      container
+        .querySelector('[role="switch"][aria-label="检测邮箱"]')
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
+    // A kind that is not detected has nothing to notify about.
+    expect(
+      container
+        .querySelector('[aria-label="URL 通知方式"]')
+        ?.getAttribute("data-disabled"),
+    ).not.toBeNull();
+
+    await chooseOption('[aria-label="邮箱 通知方式"]', "仅记录");
+    await flush();
+    await settleClosedLayer();
+
+    expect(bridgeMocks.updatePrivacyPolicy).toHaveBeenCalledWith(etag, {
+      kind_rules: defaultPrivacyKindRules().map((rule) =>
+        rule.kind === "email" ? { ...rule, notify: false } : rule,
+      ),
+    });
+  });
+
   function sectionButton(heading: string, label: string): HTMLButtonElement {
     const panel = [
       ...container.querySelectorAll<HTMLElement>('[data-slot="panel"]'),

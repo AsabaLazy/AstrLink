@@ -290,6 +290,35 @@ describe("privacy-policy IPC contract", () => {
       }),
     ).toThrow("duplicate kind rule");
 
+    // A Core predating notify notified about every kind.
+    expect(
+      parsePrivacyPolicyPage({
+        items: [
+          {
+            ...policy,
+            kind_rules: [
+              { kind: "email", enabled: true, style: "natural" },
+              { kind: "phone", enabled: true, style: "token", notify: false },
+            ],
+          },
+        ],
+        next_cursor: null,
+      }).items[0].kind_rules.map((rule) => rule.notify),
+    ).toEqual([true, false]);
+    expect(() =>
+      parsePrivacyPolicyPage({
+        items: [
+          {
+            ...policy,
+            kind_rules: [
+              { kind: "email", enabled: true, style: "natural", notify: "no" },
+            ],
+          },
+        ],
+        next_cursor: null,
+      }),
+    ).toThrow("expected a boolean");
+
     expect(() =>
       parsePrivacyPolicyPage({
         items: [
@@ -316,6 +345,13 @@ describe("privacy-policy IPC contract", () => {
     expect(privacyKindRulesAreDefault(defaultPrivacyKindRules().slice(1))).toBe(
       false,
     );
+    expect(
+      privacyKindRulesAreDefault(
+        defaultPrivacyKindRules().map((rule) =>
+          rule.kind === "email" ? { ...rule, notify: false } : rule,
+        ),
+      ),
+    ).toBe(false);
 
     expect(privacyRestoreSettingsAreDefault(parsed.policy)).toBe(true);
     expect(
@@ -340,7 +376,9 @@ describe("privacy-policy IPC contract", () => {
 
   it("carries kind rules, allowlist, and restore flags through a dry-run patch", () => {
     const patch = {
-      kind_rules: [{ kind: "email", enabled: true, style: "token" }] as const,
+      kind_rules: [
+        { kind: "email", enabled: true, style: "token", notify: false },
+      ] as const,
       allowlist_rules: [
         { type: "domain_suffix", value: "github.com" },
       ] as const,
@@ -370,7 +408,12 @@ describe("privacy-policy IPC contract", () => {
         sample_text: "hello",
         policy: {
           kind_rules: [
-            { kind: "common_secret", enabled: true, style: "natural" },
+            {
+              kind: "common_secret",
+              enabled: true,
+              style: "natural",
+              notify: true,
+            },
           ],
         },
       }),

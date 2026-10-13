@@ -21,18 +21,20 @@ const (
 )
 
 // Warning is one request the warn action let through: which request, and what
-// was found. Fingerprints identify the values without holding them.
+// was found. Notified is the part of Findings whose kinds notify, and
+// Fingerprints identify their values without holding them.
 type Warning struct {
 	RequestID    contract.RequestID
 	ClientType   contract.ClientType
 	Protocol     contract.ProtocolID
 	ServiceID    contract.ServiceID
 	Findings     []Finding
+	Notified     []Finding
 	Fingerprints []Fingerprint
 }
 
-// WarningEvent is one warning as the feed serves it. It names kinds and counts,
-// never a value or a fingerprint.
+// WarningEvent is one warning as the feed serves it. It names the kinds that
+// notify and their counts, never a value or a fingerprint.
 type WarningEvent struct {
 	Sequence   uint64              `json:"sequence"`
 	At         time.Time           `json:"at"`
@@ -86,8 +88,12 @@ func NewWarningFeed() *WarningFeed {
 
 // Report appends a warning and returns the event it became. A value seen again
 // counts as recent, so a secret that stays in a conversation stays known for
-// as long as the conversation goes on.
-func (feed *WarningFeed) Report(warning Warning) WarningEvent {
+// as long as the conversation goes on. A warning with no finding of a kind
+// that notifies is left out, and Report returns false.
+func (feed *WarningFeed) Report(warning Warning) (WarningEvent, bool) {
+	if len(warning.Notified) == 0 {
+		return WarningEvent{}, false
+	}
 	feed.mu.Lock()
 	defer feed.mu.Unlock()
 	notifiable := false
@@ -110,7 +116,7 @@ func (feed *WarningFeed) Report(warning Warning) WarningEvent {
 		At:         feed.now().UTC(),
 		RequestID:  warning.RequestID,
 		ClientType: warning.ClientType,
-		Kinds:      warningKindCounts(warning.Findings),
+		Kinds:      warningKindCounts(warning.Notified),
 		Notifiable: notifiable,
 	}
 	if len(feed.events) == feed.maxEvents {
@@ -118,7 +124,7 @@ func (feed *WarningFeed) Report(warning Warning) WarningEvent {
 		feed.events = feed.events[:feed.maxEvents-1]
 	}
 	feed.events = append(feed.events, event)
-	return event
+	return event, true
 }
 
 // Since returns the events after sequence, oldest first.

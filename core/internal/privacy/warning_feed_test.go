@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -12,11 +13,14 @@ import (
 )
 
 func reportFingerprints(feed *WarningFeed, fingerprints ...Fingerprint) WarningEvent {
-	return feed.Report(Warning{
+	secret := []Finding{{Kind: KindCommonSecret}}
+	event, _ := feed.Report(Warning{
 		RequestID:    "request_warned",
-		Findings:     []Finding{{Kind: KindCommonSecret}},
+		Findings:     secret,
+		Notified:     secret,
 		Fingerprints: fingerprints,
 	})
+	return event
 }
 
 func TestWarningFeedNotifiesOncePerValue(t *testing.T) {
@@ -83,6 +87,57 @@ func TestWarningFeedKeepsOnlyRecentEvents(t *testing.T) {
 	}
 }
 
+func TestWarningFeedLeavesOutKindsThatDoNotNotify(t *testing.T) {
+	const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+	stored := contract.DefaultPrivacyPolicy()
+	stored.Enabled = true
+	stored.RequestAction = contract.PolicyActionWarn
+	for index := range stored.KindRules {
+		if stored.KindRules[index].Kind == string(KindEmail) {
+			stored.KindRules[index].Notify = false
+		}
+	}
+	policy, err := FromContractPolicy(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := newTestEngine(t, nil)
+	feed := NewWarningFeed()
+	report := func(input string) (Result, WarningEvent, bool) {
+		t.Helper()
+		result, err := engine.Inspect(context.Background(), policy, contract.ProtocolOpenAIResponses,
+			[]byte(`{"model":"safe","input":"`+input+`"}`))
+		if err != nil || result.Decision != DecisionWarn {
+			t.Fatalf("result = %#v, %v", result, err)
+		}
+		event, fed := feed.Report(Warning{
+			Findings: result.Findings, Notified: result.Notified, Fingerprints: result.Fingerprints,
+		})
+		return result, event, fed
+	}
+
+	result, event, fed := report("alice@example.com " + token)
+	if len(result.Findings) != 2 || len(result.Notified) != 1 ||
+		result.Notified[0].Kind != KindCommonSecret || len(result.Fingerprints) != 1 {
+		t.Fatalf("an email must stay recorded but not notify: %#v", result)
+	}
+	if !fed || !event.Notifiable ||
+		!reflect.DeepEqual(event.Kinds, []WarningKindCount{{Kind: KindCommonSecret, Count: 1}}) {
+		t.Fatalf("event = %#v, fed %t", event, fed)
+	}
+	// A new email beside the secret already warned about is no reason to
+	// notify again.
+	if _, event, fed = report("bob@example.com " + token); !fed || event.Notifiable {
+		t.Fatalf("event = %#v, fed %t", event, fed)
+	}
+	if result, _, fed = report("carol@example.com"); fed || len(result.Findings) != 1 {
+		t.Fatalf("a warning of emails only was fed: %#v", result)
+	}
+	if events := feed.Since(0).Events; len(events) != 2 || events[1].Sequence != 2 {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
 func TestWarningFeedCarriesKindsAndCountsButNoValue(t *testing.T) {
 	const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
 	result, err := newTestEngine(t, nil).Inspect(context.Background(), Policy{
@@ -97,6 +152,7 @@ func TestWarningFeedCarriesKindsAndCountsButNoValue(t *testing.T) {
 		ClientType:   contract.ClientCodex,
 		Protocol:     contract.ProtocolOpenAIResponses,
 		Findings:     result.Findings,
+		Notified:     result.Notified,
 		Fingerprints: result.Fingerprints,
 	})
 	encoded, err := json.Marshal(feed.Since(0))

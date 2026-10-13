@@ -94,6 +94,8 @@ export interface PrivacyKindRule {
   kind: CanonicalPrivacyKind;
   enabled: boolean;
   style: PlaceholderStyle;
+  /** Under the warn action, false records the kind without notifying. */
+  notify: boolean;
 }
 
 export type PrivacyAllowlistType = "literal" | "domain_suffix" | "cidr";
@@ -843,6 +845,7 @@ export function defaultPrivacyKindRules(): PrivacyKindRule[] {
     kind,
     enabled: kind !== "url" && kind !== "ip_address" && kind !== "private_date",
     style: PLACEHOLDER_STYLE_LOCKED_KINDS.has(kind) ? "token" : "natural",
+    notify: true,
   }));
 }
 
@@ -851,7 +854,11 @@ export function privacyKindRulesAreDefault(
 ): boolean {
   return defaultPrivacyKindRules().every((fallback) => {
     const rule = rules.find((candidate) => candidate.kind === fallback.kind);
-    return rule?.enabled === fallback.enabled && rule.style === fallback.style;
+    return (
+      rule?.enabled === fallback.enabled &&
+      rule.style === fallback.style &&
+      rule.notify === fallback.notify
+    );
   });
 }
 
@@ -984,7 +991,7 @@ function parsePrivacyKindRules(
 
 function parsePrivacyKindRule(value: unknown, path: string): PrivacyKindRule {
   const object = objectAt(value, path);
-  keysAt(object, ["kind", "enabled", "style"], [], path);
+  keysAt(object, ["kind", "enabled", "style"], ["notify"], path);
   const kind = canonicalKindAt(object.kind, `${path}.kind`);
   if (
     typeof object.style !== "string" ||
@@ -1000,6 +1007,10 @@ function parsePrivacyKindRule(value: unknown, path: string): PrivacyKindRule {
     kind,
     enabled: booleanAt(object.enabled, `${path}.enabled`),
     style,
+    // A Core predating notify notified about every kind.
+    notify: Object.hasOwn(object, "notify")
+      ? booleanAt(object.notify, `${path}.notify`)
+      : true,
   };
 }
 

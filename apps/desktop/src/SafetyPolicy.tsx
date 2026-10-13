@@ -1828,7 +1828,12 @@ export function SafetyPolicy({
       kind,
       enabled: false,
       style: "token",
+      notify: true,
     };
+  const kindRulesWarn = record?.policy.request_action === "warn";
+  const kindRulesTitle = t(
+    kindRulesWarn ? "safety.perKindWarn" : "safety.perKindRedact",
+  );
 
   const saveKindRule = (
     kind: CanonicalPrivacyKind,
@@ -3143,6 +3148,11 @@ export function SafetyPolicy({
 
                 <div className="border-t pt-3">
                   <Field
+                    hint={
+                      policy.request_action === "warn"
+                        ? t("safety.warnNotifyHint")
+                        : undefined
+                    }
                     htmlFor="privacy-request-action"
                     label={t("safety.requestAction")}
                   >
@@ -3415,7 +3425,13 @@ export function SafetyPolicy({
                     <>
                       <HelpPopover label={t("safety.placeholderGuide")}>
                         <div className="grid gap-3">
-                          <p>{t("safety.redactTypesHint")}</p>
+                          <p>
+                            {t(
+                              kindRulesWarn
+                                ? "safety.warnKindsHint"
+                                : "safety.redactTypesHint",
+                            )}
+                          </p>
                           <p className="text-xs leading-relaxed">
                             {t("safety.styleHintLead", {
                               natural: placeholderStyleLabel("natural"),
@@ -3463,26 +3479,25 @@ export function SafetyPolicy({
                     </>
                   }
                 >
-                  <h2 className="text-sm font-semibold">
-                    {t("safety.perKindRedact")}
-                  </h2>
+                  <h2 className="text-sm font-semibold">{kindRulesTitle}</h2>
                 </PanelHeader>
                 <fieldset
                   className="flex min-h-0 flex-1 flex-col border-0 px-3"
                   disabled={saving}
                 >
-                  <legend className="sr-only">
-                    {t("safety.perKindRedact")}
-                  </legend>
+                  <legend className="sr-only">{kindRulesTitle}</legend>
                   <ul
                     className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1"
                     data-tab-scroller
                   >
                     {PRIVACY_KINDS.map((kind) => {
                       const rule = kindRuleFor(kind);
-                      const lockReason = placeholderStyleLockReason(kind);
                       const styleLocked =
+                        !kindRulesWarn &&
                         PLACEHOLDER_STYLE_LOCKED_KINDS.has(kind);
+                      const lockReason = styleLocked
+                        ? placeholderStyleLockReason(kind)
+                        : undefined;
                       const unreachable =
                         policy.detector === "regex" &&
                         localModelOnlyKinds.has(kind);
@@ -3523,47 +3538,87 @@ export function SafetyPolicy({
                             ) : null}
                           </span>
                           <span className="flex shrink-0 items-center gap-2">
-                            <Select
-                              disabled={saving || styleLocked || !rule.enabled}
-                              onValueChange={(value) =>
-                                saveKindRule(kind, {
-                                  style: value as PlaceholderStyle,
-                                })
-                              }
-                              value={rule.style}
-                            >
-                              <SelectTrigger
-                                aria-label={t("safety.styleFor", {
-                                  kind: canonicalKindLabel(kind),
-                                })}
-                                aria-describedby={
-                                  lockReason || unreachable
-                                    ? `privacy-kind-hint-${kind}`
-                                    : undefined
+                            {kindRulesWarn ? (
+                              <Select
+                                disabled={saving || !rule.enabled}
+                                onValueChange={(value) =>
+                                  saveKindRule(kind, {
+                                    notify: value === "notify",
+                                  })
                                 }
-                                className="h-8 w-32 px-2 text-xs @[400px]:w-36"
-                                size="sm"
-                                title={
-                                  styleLocked
-                                    ? lockReason
-                                    : placeholderStyleLabel(rule.style)
-                                }
+                                value={rule.notify ? "notify" : "record"}
                               >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="natural">
-                                  {placeholderStyleLabel("natural")}
-                                </SelectItem>
-                                <SelectItem value="token">
-                                  {placeholderStyleLabel("token")}
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
+                                <SelectTrigger
+                                  aria-label={t("safety.notifyFor", {
+                                    kind: canonicalKindLabel(kind),
+                                  })}
+                                  aria-describedby={
+                                    unreachable
+                                      ? `privacy-kind-hint-${kind}`
+                                      : undefined
+                                  }
+                                  className="h-8 w-32 px-2 text-xs @[400px]:w-36"
+                                  size="sm"
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="notify">
+                                    {t("safety.notifyOn")}
+                                  </SelectItem>
+                                  <SelectItem value="record">
+                                    {t("safety.notifyOff")}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Select
+                                disabled={
+                                  saving || styleLocked || !rule.enabled
+                                }
+                                onValueChange={(value) =>
+                                  saveKindRule(kind, {
+                                    style: value as PlaceholderStyle,
+                                  })
+                                }
+                                value={rule.style}
+                              >
+                                <SelectTrigger
+                                  aria-label={t("safety.styleFor", {
+                                    kind: canonicalKindLabel(kind),
+                                  })}
+                                  aria-describedby={
+                                    lockReason || unreachable
+                                      ? `privacy-kind-hint-${kind}`
+                                      : undefined
+                                  }
+                                  className="h-8 w-32 px-2 text-xs @[400px]:w-36"
+                                  size="sm"
+                                  title={
+                                    styleLocked
+                                      ? lockReason
+                                      : placeholderStyleLabel(rule.style)
+                                  }
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="natural">
+                                    {placeholderStyleLabel("natural")}
+                                  </SelectItem>
+                                  <SelectItem value="token">
+                                    {placeholderStyleLabel("token")}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
                             <Switch
-                              aria-label={t("safety.redactKind", {
-                                kind: canonicalKindLabel(kind),
-                              })}
+                              aria-label={t(
+                                kindRulesWarn
+                                  ? "safety.detectKind"
+                                  : "safety.redactKind",
+                                { kind: canonicalKindLabel(kind) },
+                              )}
                               checked={rule.enabled}
                               disabled={saving}
                               onCheckedChange={(enabled) =>
@@ -5151,7 +5206,11 @@ export function SafetyPolicy({
         open={pendingReset !== null}
         title={
           pendingReset === "kind_rules"
-            ? t("safety.resetKindRulesTitle")
+            ? t(
+                kindRulesWarn
+                  ? "safety.resetKindRulesWarnTitle"
+                  : "safety.resetKindRulesTitle",
+              )
             : pendingReset === "restore"
               ? t("safety.resetRestoreTitle")
               : t("safety.restoreDefaultAllowlistTitle")

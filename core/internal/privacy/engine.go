@@ -142,11 +142,13 @@ func (engine *Engine) Inspect(ctx context.Context, policy Policy, protocol contr
 
 	switch policy.Action {
 	case ActionWarn:
+		notified := notifiedFindings(policy, accepted)
 		return Result{
 			Decision:           DecisionWarn,
 			Findings:           accepted,
 			SuppressedFindings: suppressed,
-			Fingerprints:       warningFingerprints(accepted, segments),
+			Notified:           notified,
+			Fingerprints:       warningFingerprints(notified, segments),
 		}, nil
 	case ActionBlock:
 		return Result{

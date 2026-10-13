@@ -3466,10 +3466,16 @@ fn validate_privacy_kind_rules(value: &serde_json::Value) -> Result<(), String> 
     let mut kinds = HashSet::new();
     for (index, rule) in rules.iter().enumerate() {
         let context = format!("privacy policy kind rule {index}");
-        validate_exact_object_keys(rule, &["kind", "enabled", "style"], &context)?;
         let object = rule
             .as_object()
             .ok_or_else(|| format!("{context} must be an object"))?;
+        // notify is optional so a Core predating it still parses.
+        validate_allowed_object_keys(
+            object,
+            &["kind", "enabled", "style", "notify"],
+            &["kind", "enabled", "style"],
+            &context,
+        )?;
         let kind = object["kind"]
             .as_str()
             .ok_or_else(|| format!("{context} kind must be a string"))?;
@@ -3481,6 +3487,12 @@ fn validate_privacy_kind_rules(value: &serde_json::Value) -> Result<(), String> 
         }
         if !object["enabled"].is_boolean() {
             return Err(format!("{context} enabled must be a boolean"));
+        }
+        if object
+            .get("notify")
+            .is_some_and(|notify| !notify.is_boolean())
+        {
+            return Err(format!("{context} notify must be a boolean"));
         }
         let style = object["style"]
             .as_str()
@@ -6674,16 +6686,16 @@ mod tests {
             "regex_source": "builtin",
             "custom_regex_rules": [],
             "kind_rules": [
-                {"kind": "common_secret", "enabled": true, "style": "token"},
-                {"kind": "payment_card", "enabled": true, "style": "natural"},
-                {"kind": "account", "enabled": true, "style": "natural"},
-                {"kind": "email", "enabled": true, "style": "natural"},
-                {"kind": "phone", "enabled": true, "style": "natural"},
-                {"kind": "url", "enabled": false, "style": "natural"},
-                {"kind": "ip_address", "enabled": false, "style": "natural"},
-                {"kind": "private_person", "enabled": true, "style": "token"},
-                {"kind": "private_address", "enabled": true, "style": "token"},
-                {"kind": "private_date", "enabled": true, "style": "token"}
+                {"kind": "common_secret", "enabled": true, "style": "token", "notify": true},
+                {"kind": "payment_card", "enabled": true, "style": "natural", "notify": true},
+                {"kind": "account", "enabled": true, "style": "natural", "notify": true},
+                {"kind": "email", "enabled": true, "style": "natural", "notify": true},
+                {"kind": "phone", "enabled": true, "style": "natural", "notify": true},
+                {"kind": "url", "enabled": false, "style": "natural", "notify": true},
+                {"kind": "ip_address", "enabled": false, "style": "natural", "notify": true},
+                {"kind": "private_person", "enabled": true, "style": "token", "notify": true},
+                {"kind": "private_address", "enabled": true, "style": "token", "notify": true},
+                {"kind": "private_date", "enabled": true, "style": "token", "notify": true}
             ],
             "allowlist_rules": [
                 {"type": "domain_suffix", "value": "github.com"},
@@ -6806,6 +6818,25 @@ mod tests {
             {"kind": "email", "enabled": true}
         ]);
         assert!(validate_privacy_policy_value(&policy).is_err());
+
+        policy["kind_rules"] = serde_json::json!([
+            {"kind": "email", "enabled": true, "style": "natural", "notify": "no"}
+        ]);
+        assert!(validate_privacy_policy_value(&policy).is_err());
+    }
+
+    #[test]
+    fn privacy_kind_rules_accept_notify_and_its_absence() {
+        for rules in [
+            serde_json::json!([{"kind": "email", "enabled": true, "style": "natural", "notify": false}]),
+            serde_json::json!([{"kind": "email", "enabled": true, "style": "natural"}]),
+        ] {
+            let mut policy = privacy_policy_value();
+            policy["kind_rules"] = rules.clone();
+            assert!(validate_privacy_policy_value(&policy).is_ok());
+            let patch = serde_json::json!({"kind_rules": rules});
+            assert_eq!(validate_privacy_policy_patch(patch.clone()).unwrap(), patch);
+        }
     }
 
     #[test]

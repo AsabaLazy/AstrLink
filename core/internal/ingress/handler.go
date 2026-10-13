@@ -544,6 +544,7 @@ func (handler *Handler) applyPrivacy(
 				Protocol:     classified.Protocol,
 				ServiceID:    endpointID,
 				Findings:     result.Findings,
+				Notified:     result.Notified,
 				Fingerprints: result.Fingerprints,
 			})
 		}

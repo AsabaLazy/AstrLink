@@ -73,6 +73,17 @@ var fingerprintKey = sync.OnceValue(func() []byte {
 	return key
 })
 
+// notifiedFindings keeps the findings whose kind rule notifies.
+func notifiedFindings(policy Policy, findings []Finding) []Finding {
+	notified := make([]Finding, 0, len(findings))
+	for _, finding := range findings {
+		if policy.KindRule(finding.Kind).Notify {
+			notified = append(notified, finding)
+		}
+	}
+	return notified
+}
+
 // warningFingerprints digests the distinct values the findings cover.
 func warningFingerprints(findings []Finding, segments []Segment) []Fingerprint {
 	values := protectedValues(findings, segments)
