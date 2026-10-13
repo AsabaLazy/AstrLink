@@ -1,3 +1,4 @@
+import { compactTitle } from "./file-path-spans";
 import { findMatches } from "./find-model";
 import { formatExactNumber } from "./format-compact-number";
 import { i18n } from "./i18n";
@@ -838,7 +839,7 @@ function turnHeaderRow(group: TrajectoryTurnGroup): TrajectoryRow {
     id: `${first.id}:turn`,
     requestId: first.id,
     chip: "TURN",
-    summary: preview ? `${label} · ${preview}` : label,
+    summary: preview ? `${label} · ${compactTitle(preview)}` : label,
     result: i18n.t("trajectory.turnCalls", { count: group.records.length }),
     status,
     tone: statusTone(status),

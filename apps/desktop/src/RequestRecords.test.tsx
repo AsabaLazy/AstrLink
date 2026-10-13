@@ -633,6 +633,20 @@ describe("RequestRecords", () => {
     expect(title?.getAttribute("title")).toBe("未命名会话");
   });
 
+  it("names the file in a title cut from a dropped file's path", async () => {
+    const path = "/Users/me/Desktop/Snapzy/Snapzy_2026-10-12_22-45-20_345…";
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [sessionFromRecord(firstRecord, { title: path })],
+      next_cursor: null,
+    });
+    await renderRecords();
+    const title = container.querySelector(
+      '[data-testid="request-session-row"] strong',
+    );
+    expect(title?.textContent).toBe("Snapzy_2026-10-12_22-45-20_345…");
+    expect(title?.getAttribute("title")).toBe(path);
+  });
+
   it("renders a session stream instead of a wide table", async () => {
     await renderRecords();
 

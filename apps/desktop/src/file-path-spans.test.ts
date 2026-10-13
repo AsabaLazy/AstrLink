@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { compactFilePaths, splitFilePaths } from "./file-path-spans";
+import {
+  compactFilePaths,
+  compactTitle,
+  splitFilePaths,
+} from "./file-path-spans";
 
 describe("splitFilePaths", () => {
   it("names a dropped file glued to the question after it", () => {
@@ -49,5 +53,22 @@ describe("compactFilePaths", () => {
     "",
   ])("leaves %j as text", (text) => {
     expect(compactFilePaths(text)).toBe(text);
+  });
+});
+
+describe("compactTitle", () => {
+  it("names a file whose extension the title's cut took", () => {
+    const title = "/Users/me/Desktop/Snapzy/Snapzy_2026-10-12_22-45-20_345…";
+    expect(compactTitle(title)).toBe("Snapzy_2026-10-12_22-45-20_345…");
+    // A message body has no cut, so the same text is no file there.
+    expect(compactFilePaths(title)).toBe(title);
+  });
+
+  it.each([
+    "Snapzy_2026-10-12_22-45-20_345.png这是什么",
+    "/review the /v1/chat/completions handler",
+    "/v1/chat/completions 返回 404，帮我看看…",
+  ])("leaves %j as it is", (title) => {
+    expect(compactTitle(title)).toBe(title);
   });
 });

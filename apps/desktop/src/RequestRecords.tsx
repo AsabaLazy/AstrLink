@@ -90,6 +90,7 @@ import {
   updateAuditSettings,
 } from "./bridge";
 import { copyButtonLabel, useCopyFeedback } from "./copy-feedback";
+import { compactTitle } from "./file-path-spans";
 import { formatCompactNumber } from "./format-compact-number";
 import { currentLocale, i18n, useT } from "./i18n";
 import { useLiveClock } from "./live-clock";
@@ -2468,7 +2469,7 @@ const SessionRow = memo(function SessionRow({
   const nowMs = useLiveClock(session.active_request_starts.length > 0);
   const service = requestServiceIdentity(session, services);
   const behavior = rowBehavior(session, checked, selected, onOpen, t);
-  const title = session.title || t("records.untitledSession");
+  const title = compactTitle(session.title) || t("records.untitledSession");
   return (
     <DataRow
       asChild
@@ -2507,7 +2508,7 @@ const SessionRow = memo(function SessionRow({
         <span className="col-span-2 col-start-3 row-start-1 flex min-w-0 items-center gap-2 @[560px]/request-list:col-span-1">
           <strong
             className="min-w-0 truncate text-sm font-medium"
-            title={title}
+            title={session.title || title}
           >
             {title}
           </strong>
@@ -2805,7 +2806,7 @@ function RecordDetail({
         title={
           isModelDiscoveryProtocol(session.input_protocol)
             ? t("records.fetchModels")
-            : session.title || t("records.untitledSession")
+            : compactTitle(session.title) || t("records.untitledSession")
         }
         titleId="request-detail-heading"
         titlePrefix={<ClientTypeIcon clientType={record.client_type} />}

@@ -46,6 +46,7 @@ function extensionEndsAt(text: string, start: number, end: number): boolean {
 function pathAt(
   text: string,
   start: number,
+  cut: boolean,
 ): { end: number; name: string } | null {
   const windows =
     /[A-Za-z]/.test(text[start] ?? "") &&
@@ -113,19 +114,27 @@ function pathAt(
   ) {
     end -= 1;
   }
-  if (end === segmentStart) return null;
+  if (end === segmentStart) {
+    if (!cut || segmentEnd !== text.length || !text.endsWith("…")) return null;
+    end = segmentEnd - 1;
+    if (end === segmentStart) return null;
+  }
   const raw = text.slice(segmentStart, end);
   return { end, name: windows ? raw : raw.replace(/\\(.)/g, "$1") };
 }
 
 export function splitFilePaths(text: string): FilePathSpan[] {
+  return spansOf(text, false);
+}
+
+function spansOf(text: string, cut: boolean): FilePathSpan[] {
   const spans: FilePathSpan[] = [];
   let plain = 0;
   let index = 0;
   while (index < text.length) {
     const found =
       index === 0 || !START_BLOCKERS.test(text[index - 1]!)
-        ? pathAt(text, index)
+        ? pathAt(text, index, cut)
         : null;
     if (!found) {
       index += 1;
@@ -140,9 +149,21 @@ export function splitFilePaths(text: string): FilePathSpan[] {
   return spans;
 }
 
+function joinSpans(spans: FilePathSpan[]): string {
+  return spans.map((span) => span.file ?? span.text).join("");
+}
+
 /** The text with each file path replaced by its file name. */
 export function compactFilePaths(text: string): string {
-  return splitFilePaths(text)
-    .map((span) => span.file ?? span.text)
-    .join("");
+  return joinSpans(spansOf(text, false));
+}
+
+/**
+ * A title Core cut from the user's text, with its file paths named. Titles
+ * recorded before Core named files keep the full path, and the "…" Core ends
+ * a cut title with can fall inside the file name and take its extension, so
+ * a path that runs into that ellipsis is named by what is left of it.
+ */
+export function compactTitle(title: string): string {
+  return joinSpans(spansOf(title, true));
 }
