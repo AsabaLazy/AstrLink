@@ -8,7 +8,7 @@ interface CompactUnit {
 
 /**
  * Compact number rendering, written by hand rather than through
- * `Intl.NumberFormat`'s `notation: "compact"`, because the two locales need
+ * `Intl.NumberFormat`'s `notation: "compact"`, because the locales need
  * different grouping (thousands versus myriads) and the engine's rounding of
  * `4664.6695万` is not stable across runtimes.
  */
@@ -17,6 +17,10 @@ const UNITS: Readonly<Record<Locale, readonly CompactUnit[]>> = {
     { threshold: 1_000_000_000, divisor: 1_000_000_000, suffix: "B" },
     { threshold: 1_000_000, divisor: 1_000_000, suffix: "M" },
     { threshold: 1_000, divisor: 1_000, suffix: "K" },
+  ],
+  ja: [
+    { threshold: 100_000_000, divisor: 100_000_000, suffix: "億" },
+    { threshold: 10_000, divisor: 10_000, suffix: "万" },
   ],
   "zh-CN": [
     { threshold: 100_000_000, divisor: 100_000_000, suffix: "亿" },
@@ -42,7 +46,8 @@ export function formatExactNumber(value: number): string {
 
 /**
  * Abbreviate large counts for the active language: `K`/`M`/`B` in English and
- * `万`/`亿` in Chinese. Values below the first unit keep their grouped digits.
+ * `万`/`亿` or `万`/`億` in Chinese and Japanese. Values below the first unit
+ * keep their grouped digits.
  */
 export function formatCompactNumber(value: number): string {
   if (!Number.isFinite(value)) return "—";

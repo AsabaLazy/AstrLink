@@ -1168,18 +1168,28 @@ mod tests {
             assert_eq!(notice(phase, false), None, "{phase}");
         }
         // Native notifications read the same catalogs; a missing key would
-        // surface raw, and zh-CN would silently fall back to English.
+        // surface raw, and another language would silently fall back to English.
         for kind in ["available", "manual", "ready"] {
             let title = format!("about.phase.{kind}");
             let body = format!("about.{kind}Notification");
             let vars = [("version", "1.1.0")];
             let en = i18n::t(i18n::Locale::En, &body, &vars);
+            let ja = i18n::t(i18n::Locale::Ja, &body, &vars);
             let zh = i18n::t(i18n::Locale::ZhCN, &body, &vars);
-            assert!(en.contains("1.1.0") && zh.contains("1.1.0"), "{body}");
+            assert!(
+                en.contains("1.1.0") && ja.contains("1.1.0") && zh.contains("1.1.0"),
+                "{body}"
+            );
             assert_ne!(en, zh, "{body}");
+            assert_ne!(en, ja, "{body}");
             assert_ne!(
                 i18n::t(i18n::Locale::En, &title, &[]),
                 i18n::t(i18n::Locale::ZhCN, &title, &[]),
+                "{title}"
+            );
+            assert_ne!(
+                i18n::t(i18n::Locale::En, &title, &[]),
+                i18n::t(i18n::Locale::Ja, &title, &[]),
                 "{title}"
             );
         }

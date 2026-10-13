@@ -294,9 +294,9 @@ describe("request privacy audit", () => {
     expect(summary.redactedCalls).toBe(1);
   });
 
-  it("keeps every outcome named in both locales", () => {
+  it("keeps every outcome named in every locale", () => {
     for (const outcome of PRIVACY_OUTCOMES) {
-      for (const locale of ["en", "zh-CN"] as const) {
+      for (const locale of ["en", "zh-CN", "ja"] as const) {
         const options = { lng: locale };
         expect(i18n.t(`privacyAudit.outcome.${outcome}`, options)).not.toBe(
           `privacyAudit.outcome.${outcome}`,

@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 
 import { DEFAULT_LOCALE, isLocale, type Locale } from "./locale";
 import en from "./locales/en.json";
+import ja from "./locales/ja.json";
 import zhCN from "./locales/zh-CN.json";
 
 export {
@@ -24,6 +25,7 @@ const i18nReady = i18n.use(initReactI18next).init({
   fallbackLng: DEFAULT_LOCALE,
   resources: {
     en: { translation: en },
+    ja: { translation: ja },
     "zh-CN": { translation: zhCN },
   },
   interpolation: {

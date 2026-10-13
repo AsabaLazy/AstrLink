@@ -50,7 +50,7 @@ import { Overview, type ServiceCatalog } from "./Overview";
 import { GettingStarted } from "./GettingStarted";
 import { useOnboarding } from "./use-onboarding";
 import type { CopyState } from "./copy-feedback";
-import { i18n, useT } from "./i18n";
+import { currentLocale, i18n, useT } from "./i18n";
 import { RequestGate } from "./request-gate";
 import { RequestRecords } from "./RequestRecords";
 import { RouteManager } from "./RouteManager";
@@ -785,6 +785,8 @@ export default function App() {
   const statusLabel = snapshot
     ? phaseLabel(snapshot.phase)
     : t("core.phase.connecting");
+  // ゲートウェイ plus a phase does not fit one sidebar line.
+  const stackedGatewayStatus = currentLocale() === "ja";
   const protocols = useMemo(
     () => snapshot?.capabilities?.protocols ?? [],
     [snapshot?.capabilities?.protocols],
@@ -913,14 +915,31 @@ export default function App() {
 
           <div
             aria-label={t("nav.gatewayStatus", { status: statusLabel })}
-            className="mx-2 mt-3 flex h-11 items-center gap-2.5 border-t border-sidebar-border px-1 pt-2 text-text-secondary max-[960px]:justify-center max-[960px]:px-0"
+            className={cn(
+              "mx-2 mt-3 flex gap-2.5 border-t border-sidebar-border px-1 text-text-secondary max-[960px]:h-11 max-[960px]:items-center max-[960px]:justify-center max-[960px]:px-0 max-[960px]:pt-2",
+              stackedGatewayStatus
+                ? "items-start py-2"
+                : "h-11 items-center pt-2",
+            )}
             title={t("nav.gatewayStatus", { status: statusLabel })}
           >
             <span className="grid size-5 shrink-0 place-items-center">
               <StatusDot tone={statusTone} />
             </span>
-            <span className="flex min-w-0 items-baseline gap-1.5 max-[960px]:hidden">
-              <strong className="text-sm font-medium text-foreground">
+            <span
+              className={cn(
+                "min-w-0 max-[960px]:hidden",
+                stackedGatewayStatus ? "grid" : "flex items-baseline gap-1.5",
+              )}
+            >
+              <strong
+                className={cn(
+                  "text-sm font-medium text-foreground",
+                  stackedGatewayStatus
+                    ? "truncate"
+                    : "shrink-0 whitespace-nowrap",
+                )}
+              >
                 {t("nav.gateway")}
               </strong>
               <small className="overflow-hidden text-xs text-ellipsis whitespace-nowrap">

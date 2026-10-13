@@ -1,4 +1,4 @@
-import { i18n } from "./i18n";
+import { currentLocale } from "./i18n";
 
 /** Recessive axis ink for Recharts charts. */
 export const AXIS_TICK = {
@@ -13,7 +13,7 @@ const dayFormats = new Map<string, Intl.DateTimeFormat>();
 export function dayLabel(date: string, width: "long" | "short"): string {
   const [year, month, day] = date.split("-").map(Number);
   if (!year || !month || !day) return date;
-  const locale = i18n.language === "zh-CN" ? "zh-CN" : "en";
+  const locale = currentLocale();
   const key = `${locale}:${width}`;
   let format = dayFormats.get(key);
   if (!format) {

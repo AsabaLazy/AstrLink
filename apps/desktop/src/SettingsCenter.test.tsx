@@ -551,6 +551,7 @@ describe("SettingsCenter", () => {
       await Promise.resolve();
     });
     expect(container.textContent).toContain("推理入口");
+    expect(container.textContent).toContain("日本語");
 
     const english = [...container.querySelectorAll('[role="radio"]')].find(
       (node) => node.getAttribute("aria-label") === "English",

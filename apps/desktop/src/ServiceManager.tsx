@@ -2365,7 +2365,7 @@ export function ServiceManager({
                               {needsSubscriptionTag(service.kind) ? (
                                 <Badge
                                   aria-hidden="true"
-                                  className="absolute -bottom-2.5 left-1/2 h-4 -translate-x-1/2 bg-background px-1 py-0 leading-none text-text-secondary"
+                                  className="absolute -bottom-2.5 left-1/2 z-10 h-4 w-max -translate-x-1/2 bg-background px-1 py-0 leading-none text-text-secondary"
                                   data-testid="subscription-kind-tag"
                                   variant="outline"
                                 >

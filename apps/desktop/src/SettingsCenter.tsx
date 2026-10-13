@@ -760,7 +760,7 @@ export function SettingsCenter({
                   </span>
                   <RadioGroup
                     className={cn(
-                      "grid grid-cols-2 gap-2 max-[560px]:grid-cols-1",
+                      "grid grid-cols-3 gap-2 max-[560px]:grid-cols-1",
                       prefsBusy && "pointer-events-none opacity-60",
                     )}
                     aria-label={t("settings.language")}
@@ -772,7 +772,6 @@ export function SettingsCenter({
                   >
                     {LOCALES.map((locale) => (
                       <ChoiceCard
-                        description={t("settings.languageHint")}
                         key={locale}
                         label={LOCALE_NAMES[locale]}
                         selected={prefs.locale === locale}
@@ -780,6 +779,9 @@ export function SettingsCenter({
                       />
                     ))}
                   </RadioGroup>
+                  <p className="text-xs text-muted-foreground">
+                    {t("settings.languageHint")}
+                  </p>
                 </div>
 
                 <div className="grid gap-2 border-b px-4 py-3">
@@ -877,7 +879,9 @@ export function SettingsCenter({
                         {phaseLabel(phase)}
                       </strong>
                       <span className="truncate text-xs text-text-secondary">
-                        {t("settings.currentStatus", { phase })}
+                        {t("settings.currentStatus", {
+                          phase: phaseLabel(phase),
+                        })}
                         {recoveryHint ? ` · ${recoveryHint}` : ""}
                       </span>
                     </div>
