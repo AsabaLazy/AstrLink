@@ -846,6 +846,59 @@ export function defaultPrivacyKindRules(): PrivacyKindRule[] {
   }));
 }
 
+export function privacyKindRulesAreDefault(
+  rules: readonly PrivacyKindRule[],
+): boolean {
+  return defaultPrivacyKindRules().every((fallback) => {
+    const rule = rules.find((candidate) => candidate.kind === fallback.kind);
+    return rule?.enabled === fallback.enabled && rule.style === fallback.style;
+  });
+}
+
+/** Mirrors the request and response fields of core/contract.DefaultPrivacyPolicy. */
+export const DEFAULT_PRIVACY_RESTORE_SETTINGS = {
+  response_restore: true,
+  restore_tool_arguments: true,
+  placeholder_notice: true,
+  skip_tool_declarations: false,
+  inspect_additional_tools: false,
+} as const satisfies PrivacyPolicyPatch;
+
+export function privacyRestoreSettingsAreDefault(
+  policy: PrivacyPolicy,
+): boolean {
+  return Object.entries(DEFAULT_PRIVACY_RESTORE_SETTINGS).every(
+    ([key, value]) =>
+      policy[key as keyof typeof DEFAULT_PRIVACY_RESTORE_SETTINGS] === value,
+  );
+}
+
+/** Mirrors core/contract.DefaultPrivacyAllowlistRules. */
+export function defaultPrivacyAllowlistRules(): PrivacyAllowlistRule[] {
+  return [
+    { type: "domain_suffix", value: "localhost" },
+    { type: "domain_suffix", value: "github.com" },
+    { type: "domain_suffix", value: "githubusercontent.com" },
+    { type: "cidr", value: "127.0.0.0/8" },
+    { type: "cidr", value: "::1/128" },
+    { type: "cidr", value: "10.0.0.0/8" },
+    { type: "cidr", value: "172.16.0.0/12" },
+    { type: "cidr", value: "192.168.0.0/16" },
+    { type: "cidr", value: "169.254.0.0/16" },
+  ];
+}
+
+export function missingDefaultPrivacyAllowlistRules(
+  rules: readonly PrivacyAllowlistRule[],
+): PrivacyAllowlistRule[] {
+  const present = new Set(
+    rules.map((rule) => `${rule.type}:${rule.value.toLowerCase()}`),
+  );
+  return defaultPrivacyAllowlistRules().filter(
+    (rule) => !present.has(`${rule.type}:${rule.value}`),
+  );
+}
+
 /**
  * Mirrors privacyworker.Client.ApplyPolicy: Core keeps the local model worker
  * only while the policy can route requests through it.

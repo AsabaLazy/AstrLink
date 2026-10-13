@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   compareReleaseVersions,
+  defaultPrivacyAllowlistRules,
   defaultPrivacyKindRules,
   isResourceHeavyVariant,
   localModelActive,
+  missingDefaultPrivacyAllowlistRules,
   parsePrivacyDryRunResult,
   parsePrivacyModelCatalog,
   parsePrivacyModelInstallation,
@@ -13,6 +15,8 @@ import {
   parsePrivacyPolicyPage,
   parsePrivacyPolicyRecord,
   patchUnloadsLocalModel,
+  privacyKindRulesAreDefault,
+  privacyRestoreSettingsAreDefault,
   validateLocalProbeInput,
   validatePrivacyDryRunInput,
   validatePrivacyModelInstallInput,
@@ -294,6 +298,44 @@ describe("privacy-policy IPC contract", () => {
         next_cursor: null,
       }),
     ).toThrow("unknown allowlist type");
+  });
+
+  it("compares kind rules and restore flags against the defaults", () => {
+    const parsed = parsePrivacyPolicyRecord({
+      policy,
+      etag: `"sha256:${"a".repeat(64)}"`,
+    });
+    expect(privacyKindRulesAreDefault(parsed.policy.kind_rules)).toBe(true);
+    expect(
+      privacyKindRulesAreDefault(
+        defaultPrivacyKindRules().map((rule) =>
+          rule.kind === "email" ? { ...rule, style: "token" } : rule,
+        ),
+      ),
+    ).toBe(false);
+    expect(privacyKindRulesAreDefault(defaultPrivacyKindRules().slice(1))).toBe(
+      false,
+    );
+
+    expect(privacyRestoreSettingsAreDefault(parsed.policy)).toBe(true);
+    expect(
+      privacyRestoreSettingsAreDefault({
+        ...parsed.policy,
+        inspect_additional_tools: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("lists the default allowlist entries a policy no longer has", () => {
+    const defaults = defaultPrivacyAllowlistRules();
+    expect(missingDefaultPrivacyAllowlistRules([])).toEqual(defaults);
+    expect(missingDefaultPrivacyAllowlistRules(defaults)).toEqual([]);
+    expect(
+      missingDefaultPrivacyAllowlistRules([
+        { type: "domain_suffix", value: "LocalHost" },
+        { type: "literal", value: "github.com" },
+      ]),
+    ).toEqual(defaults.slice(1));
   });
 
   it("carries kind rules, allowlist, and restore flags through a dry-run patch", () => {

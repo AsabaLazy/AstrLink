@@ -1843,6 +1843,144 @@ describe("SafetyPolicy", () => {
     });
   });
 
+  function sectionButton(heading: string, label: string): HTMLButtonElement {
+    const panel = [
+      ...container.querySelectorAll<HTMLElement>('[data-slot="panel"]'),
+    ].find(
+      (candidate) => candidate.querySelector("h2")?.textContent === heading,
+    );
+    const match = panel?.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`,
+    );
+    if (!match) throw new Error(`Missing ${label} in ${heading}`);
+    return match;
+  }
+
+  it("restores per-kind redaction defaults only after confirmation", async () => {
+    bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(
+      policyRecord({
+        kind_rules: defaultPrivacyKindRules().map((rule) =>
+          rule.kind === "url" ? { ...rule, enabled: true } : rule,
+        ),
+      }),
+    );
+    bridgeMocks.updatePrivacyPolicy.mockResolvedValueOnce(policyRecord());
+    await renderPolicy();
+    await openPolicySection("脱敏规则");
+
+    await act(async () => sectionButton("逐类型脱敏", "重置此组设置").click());
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("将逐类型脱敏恢复默认？");
+    expect(dialog?.textContent).toContain("URL、IP 地址、私人日期关闭");
+    expect(bridgeMocks.updatePrivacyPolicy).not.toHaveBeenCalled();
+
+    await act(async () => button("恢复默认").click());
+    await flush();
+    await settleClosedLayer();
+
+    expect(bridgeMocks.updatePrivacyPolicy).toHaveBeenCalledWith(etag, {
+      kind_rules: defaultPrivacyKindRules(),
+    });
+    expect(sectionButton("逐类型脱敏", "重置此组设置").disabled).toBe(true);
+  });
+
+  it("restores request and response defaults and leaves them on cancel", async () => {
+    bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(
+      policyRecord({
+        placeholder_notice: false,
+        skip_tool_declarations: true,
+        inspect_additional_tools: true,
+      }),
+    );
+    bridgeMocks.updatePrivacyPolicy.mockResolvedValueOnce(policyRecord());
+    await renderPolicy();
+
+    await act(async () => sectionButton("请求与响应", "重置此组设置").click());
+    const rows = [...document.querySelectorAll('[role="alertdialog"] li')].map(
+      (row) => row.textContent,
+    );
+    expect(rows).toEqual([
+      "响应还原占位符开启",
+      "还原工具调用参数开启",
+      "注入占位符约定说明开启",
+      "跳过函数调用检查关闭",
+      "跳过 additional_tools 检查开启",
+    ]);
+    await act(async () => button("取消").click());
+    await settleClosedLayer();
+    expect(bridgeMocks.updatePrivacyPolicy).not.toHaveBeenCalled();
+
+    await act(async () => sectionButton("请求与响应", "重置此组设置").click());
+    await act(async () => button("恢复默认").click());
+    await flush();
+    await settleClosedLayer();
+
+    expect(bridgeMocks.updatePrivacyPolicy).toHaveBeenCalledWith(etag, {
+      response_restore: true,
+      restore_tool_arguments: true,
+      placeholder_notice: true,
+      skip_tool_declarations: false,
+      inspect_additional_tools: false,
+    });
+    expect(sectionButton("请求与响应", "重置此组设置").disabled).toBe(true);
+  });
+
+  it("adds back only the missing default allowlist entries", async () => {
+    let current = policyRecord({
+      allowlist_rules: [
+        { type: "literal", value: "build-01" },
+        { type: "domain_suffix", value: "GitHub.com" },
+        { type: "cidr", value: "10.0.0.0/8" },
+      ],
+    });
+    bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(current);
+    bridgeMocks.updatePrivacyPolicy.mockImplementation(async (_etag, patch) => {
+      current = { ...current, policy: { ...current.policy, ...patch } };
+      return current;
+    });
+    await renderPolicy();
+    await openPolicySection("脱敏规则");
+    await setInput('input[type="search"]', "build");
+
+    await act(async () => sectionButton("免脱敏名单", "补回默认条目").click());
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("将补回以下 7 条默认条目");
+    const added = [
+      "localhost",
+      "githubusercontent.com",
+      "127.0.0.0/8",
+      "::1/128",
+      "172.16.0.0/12",
+      "192.168.0.0/16",
+      "169.254.0.0/16",
+    ];
+    expect(
+      [...(dialog?.querySelectorAll("li") ?? [])].map((row) => row.textContent),
+    ).toEqual(added);
+
+    await act(async () => button("补回").click());
+    await flush();
+    await settleClosedLayer();
+
+    expect(bridgeMocks.updatePrivacyPolicy).toHaveBeenCalledWith(etag, {
+      allowlist_rules: [
+        { type: "literal", value: "build-01" },
+        { type: "domain_suffix", value: "GitHub.com" },
+        { type: "cidr", value: "10.0.0.0/8" },
+        { type: "domain_suffix", value: "localhost" },
+        { type: "domain_suffix", value: "githubusercontent.com" },
+        ...added.slice(2).map((value) => ({ type: "cidr", value })),
+      ],
+    });
+    expect(notifyMocks.success).toHaveBeenLastCalledWith(
+      "已补回 7 条默认条目，新请求立即生效。",
+    );
+    expect(
+      container.querySelector<HTMLInputElement>('input[type="search"]')?.value,
+    ).toBe("");
+    expect(sectionButton("免脱敏名单", "补回默认条目").disabled).toBe(true);
+  });
+
   it("locks the placeholder style of kinds where the shape is a safety property", async () => {
     bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(policyRecord());
     await renderPolicy();

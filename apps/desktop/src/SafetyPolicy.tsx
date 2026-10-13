@@ -25,6 +25,7 @@ import { UsageRangeSelect } from "@/components/UsageRangeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FormMessage } from "@/components/FormMessage";
+import { IconButton } from "@/components/IconButton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,8 @@ import { i18n, useT } from "./i18n";
 import { notify } from "./notify";
 import {
   compareReleaseVersions,
+  DEFAULT_PRIVACY_RESTORE_SETTINGS,
+  defaultPrivacyKindRules,
   isResourceHeavyVariant,
   localModelActive,
   MAX_PRIVACY_ALLOWLIST_RULES,
@@ -86,10 +89,13 @@ import {
   MAX_PRIVACY_CUSTOM_REGEX_RULES,
   MAX_PRIVACY_DRY_RUN_SAMPLE_BYTES,
   MAX_PRIVACY_REGEX_PATTERN_CHARS,
+  missingDefaultPrivacyAllowlistRules,
   patchUnloadsLocalModel,
   PLACEHOLDER_STYLE_LOCKED_KINDS,
   PRIVACY_KINDS,
   PRIVACY_REGEX_DETECTOR_KINDS,
+  privacyKindRulesAreDefault,
+  privacyRestoreSettingsAreDefault,
   utf8ByteLength,
   validateLocalProbeInput,
   validatePrivacyModelProbeInput,
@@ -138,6 +144,7 @@ type WorkspaceView =
   | "models";
 type ModelView = "catalog" | "installed" | "custom" | "local";
 type ProbeView = Extract<ModelView, "custom" | "local">;
+type PolicyReset = "kind_rules" | "restore" | "allowlist";
 
 // Core replies once the worker has exited, which is usually instant; keep the
 // unload notice up long enough to read.
@@ -1252,6 +1259,7 @@ export function SafetyPolicy({
     useState<PendingModelAction | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [confirmFillBuiltinRules, setConfirmFillBuiltinRules] = useState(false);
+  const [pendingReset, setPendingReset] = useState<PolicyReset | null>(null);
   const [regexPatternDrafts, setRegexPatternDrafts] = useState<string[]>(
     () => record?.policy.custom_regex_rules.map((rule) => rule.pattern) ?? [],
   );
@@ -1932,6 +1940,32 @@ export function SafetyPolicy({
     }
   };
 
+  const confirmPendingReset = () => {
+    const reset = pendingReset;
+    setPendingReset(null);
+    if (record === null) return;
+    if (reset === "kind_rules") {
+      void patchPolicy({ kind_rules: defaultPrivacyKindRules() });
+    } else if (reset === "restore") {
+      void patchPolicy({ ...DEFAULT_PRIVACY_RESTORE_SETTINGS });
+    } else if (reset === "allowlist") {
+      const rules = record.policy.allowlist_rules;
+      const missing = missingDefaultPrivacyAllowlistRules(rules);
+      if (missing.length === 0) return;
+      if (rules.length + missing.length > MAX_PRIVACY_ALLOWLIST_RULES) {
+        setError(
+          t("safety.tooManyAllowlist", { max: MAX_PRIVACY_ALLOWLIST_RULES }),
+        );
+        return;
+      }
+      setAllowlistQuery("");
+      void patchPolicy(
+        { allowlist_rules: [...rules, ...missing] },
+        t("safety.restoredDefaultAllowlist", { count: missing.length }),
+      );
+    }
+  };
+
   const chooseInstallation = (installation: PrivacyModelInstallation) => {
     if (installation.status !== "ready") {
       setError(t("safety.modelNotReady"));
@@ -2546,6 +2580,32 @@ export function SafetyPolicy({
           .toLocaleLowerCase()
           .includes(normalizedAllowlistQuery),
     );
+  const missingAllowlistDefaults =
+    policy === null
+      ? []
+      : missingDefaultPrivacyAllowlistRules(policy.allowlist_rules);
+  const restoreDefaults = [
+    {
+      label: t("safety.restore"),
+      on: DEFAULT_PRIVACY_RESTORE_SETTINGS.response_restore,
+    },
+    {
+      label: t("safety.restoreTools"),
+      on: DEFAULT_PRIVACY_RESTORE_SETTINGS.restore_tool_arguments,
+    },
+    {
+      label: t("safety.injectNotice"),
+      on: DEFAULT_PRIVACY_RESTORE_SETTINGS.placeholder_notice,
+    },
+    {
+      label: t("safety.skipToolDeclarations"),
+      on: DEFAULT_PRIVACY_RESTORE_SETTINGS.skip_tool_declarations,
+    },
+    {
+      label: t("safety.skipAdditionalTools"),
+      on: !DEFAULT_PRIVACY_RESTORE_SETTINGS.inspect_additional_tools,
+    },
+  ];
   const cannotEnableLocalModel =
     policy?.enabled === false &&
     policy.detector === "local_model" &&
@@ -3160,16 +3220,30 @@ export function SafetyPolicy({
                 title={t("safety.requestAndResponse")}
                 icon={RotateCcw}
                 actions={
-                  <Button
-                    className="h-auto w-fit gap-1 px-0 py-0 text-xs font-medium"
-                    onClick={() => setStreamingDemoOpen(true)}
-                    size="sm"
-                    type="button"
-                    variant="link"
-                  >
-                    {t("safety.viewStreamingDemo")}
-                    <ArrowUpRight aria-hidden="true" className="size-3.5" />
-                  </Button>
+                  <>
+                    <Button
+                      className="h-auto w-fit gap-1 px-0 py-0 text-xs font-medium"
+                      onClick={() => setStreamingDemoOpen(true)}
+                      size="sm"
+                      type="button"
+                      variant="link"
+                    >
+                      {t("safety.viewStreamingDemo")}
+                      <ArrowUpRight aria-hidden="true" className="size-3.5" />
+                    </Button>
+                    <IconButton
+                      className="text-muted-foreground"
+                      disabled={
+                        saving || privacyRestoreSettingsAreDefault(policy)
+                      }
+                      label={t("safety.resetSection")}
+                      onClick={() => setPendingReset("restore")}
+                      size="icon-xs"
+                      type="button"
+                    >
+                      <RotateCcw aria-hidden="true" />
+                    </IconButton>
+                  </>
                 }
               >
                 <fieldset className="min-w-0 border-0 p-0" disabled={saving}>
@@ -3373,6 +3447,19 @@ export function SafetyPolicy({
                           total: PRIVACY_KINDS.length,
                         })}
                       </Badge>
+                      <IconButton
+                        className="text-muted-foreground"
+                        disabled={
+                          saving ||
+                          privacyKindRulesAreDefault(policy.kind_rules)
+                        }
+                        label={t("safety.resetSection")}
+                        onClick={() => setPendingReset("kind_rules")}
+                        size="icon-xs"
+                        type="button"
+                      >
+                        <RotateCcw aria-hidden="true" />
+                      </IconButton>
                     </>
                   }
                 >
@@ -3505,21 +3592,36 @@ export function SafetyPolicy({
                     content: t("safety.allowlistHint"),
                   }}
                   actions={
-                    <Button
-                      disabled={
-                        saving ||
-                        allowlistPending ||
-                        policy.allowlist_rules.length >=
-                          MAX_PRIVACY_ALLOWLIST_RULES
-                      }
-                      onClick={addAllowlistRule}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      <Plus aria-hidden="true" />
-                      {t("safety.addAllowlist")}
-                    </Button>
+                    <>
+                      <IconButton
+                        className="text-muted-foreground"
+                        disabled={
+                          saving ||
+                          allowlistPending ||
+                          missingAllowlistDefaults.length === 0
+                        }
+                        label={t("safety.restoreDefaultAllowlist")}
+                        onClick={() => setPendingReset("allowlist")}
+                        type="button"
+                      >
+                        <RotateCcw aria-hidden="true" />
+                      </IconButton>
+                      <Button
+                        disabled={
+                          saving ||
+                          allowlistPending ||
+                          policy.allowlist_rules.length >=
+                            MAX_PRIVACY_ALLOWLIST_RULES
+                        }
+                        onClick={addAllowlistRule}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        <Plus aria-hidden="true" />
+                        {t("safety.addAllowlist")}
+                      </Button>
+                    </>
                   }
                 />
                 <fieldset
@@ -4991,6 +5093,70 @@ export function SafetyPolicy({
           title={t("safety.fillBuiltin")}
         />
       ) : null}
+      <ConfirmDialog
+        confirmLabel={t(
+          pendingReset === "allowlist"
+            ? "safety.restoreDefaultAllowlistConfirm"
+            : "safety.resetConfirm",
+        )}
+        description={
+          pendingReset === "kind_rules" ? (
+            <p>
+              {t("safety.resetKindRulesHint", {
+                off: defaultPrivacyKindRules()
+                  .filter((rule) => !rule.enabled)
+                  .map((rule) => canonicalKindLabel(rule.kind))
+                  .join(t("safety.listJoin")),
+              })}
+            </p>
+          ) : pendingReset === "restore" ? (
+            <>
+              <p>{t("safety.resetRestoreHint")}</p>
+              <ul className="grid gap-1.5">
+                {restoreDefaults.map(({ label, on }) => (
+                  <li
+                    className="flex items-center justify-between gap-3"
+                    key={label}
+                  >
+                    <span>{label}</span>
+                    <Badge variant={on ? "secondary" : "outline"}>
+                      {t(on ? "safety.defaultOn" : "safety.defaultOff")}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : pendingReset === "allowlist" ? (
+            <>
+              <p>
+                {t("safety.restoreDefaultAllowlistHint", {
+                  count: missingAllowlistDefaults.length,
+                })}
+              </p>
+              <ul className="flex flex-wrap gap-1.5">
+                {missingAllowlistDefaults.map((rule) => (
+                  <li key={`${rule.type}:${rule.value}`}>
+                    <Badge className="font-mono" variant="outline">
+                      {rule.value}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null
+        }
+        disabled={saving}
+        onCancel={() => setPendingReset(null)}
+        onConfirm={confirmPendingReset}
+        open={pendingReset !== null}
+        title={
+          pendingReset === "kind_rules"
+            ? t("safety.resetKindRulesTitle")
+            : pendingReset === "restore"
+              ? t("safety.resetRestoreTitle")
+              : t("safety.restoreDefaultAllowlistTitle")
+        }
+      />
       {pendingModelAction !== null && pendingActionInstallation !== null ? (
         <ModelActionDialog
           action={pendingModelAction}
