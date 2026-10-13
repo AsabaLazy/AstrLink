@@ -43,8 +43,11 @@ func testFrames(t *testing.T, client *Client) [][]string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A poll can land after the helper creates the log but before it finishes
+	// a line, so only newline-terminated lines are frames.
+	lines := strings.Split(string(data), "\n")
 	var frames [][]string
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	for _, line := range lines[:len(lines)-1] {
 		var texts []string
 		if err := json.Unmarshal([]byte(line), &texts); err != nil {
 			t.Fatal(err)
