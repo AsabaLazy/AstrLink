@@ -11,7 +11,6 @@ import {
 import {
   statusLabel,
   type PrivacyIgnoreReason,
-  type PrivacyIgnored,
   type RequestEvent,
   type RequestModelRedirect,
   type RequestRecord,
@@ -222,45 +221,100 @@ export function recordedPrivacyConfidence(
   };
 }
 
-export interface PrivacyIgnoredGroup extends PrivacyIgnored {
-  label: string;
+export interface ConfidenceSpan {
+  min: number;
+  max: number;
 }
 
-const ignoreReasonOrder: PrivacyIgnoreReason[] = [
+/** Matches of one kind the policy left in the request for one reason. */
+export interface PolicyKindIgnored {
+  count: number;
+  confidence: ConfidenceSpan | null;
+}
+
+export interface PolicyKindRow {
+  kind: string;
+  label: string;
+  /** Matches the policy acted on; 0 when it left every match in place. */
+  count: number;
+  confidence: ConfidenceSpan | null;
+  ignored: Partial<Record<PrivacyIgnoreReason, PolicyKindIgnored>>;
+}
+
+export const policyIgnoreReasons: readonly PrivacyIgnoreReason[] = [
   "low_confidence",
   "allowlisted",
   "kind_disabled",
 ];
 
-/** What the policy left in the request, by reason and then kind. */
-export function recordedPrivacyIgnored(
+/**
+ * The policy step by kind, so a kind's matches, the model's confidence in
+ * them, and the matches left in place read across one row. Kinds the policy
+ * acted on come first. The threshold is null when no match carries model
+ * confidence.
+ */
+export function policyKindTable(
+  hits: PrivacyHitGroup[],
+  findings: RequestRecord["privacy_findings"],
   ignored: RequestRecord["privacy_ignored"],
-): PrivacyIgnoredGroup[] {
-  const entries = ignored ?? [];
-  const kinds = sortPrivacyKinds([...new Set(entries.map(({ kind }) => kind))]);
-  return [...entries]
-    .sort(
-      (left, right) =>
-        ignoreReasonOrder.indexOf(left.reason) -
-          ignoreReasonOrder.indexOf(right.reason) ||
-        kinds.indexOf(left.kind) - kinds.indexOf(right.kind),
-    )
-    .map((entry) => ({ ...entry, label: privacyHitLabel(entry.kind) }));
+): { rows: PolicyKindRow[]; threshold: number | null } {
+  const rows = new Map<string, PolicyKindRow>();
+  const rowFor = (kind: string): PolicyKindRow => {
+    const existing = rows.get(kind);
+    if (existing) return existing;
+    const created: PolicyKindRow = {
+      kind,
+      label: privacyHitLabel(kind),
+      count: 0,
+      confidence: null,
+      ignored: {},
+    };
+    rows.set(kind, created);
+    return created;
+  };
+  for (const hit of hits) rowFor(hit.kind).count += hit.count;
+  const confidence = recordedPrivacyConfidence(findings);
+  for (const { kind, min, max } of confidence?.groups ?? []) {
+    rowFor(kind).confidence = { min, max };
+  }
+  let threshold = confidence?.threshold ?? null;
+  for (const entry of ignored ?? []) {
+    const row = rowFor(entry.kind);
+    const previous = row.ignored[entry.reason];
+    row.ignored[entry.reason] = {
+      count: (previous?.count ?? 0) + entry.count,
+      confidence: widenConfidence(
+        previous?.confidence ?? null,
+        entry.confidence ?? null,
+      ),
+    };
+    threshold ??= entry.confidence?.threshold ?? null;
+  }
+  return {
+    rows: sortPrivacyKinds([...rows.keys()])
+      .flatMap((kind) => rows.get(kind) ?? [])
+      .sort((left, right) => Number(right.count > 0) - Number(left.count > 0)),
+    threshold,
+  };
 }
 
-/** "人名 ×2（置信度 41%–62%，低于门槛）". */
-export function privacyIgnoredText(group: PrivacyIgnoredGroup): string {
-  const reason =
-    group.reason === "low_confidence" && group.confidence
-      ? i18n.t("trajectory.policyIgnoredReasons.low_confidence_range", {
-          range: confidenceRange(group.confidence.min, group.confidence.max),
-        })
-      : i18n.t(`trajectory.policyIgnoredReasons.${group.reason}`);
-  return i18n.t("trajectory.policyIgnoredEntry", {
-    kind: group.label,
-    count: group.count,
-    reason,
-  });
+/** Without confidence or ignored matches, each kind is just a count. */
+export function policyKindsNeedTable(rows: PolicyKindRow[]): boolean {
+  return rows.some(
+    (row) => row.confidence !== null || Object.keys(row.ignored).length > 0,
+  );
+}
+
+function widenConfidence(
+  span: ConfidenceSpan | null,
+  next: ConfidenceSpan | null,
+): ConfidenceSpan | null {
+  if (!next) return span;
+  if (!span) return { min: next.min, max: next.max };
+  return {
+    min: Math.min(span.min, next.min),
+    max: Math.max(span.max, next.max),
+  };
 }
 
 /**
@@ -275,17 +329,90 @@ export type PolicyDecision =
   | "inspecting"
   | "unfinished";
 
+type PolicyAction = "allow" | "warn" | "block" | "redact";
+
+/** How the model learned what the placeholders are. */
+export type PlaceholderExplanation = "notice" | "skill";
+
+/** A decision Core wrote as the POLICY summary. */
+export interface PolicySummary {
+  action: PolicyAction;
+  /** Distinct values replaced; null when the summary names none. */
+  replaced: number | null;
+  /**
+   * `notice`: Core added its placeholder notice. `skill`: the client already
+   * listed the placeholder skill, so no notice was added.
+   */
+  explainedBy: PlaceholderExplanation | null;
+}
+
+const policyActions = new Set<string>(["allow", "warn", "block", "redact"]);
+
 /**
- * Core writes the decision as the first segment of the POLICY summary
- * ("allow", "warn", "block", "redact · 3"). A recorded mapping means values
- * were replaced whatever the summary says, which also covers records
- * synthesized without events.
+ * Core writes "allow", "warn", "block", or "redact · 3" with an optional
+ * "notice" or "skill" segment. Anything else is an inspection still running
+ * or a failure code, which stays in Core's own words.
+ */
+export function parsePolicySummary(summary: string): PolicySummary | null {
+  const [action, ...rest] = summary.split(" · ");
+  if (!policyActions.has(action)) return null;
+  const count = rest.find((part) => /^\d+$/.test(part));
+  return {
+    action: action as PolicyAction,
+    replaced: count === undefined ? null : Number(count),
+    explainedBy: rest.includes("notice")
+      ? "notice"
+      : rest.includes("skill")
+        ? "skill"
+        : null,
+  };
+}
+
+export function placeholderExplanationText(
+  explainedBy: PlaceholderExplanation,
+): string {
+  return i18n.t(
+    explainedBy === "notice"
+      ? "trajectory.policyNotice"
+      : "trajectory.policySkill",
+  );
+}
+
+// How placeholders were explained is the same on nearly every call, so the
+// chain row leaves it to the policy inspector.
+function policySummaryText(policy: PolicySummary): string {
+  const parts = [i18n.t(`trajectory.policyDecisions.${policy.action}`)];
+  if (policy.replaced !== null) {
+    parts.push(i18n.t("trajectory.policyReplaced", { count: policy.replaced }));
+  }
+  return parts.join(" · ");
+}
+
+/** "还原 4 处", naming the tool-argument share when there is one. */
+export function restoredText(count: number, tools: number): string {
+  return tools > 0
+    ? i18n.t("trajectory.restoredCountWithTools", { count, tools })
+    : i18n.t("trajectory.restoredCount", { count });
+}
+
+// Core writes the restore event as "restore · restored/mapped · tool n".
+const RESTORE_SUMMARY = /^restore · (\d+)\/\d+(?: · tool (\d+))?$/;
+
+function restoreSummaryText(summary: string): string | null {
+  const match = RESTORE_SUMMARY.exec(summary);
+  if (!match) return null;
+  return restoredText(Number(match[1]), Number(match[2] ?? 0));
+}
+
+/**
+ * A recorded mapping means values were replaced whatever the summary says,
+ * which also covers records synthesized without events.
  */
 export function policyDecision(
-  row: Pick<TrajectoryRow, "summary" | "status">,
+  row: Pick<TrajectoryRow, "policy" | "status">,
   restore: RequestRecord["privacy_restore"],
 ): PolicyDecision {
-  const action = row.summary.split(" · ")[0];
+  const action = row.policy?.action;
   if (action === "redact" || (restore?.mapping_count ?? 0) > 0) {
     return "redact";
   }
@@ -395,6 +522,8 @@ export interface TrajectoryRow {
   redirect?: RequestModelRedirect;
   /** Set on COMPRESS rows whose summary Core wrote in its usual shape. */
   compression?: ImageCompression;
+  /** Set on POLICY rows that record a decision. */
+  policy?: PolicySummary;
 }
 
 export const TIMELINE_GAP_COLLAPSE_MS = 2000;
@@ -1020,12 +1149,9 @@ function rowFromEvent(
     event.kind === "image_compression"
       ? parseImageCompression(event.summary)
       : null;
-  const summary =
-    event.kind === "upstream" || event.kind === "completed"
-      ? readableUsageSummary(event.summary)
-      : compression
-        ? imageCompressionText(compression)
-        : event.summary;
+  const policy =
+    event.kind === "privacy" ? parsePolicySummary(event.summary) : null;
+  const summary = rowSummary(event, compression, policy);
   return {
     id: `${record.id}:${event.kind}:${event.started_at}:${event.attempt_index}`,
     requestId: record.id,
@@ -1042,7 +1168,24 @@ function rowFromEvent(
     turnIndex: null,
     ...(redirect ? { redirect } : {}),
     ...(compression ? { compression } : {}),
+    ...(policy ? { policy } : {}),
   };
+}
+
+function rowSummary(
+  event: RequestEvent,
+  compression: ImageCompression | null,
+  policy: PolicySummary | null,
+): string {
+  if (event.kind === "upstream" || event.kind === "completed") {
+    return readableUsageSummary(event.summary);
+  }
+  if (compression) return imageCompressionText(compression);
+  if (policy) return policySummaryText(policy);
+  if (event.kind === "restore") {
+    return restoreSummaryText(event.summary) ?? event.summary;
+  }
+  return event.summary;
 }
 
 /**

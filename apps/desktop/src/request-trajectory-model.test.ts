@@ -20,8 +20,9 @@ import {
   inspectorTitle,
   modelRedirectSummary,
   parseImageCompression,
+  parsePolicySummary,
   policyDecision,
-  privacyIgnoredText,
+  policyKindTable,
   callProgressAtListOffset,
   callProgressAtScrollLeft,
   listOffsetForCall,
@@ -29,7 +30,6 @@ import {
   recordedPrivacyConfidence,
   recordedPrivacyFindings,
   recordedPrivacyHits,
-  recordedPrivacyIgnored,
   scrollLeftForCall,
   splitPrivacyHighlights,
   synthesizeEvents,
@@ -292,6 +292,50 @@ describe("request trajectory model", () => {
     const [fallback] = inspectorChainRows(unknown);
     expect(fallback?.summary).toBe("webp · 3 images");
     expect(fallback?.compression).toBeUndefined();
+  });
+
+  it("spells out the policy decision and restore counts Core writes", () => {
+    const at = "2026-08-16T10:00:00.000Z";
+    const event = (
+      kind: RequestRecord["events"][number]["kind"],
+      summary: string,
+      status: RequestRecord["status"] = "succeeded",
+    ) => ({
+      kind,
+      started_at: at,
+      ended_at: at,
+      status,
+      summary,
+      attempt_index: 1,
+    });
+    const summaries = (...events: RequestRecord["events"]) =>
+      inspectorChainRows({ ...record, events }).map((row) => row.summary);
+
+    expect(
+      summaries(
+        event("privacy", "redact · 1 · skill"),
+        event("restore", "restore · 0/1"),
+      ),
+    ).toEqual(["已脱敏 · 替换 1 项", "还原 0 处"]);
+    expect(
+      summaries(
+        event("privacy", "redact · 3 · notice"),
+        event("restore", "restore · 4/3 · tool 4"),
+      ),
+    ).toEqual(["已脱敏 · 替换 3 项", "还原 4 处（工具参数 4 处）"]);
+    expect(
+      summaries(event("privacy", "warn"), event("privacy", "block", "blocked")),
+    ).toEqual(["已警告", "已阻止"]);
+    // Progress and failure codes have no decision and stay as Core wrote them.
+    expect(
+      summaries(event("privacy", "privacy_policy_unavailable", "failed")),
+    ).toEqual(["privacy_policy_unavailable"]);
+    expect(
+      inspectorChainRows({
+        ...record,
+        events: [event("privacy", "redact · 2 · skill")],
+      })[0]?.policy,
+    ).toEqual({ action: "redact", replaced: 2, explainedBy: "skill" });
   });
 
   it("keeps persisted events when present", () => {
@@ -1539,32 +1583,93 @@ describe("request trajectory model", () => {
     expect(confidencePercent(0.70004)).toBe("70%");
   });
 
-  it("lists ignored matches by reason, with the model's confidence when low", () => {
-    const groups = recordedPrivacyIgnored([
-      { kind: "url", reason: "kind_disabled", count: 5 },
-      { kind: "email", reason: "allowlisted", count: 1 },
+  it("puts each kind's matches, confidence, and ignored matches on one row", () => {
+    const threshold = 0.7;
+    const { rows, threshold: read } = policyKindTable(
+      [
+        { kind: "private_person", label: "人名", count: 1, placeholders: [] },
+        { kind: "url", label: "URL", count: 3, placeholders: [] },
+      ],
+      [
+        {
+          kind: "private_person",
+          json_path: "/input/0/content",
+          count: 1,
+          confidence: { min: 0.88, max: 0.88, threshold },
+        },
+      ],
+      [
+        { kind: "url", reason: "kind_disabled", count: 5 },
+        { kind: "email", reason: "allowlisted", count: 1 },
+        {
+          kind: "private_person",
+          reason: "low_confidence",
+          count: 2,
+          confidence: { min: 0.5, max: 0.6234, threshold },
+        },
+        {
+          kind: "private_person",
+          reason: "low_confidence",
+          count: 1,
+          confidence: { min: 0.41, max: 0.6, threshold },
+        },
+      ],
+    );
+    expect(read).toBe(threshold);
+    // Kinds the policy acted on come first; email was only ignored.
+    expect(rows).toEqual([
+      {
+        kind: "url",
+        label: "URL",
+        count: 3,
+        confidence: null,
+        ignored: { kind_disabled: { count: 5, confidence: null } },
+      },
       {
         kind: "private_person",
-        reason: "low_confidence",
-        count: 2,
-        confidence: { min: 0.41, max: 0.6234, threshold: 0.7 },
+        label: "人名",
+        count: 1,
+        confidence: { min: 0.88, max: 0.88 },
+        ignored: {
+          low_confidence: { count: 3, confidence: { min: 0.41, max: 0.6234 } },
+        },
       },
-      { kind: "email", reason: "low_confidence", count: 1 },
+      {
+        kind: "email",
+        label: "邮箱",
+        count: 0,
+        confidence: null,
+        ignored: { allowlisted: { count: 1, confidence: null } },
+      },
     ]);
-    expect(groups.map(privacyIgnoredText)).toEqual([
-      "邮箱 ×1（低于置信度门槛）",
-      "人名 ×2（置信度 41%–62.34%，低于门槛）",
-      "邮箱 ×1（免脱敏名单）",
-      "URL ×5（类型已关闭）",
-    ]);
-    expect(recordedPrivacyIgnored(undefined)).toEqual([]);
+  });
+
+  it("reads the threshold from ignored matches when none were accepted", () => {
+    expect(
+      policyKindTable([], undefined, [
+        {
+          kind: "email",
+          reason: "low_confidence",
+          count: 1,
+          confidence: { min: 0.4, max: 0.4, threshold: 0.8 },
+        },
+      ]).threshold,
+    ).toBe(0.8);
+    expect(policyKindTable([], undefined, undefined)).toEqual({
+      rows: [],
+      threshold: null,
+    });
   });
 
   it("reads the policy decision from the phase summary Core writes", () => {
     const decide = (
       summary: string,
       status: RequestRecord["status"] = "succeeded",
-    ) => policyDecision({ summary, status }, null);
+    ) =>
+      policyDecision(
+        { policy: parsePolicySummary(summary) ?? undefined, status },
+        null,
+      );
     expect(decide("allow")).toBe("allow");
     expect(decide("warn")).toBe("warn");
     expect(decide("block", "blocked")).toBe("block");
@@ -1578,7 +1683,10 @@ describe("request trajectory model", () => {
     // Records synthesized without events carry only the mapping.
     expect(
       policyDecision(
-        { summary: "allow", status: "succeeded" },
+        {
+          policy: parsePolicySummary("allow") ?? undefined,
+          status: "succeeded",
+        },
         {
           enabled: false,
           mapping_count: 2,

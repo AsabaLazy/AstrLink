@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { i18n } from "./i18n";
-import { PRIVACY_OUTCOMES, requestPrivacyAudit } from "./request-privacy-audit";
+import {
+  PRIVACY_OUTCOMES,
+  privacyListItemKey,
+  privacyListLayout,
+  requestPrivacyAudit,
+} from "./request-privacy-audit";
 import {
   emptyTrajectoryFields,
   type RequestRecord,
@@ -157,6 +162,126 @@ describe("request privacy audit", () => {
       { kind: "email", label: i18n.t("privacy.email"), count: 2 },
       { kind: "phone", label: i18n.t("privacy.phone"), count: 2 },
     ]);
+  });
+
+  it("folds calls under their turns and leaves quiet turns as a count", () => {
+    const inTurn = (call: RequestRecord, turn: number | null) => ({
+      ...call,
+      turn_index: turn,
+    });
+    const summary = requestPrivacyAudit([
+      inTurn(redacted("req_a", 1, 1), 1),
+      inTurn(record({ id: "req_b", privacy_decision: "allow" }), 1),
+      inTurn(redacted("req_c", 2, 0, 1), 1),
+      inTurn(record({ id: "req_d", privacy_decision: "allow" }), 2),
+      inTurn(redacted("req_e", 1, 1), 3),
+    ]);
+    expect(
+      summary.turns.map(({ key, turnIndex, callCount, quietCalls }) => ({
+        key,
+        turnIndex,
+        callCount,
+        quietCalls,
+      })),
+    ).toEqual([
+      { key: "req_a", turnIndex: 1, callCount: 3, quietCalls: 1 },
+      { key: "req_d", turnIndex: 2, callCount: 1, quietCalls: 1 },
+      { key: "req_e", turnIndex: 3, callCount: 1, quietCalls: 0 },
+    ]);
+    expect(summary.turns[0]).toMatchObject({
+      outcome: "redacted",
+      replaced: 3,
+      restored: 1,
+      unrestored: 1,
+    });
+
+    const keys = (overrides: Array<[string, boolean]>, selected: string) =>
+      privacyListLayout(summary, new Map(overrides), selected).items.map(
+        privacyListItemKey,
+      );
+    // The latest turn with a row starts open; the quiet turn has no header.
+    expect(keys([], "req_e")).toEqual([
+      "turn:req_a",
+      "turn:req_e",
+      "call:req_e",
+      "quiet-turns",
+    ]);
+    // So does the turn holding the selected call, unless folded by hand.
+    expect(keys([], "req_c")).toEqual([
+      "turn:req_a",
+      "call:req_a",
+      "call:req_c",
+      "quiet:req_a",
+      "turn:req_e",
+      "call:req_e",
+      "quiet-turns",
+    ]);
+    expect(
+      keys(
+        [
+          ["req_a", false],
+          ["req_e", false],
+        ],
+        "req_c",
+      ),
+    ).toEqual(["turn:req_a", "turn:req_e", "quiet-turns"]);
+  });
+
+  it("lists a single turn without a header", () => {
+    const summary = requestPrivacyAudit([
+      redacted("req_a", 1, 1),
+      record({ id: "req_b", privacy_decision: "allow" }),
+      redacted("req_c", 1, 1),
+    ]);
+    // Calls of a protocol without turns share one group.
+    expect(summary.turns).toHaveLength(1);
+    const layout = privacyListLayout(summary, new Map(), "req_a");
+    expect(layout.items).toEqual([
+      expect.objectContaining({ kind: "call", nested: false }),
+      expect.objectContaining({ kind: "call", nested: false }),
+      { kind: "quiet-calls", key: "req_a", count: 1, nested: false },
+    ]);
+    expect(layout.turnByRecordId.size).toBe(0);
+  });
+
+  it("keeps each call's restore setting and how placeholders were explained", () => {
+    const privacyEvent = (summary: string) => ({
+      kind: "privacy" as const,
+      started_at: base.started_at,
+      ended_at: base.started_at,
+      status: "succeeded" as const,
+      summary,
+      attempt_index: 1,
+    });
+    const skillCall = {
+      ...redacted("req_a", 1, 0),
+      events: [privacyEvent("redact · 1 · skill")],
+    };
+    const mixed = requestPrivacyAudit([
+      skillCall,
+      {
+        ...redacted("req_b", 1, 1),
+        events: [privacyEvent("redact · 1 · notice")],
+      },
+      record({ id: "req_c", privacy_decision: "allow" }),
+    ]);
+    const [skill, notice, plain] = mixed.calls;
+    expect(skill).toMatchObject({
+      restoreEnabled: true,
+      restored: 0,
+      explainedBy: "skill",
+    });
+    expect(notice.explainedBy).toBe("notice");
+    expect(plain).toMatchObject({ restoreEnabled: false, explainedBy: null });
+    // Only an explanation every redacted call shares belongs to the session.
+    expect(mixed.explainedBy).toBeNull();
+    expect(
+      requestPrivacyAudit([
+        skillCall,
+        { ...skillCall, id: "req_b" },
+        record({ id: "req_c", privacy_decision: "allow" }),
+      ]).explainedBy,
+    ).toBe("skill");
   });
 
   it("lets a block outrank a redaction in the header", () => {

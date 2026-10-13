@@ -3,7 +3,7 @@ import { ConversionDiagnosticsDetails } from "./components/ConversionDiagnostics
 import { RoutingSteps } from "./components/RoutingSteps";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { LockKeyhole } from "@/components/icons";
+import { ChevronRight, LockKeyhole } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { ConversationIndicator } from "@/components/ConversationIndicator";
 import { ModelLabel } from "@/components/ModelLabel";
@@ -31,7 +31,6 @@ import {
 import {
   clientDisconnectNote,
   confidencePercent,
-  confidenceRange,
   extractPrivacyHits,
   formatImageBytes,
   imageCompressionModeLabel,
@@ -39,18 +38,20 @@ import {
   inspectorChainRows,
   inspectorPart,
   inspectorTitle,
+  placeholderExplanationText,
   policyDecision,
-  privacyIgnoredText,
-  recordedPrivacyConfidence,
+  policyKindsNeedTable,
+  policyKindTable,
   recordedPrivacyFindings,
   recordedPrivacyHits,
-  recordedPrivacyIgnored,
+  restoredText,
   type InspectorPart,
   type PolicyDecision,
   type PrivacyHitGroup,
   type TrajectoryChip,
   type TrajectoryRow,
 } from "./request-trajectory-model";
+import { PolicyKindTable } from "./PolicyKindTable";
 import { protocolEntryPath } from "./service-presets";
 import { chipDotClass } from "./trajectory-chip";
 import {
@@ -750,14 +751,26 @@ function PolicyInspector({
     replacedHits.length > 0
       ? replacedHits
       : recordedPrivacyFindings(record.privacy_findings);
-  const confidence = recordedPrivacyConfidence(record.privacy_findings);
-  const ignored = recordedPrivacyIgnored(record.privacy_ignored);
+  const kinds = policyKindTable(
+    hits,
+    record.privacy_findings,
+    record.privacy_ignored,
+  );
+  const tabulated = policyKindsNeedTable(kinds.rows);
+  // Above a redacted body the kinds would take the top of the pane on every
+  // call, and one redaction can span many kinds, so they all fold into the
+  // table there.
+  const foldable = redacted && kinds.rows.length > 0;
+  const [tableOpen, setTableOpen] = useState(false);
+  const showTable = foldable ? tableOpen : tabulated;
   const mappings = record.privacy_restore?.mapping_count ?? 0;
-  const segments = row.summary.split(" · ");
+  const explainedBy = row.policy?.explainedBy ?? null;
   const body = redacted ? (auditContent?.upstream_request_body ?? null) : null;
   // Progress and failure codes are Core's own words; the badge says the rest.
   const detail =
-    decision === "inspecting" || decision === "unfinished" ? row.summary : null;
+    !row.policy && (decision === "inspecting" || decision === "unfinished")
+      ? row.summary
+      : null;
   const hint = policyHint(decision);
   const revealKind = (kind: string) => {
     scrollerRef.current
@@ -782,16 +795,25 @@ function PolicyInspector({
             {t("trajectory.policyReplaced", { count: mappings })}
           </span>
         ) : null}
-        {hits.length > 0 ? (
-          <PrivacyHitList
-            hits={hits}
-            inline
-            onSelectKind={body ? revealKind : undefined}
-          />
+        {hits.length > 0 && !foldable && !tabulated ? (
+          <PrivacyHitList hits={hits} inline />
         ) : null}
-        {segments.includes("notice") ? (
-          <span className="text-muted-foreground">
-            {t("trajectory.policyNotice")}
+        {kinds.threshold !== null ? (
+          <span
+            className="text-muted-foreground"
+            data-testid="policy-threshold"
+          >
+            {t("trajectory.policyThreshold", {
+              threshold: confidencePercent(kinds.threshold),
+            })}
+          </span>
+        ) : null}
+        {explainedBy ? (
+          <span
+            className="text-muted-foreground"
+            data-testid="policy-explanation"
+          >
+            {placeholderExplanationText(explainedBy)}
           </span>
         ) : null}
         {detail ? (
@@ -799,33 +821,31 @@ function PolicyInspector({
             {detail}
           </code>
         ) : null}
+        {foldable ? (
+          <Button
+            aria-expanded={tableOpen}
+            className="h-auto gap-1 px-0 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+            data-testid="policy-kinds-toggle"
+            onClick={() => setTableOpen((open) => !open)}
+            type="button"
+            variant="ghost"
+          >
+            <ChevronRight
+              aria-hidden="true"
+              className={cn(
+                "size-3.5 shrink-0 transition-transform",
+                tableOpen && "rotate-90",
+              )}
+            />
+            {t("trajectory.policyKindDetails")}
+          </Button>
+        ) : null}
       </div>
-      {confidence || ignored.length > 0 ? (
-        <dl className="grid shrink-0 gap-1 text-xs">
-          {confidence ? (
-            <PolicyDetail
-              label={t("trajectory.policyConfidence", {
-                threshold: confidencePercent(confidence.threshold),
-              })}
-              testId="policy-confidence"
-            >
-              {confidence.groups
-                .map(
-                  (group) =>
-                    `${group.label} ${confidenceRange(group.min, group.max)}`,
-                )
-                .join(" · ")}
-            </PolicyDetail>
-          ) : null}
-          {ignored.length > 0 ? (
-            <PolicyDetail
-              label={t("trajectory.policyIgnored")}
-              testId="policy-ignored"
-            >
-              {ignored.map(privacyIgnoredText).join(" · ")}
-            </PolicyDetail>
-          ) : null}
-        </dl>
+      {showTable ? (
+        <PolicyKindTable
+          onSelectKind={body ? revealKind : undefined}
+          rows={kinds.rows}
+        />
       ) : null}
       {hint ? (
         <p
@@ -856,23 +876,6 @@ function PolicyInspector({
           ]}
         />
       ) : null}
-    </div>
-  );
-}
-
-function PolicyDetail({
-  label,
-  testId,
-  children,
-}: {
-  label: string;
-  testId: string;
-  children: string;
-}) {
-  return (
-    <div className="flex min-w-0 flex-wrap gap-x-2" data-testid={testId}>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-foreground">{children}</dd>
     </div>
   );
 }
@@ -928,11 +931,8 @@ function RestoreSummary({
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
         {restore
-          ? t("trajectory.restoreRatio", {
-              restored: restore.restored_count,
-              mapped: restore.mapping_count,
-            })
-          : t("trajectory.restoreChip")}
+          ? `${t("trajectory.policyReplaced", { count: restore.mapping_count })} · ${restoredText(restore.restored_count, restore.tool_argument_restored_count)}`
+          : t("trajectory.restoreUnrecorded")}
       </p>
       {channels !== null ? (
         <p
@@ -958,11 +958,9 @@ function RestoreSummary({
 function PrivacyHitList({
   hits,
   inline = false,
-  onSelectKind,
 }: {
   hits: PrivacyHitGroup[];
   inline?: boolean;
-  onSelectKind?: (kind: string) => void;
 }) {
   return (
     <ul
@@ -971,21 +969,9 @@ function PrivacyHitList({
     >
       {hits.map((hit) => (
         <li key={hit.kind}>
-          {onSelectKind ? (
-            <Button
-              className="h-auto px-0 text-xs font-medium"
-              data-kind={hit.kind}
-              onClick={() => onSelectKind(hit.kind)}
-              type="button"
-              variant="link"
-            >
-              {hit.label} ×{hit.count}
-            </Button>
-          ) : (
-            <div className="text-xs font-medium">
-              {hit.label} ×{hit.count}
-            </div>
-          )}
+          <div className="text-xs font-medium">
+            {hit.label} ×{hit.count}
+          </div>
           {hit.placeholders.length > 0 ? (
             <ul className="mt-0.5 grid gap-0.5">
               {hit.placeholders.map((placeholder) => (

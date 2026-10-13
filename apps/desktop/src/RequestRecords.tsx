@@ -3570,10 +3570,10 @@ function RecordDetail({
           value="audit"
         >
           <RequestPrivacyAudit
-            onOpenCall={(requestId) => {
-              onSelectTurn(requestId);
-              setDetailTab("content");
-            }}
+            auditContent={auditContent}
+            auditError={auditError}
+            auditLoading={auditLoading}
+            onSelectCall={onSelectTurn}
             selectedRequestId={record.id}
             turns={turns}
           />

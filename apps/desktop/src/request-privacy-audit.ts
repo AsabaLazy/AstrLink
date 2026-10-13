@@ -1,7 +1,11 @@
 import { i18n } from "./i18n";
 import { privacyKindLabel, sortPrivacyKinds } from "./privacy-kind";
 import type { RequestRecord, RequestStatus } from "./request-record-model";
-import { groupTurns } from "./request-trajectory-model";
+import {
+  groupTurns,
+  parsePolicySummary,
+  type PlaceholderExplanation,
+} from "./request-trajectory-model";
 
 /**
  * What the privacy policy did to one call, as the audit tab states it. Every
@@ -42,24 +46,44 @@ export interface PrivacyCallAudit {
   kinds: PrivacyKindCount[];
   /** Distinct values replaced before the request went upstream. */
   replaced: number;
+  /** The response path was set to put replaced values back. */
+  restoreEnabled: boolean;
   restored: number;
   restoredVisible: number;
   restoredTools: number;
   /** Parts of the answer left with replacements still in them. */
   unrestored: number;
+  explainedBy: PlaceholderExplanation | null;
 }
 
-export interface PrivacyAuditSummary {
-  calls: PrivacyCallAudit[];
-  /** The outcome the header names, at the severity of the worst call. */
+/** What a set of calls added up to, for the session header or one turn. */
+export interface PrivacyTally {
+  /** At the severity of the worst call. */
   outcome: PrivacyOutcome;
-  callCount: number;
   replaced: number;
   restored: number;
   restoredVisible: number;
   restoredTools: number;
   unrestored: number;
   kinds: PrivacyKindCount[];
+}
+
+/** One user turn's calls, which the audit list folds under one header. */
+export interface PrivacyTurnAudit extends PrivacyTally {
+  /** The turn's first call, which stays first as later calls land. */
+  key: string;
+  turnIndex: number | null;
+  callCount: number;
+  /** The calls worth a row; see `notableCall`. */
+  calls: PrivacyCallAudit[];
+  /** Calls that replaced nothing, counted instead of listed. */
+  quietCalls: number;
+}
+
+export interface PrivacyAuditSummary extends PrivacyTally {
+  calls: PrivacyCallAudit[];
+  turns: PrivacyTurnAudit[];
+  callCount: number;
   blockedCalls: number;
   /** Calls that reached the model without a completed inspection. */
   uncheckedCalls: number;
@@ -67,6 +91,11 @@ export interface PrivacyAuditSummary {
   offCalls: number;
   warnedCalls: number;
   redactedCalls: number;
+  /**
+   * How every redacted call explained its placeholders, when they all did it
+   * the same way; rows then leave it to the header instead of repeating it.
+   */
+  explainedBy: PlaceholderExplanation | null;
 }
 
 /**
@@ -82,63 +111,181 @@ export function requestPrivacyAudit(
   turns: RequestRecord[],
 ): PrivacyAuditSummary {
   const calls: PrivacyCallAudit[] = [];
+  const groups: PrivacyCallAudit[][] = [];
   let index = 0;
   for (const group of groupTurns(turns)) {
-    group.records.forEach((record, position) => {
+    const audits = group.records.map((record, position) => {
       index += 1;
-      calls.push(callAudit(record, index, group.turnIndex, position + 1));
+      return callAudit(record, index, group.turnIndex, position + 1);
     });
+    calls.push(...audits);
+    // Calls from a protocol without turns share one group instead of each
+    // getting a header of its own.
+    const last = groups[groups.length - 1];
+    if (group.turnIndex === null && last?.[0]?.turnIndex === null) {
+      last.push(...audits);
+    } else {
+      groups.push(audits);
+    }
   }
 
-  const kindCounts = new Map<string, number>();
-  const summary: PrivacyAuditSummary = {
+  const count = (outcome: PrivacyOutcome) =>
+    calls.filter((call) => call.outcome === outcome).length;
+  const explanations = new Set(
+    calls
+      .filter((call) => call.outcome === "redacted")
+      .map((call) => call.explainedBy),
+  );
+  return {
+    ...tally(calls),
     calls,
-    outcome: "off",
+    turns: groups.map(turnAudit),
     callCount: calls.length,
+    blockedCalls: count("blocked"),
+    uncheckedCalls: count("unchecked"),
+    offCalls: count("off"),
+    warnedCalls: count("warned"),
+    redactedCalls: count("redacted"),
+    explainedBy:
+      explanations.size === 1 ? ([...explanations][0] ?? null) : null,
+  };
+}
+
+function turnAudit(calls: PrivacyCallAudit[]): PrivacyTurnAudit {
+  const notable = calls.filter(notableCall);
+  return {
+    ...tally(calls),
+    key: calls[0]?.recordId ?? "",
+    turnIndex: calls[0]?.turnIndex ?? null,
+    callCount: calls.length,
+    calls: notable,
+    quietCalls: calls.length - notable.length,
+  };
+}
+
+function tally(calls: PrivacyCallAudit[]): PrivacyTally {
+  const kindCounts = new Map<string, number>();
+  const result: PrivacyTally = {
+    outcome: "unknown",
     replaced: 0,
     restored: 0,
     restoredVisible: 0,
     restoredTools: 0,
     unrestored: 0,
     kinds: [],
-    blockedCalls: 0,
-    uncheckedCalls: 0,
-    offCalls: 0,
-    warnedCalls: 0,
-    redactedCalls: 0,
   };
-  let worst: PrivacyOutcome = "clean";
-  let seen = false;
-  for (const call of calls) {
-    summary.replaced += call.replaced;
-    summary.restored += call.restored;
-    summary.restoredVisible += call.restoredVisible;
-    summary.restoredTools += call.restoredTools;
-    summary.unrestored += call.unrestored;
-    if (call.outcome === "blocked") summary.blockedCalls += 1;
-    if (call.outcome === "unchecked") summary.uncheckedCalls += 1;
-    if (call.outcome === "off") summary.offCalls += 1;
-    if (call.outcome === "warned") summary.warnedCalls += 1;
-    if (call.outcome === "redacted") summary.redactedCalls += 1;
+  calls.forEach((call, position) => {
+    result.replaced += call.replaced;
+    result.restored += call.restored;
+    result.restoredVisible += call.restoredVisible;
+    result.restoredTools += call.restoredTools;
+    result.unrestored += call.unrestored;
     for (const { kind, count } of call.kinds) {
       kindCounts.set(kind, (kindCounts.get(kind) ?? 0) + count);
     }
-    if (!seen) {
-      seen = true;
-      worst = call.outcome;
-      continue;
+    if (
+      position === 0 ||
+      outcomeSeverity(call.outcome) > outcomeSeverity(result.outcome)
+    ) {
+      result.outcome = call.outcome;
     }
-    if (outcomeSeverity(call.outcome) > outcomeSeverity(worst)) {
-      worst = call.outcome;
-    }
-  }
-  summary.outcome = seen ? worst : "unknown";
-  summary.kinds = sortPrivacyKinds([...kindCounts.keys()]).map((kind) => ({
+  });
+  result.kinds = sortPrivacyKinds([...kindCounts.keys()]).map((kind) => ({
     kind,
     label: privacyKindLabel(kind),
     count: kindCounts.get(kind) ?? 0,
   }));
-  return summary;
+  return result;
+}
+
+export type PrivacyListItem =
+  | { kind: "turn"; turn: PrivacyTurnAudit; open: boolean }
+  | { kind: "call"; call: PrivacyCallAudit; nested: boolean }
+  /** Calls of one open turn that replaced nothing. */
+  | { kind: "quiet-calls"; key: string; count: number; nested: boolean }
+  /** Turns where nothing was replaced, which get no header. */
+  | { kind: "quiet-turns"; count: number };
+
+/** The call list once calls fold under their turns. */
+export interface PrivacyListLayout {
+  items: PrivacyListItem[];
+  openTurns: Set<string>;
+  /** The header each call sits under; empty when the list has none. */
+  turnByRecordId: Map<string, string>;
+}
+
+/**
+ * Folds the call list by turn, as the trajectory list does: a turn is open
+ * when the operator said so, and otherwise when it holds the selected call or
+ * is the latest turn with a row to show. Turns where nothing happened get no
+ * header, only a count. A conversation of one turn does not fold.
+ */
+export function privacyListLayout(
+  summary: PrivacyAuditSummary,
+  overrides: ReadonlyMap<string, boolean>,
+  selectedRequestId: string | null,
+): PrivacyListLayout {
+  const items: PrivacyListItem[] = [];
+  const openTurns = new Set<string>();
+  const turnByRecordId = new Map<string, string>();
+  if (summary.turns.length <= 1) {
+    const [turn] = summary.turns;
+    for (const call of turn?.calls ?? []) {
+      items.push({ kind: "call", call, nested: false });
+    }
+    if (turn && turn.quietCalls > 0 && items.length > 0) {
+      items.push({
+        kind: "quiet-calls",
+        key: turn.key,
+        count: turn.quietCalls,
+        nested: false,
+      });
+    }
+    return { items, openTurns, turnByRecordId };
+  }
+  const shown = summary.turns.filter((turn) => turn.calls.length > 0);
+  for (const turn of summary.turns) {
+    for (const call of turn.calls) turnByRecordId.set(call.recordId, turn.key);
+  }
+  const selectedTurn = turnByRecordId.get(selectedRequestId ?? "");
+  const latestTurn = shown[shown.length - 1]?.key;
+  for (const turn of shown) {
+    const open =
+      overrides.get(turn.key) ??
+      (turn.key === selectedTurn || turn.key === latestTurn);
+    items.push({ kind: "turn", turn, open });
+    if (!open) continue;
+    openTurns.add(turn.key);
+    for (const call of turn.calls) {
+      items.push({ kind: "call", call, nested: true });
+    }
+    if (turn.quietCalls > 0) {
+      items.push({
+        kind: "quiet-calls",
+        key: turn.key,
+        count: turn.quietCalls,
+        nested: true,
+      });
+    }
+  }
+  const quietTurns = summary.turns.length - shown.length;
+  if (quietTurns > 0 && shown.length > 0) {
+    items.push({ kind: "quiet-turns", count: quietTurns });
+  }
+  return { items, openTurns, turnByRecordId };
+}
+
+export function privacyListItemKey(item: PrivacyListItem): string {
+  switch (item.kind) {
+    case "turn":
+      return `turn:${item.turn.key}`;
+    case "call":
+      return `call:${item.call.recordId}`;
+    case "quiet-calls":
+      return `quiet:${item.key}`;
+    case "quiet-turns":
+      return "quiet-turns";
+  }
 }
 
 /**
@@ -187,11 +334,20 @@ function callAudit(
     detail: callDetail(record, outcome),
     kinds: callKinds(record),
     replaced: restore?.mapping_count ?? 0,
+    restoreEnabled: restore?.enabled ?? false,
     restored: restore?.restored_count ?? 0,
     restoredVisible: restore?.visible_restored_count ?? 0,
     restoredTools: restore?.tool_argument_restored_count ?? 0,
     unrestored: restore?.fallback_count ?? 0,
+    explainedBy: callExplanation(record),
   };
+}
+
+function callExplanation(record: RequestRecord): PlaceholderExplanation | null {
+  const summary = privacyEventSummary(record);
+  return summary === null
+    ? null
+    : (parsePolicySummary(summary)?.explainedBy ?? null);
 }
 
 /**

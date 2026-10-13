@@ -2021,7 +2021,7 @@ describe("RequestRecords", () => {
     ).toBe("redact");
     expect(
       after?.querySelector('[data-testid="policy-outcome"]')?.textContent,
-    ).toBe("已脱敏替换 4 处邮箱 ×2电话 ×1");
+    ).toBe("已脱敏替换 4 项类型明细");
     expect(after?.textContent).not.toContain("客户端响应");
     expect(after?.textContent).not.toContain("上游响应");
     // Capture is off here: the redacted request says so once, in its pane.
@@ -2102,11 +2102,25 @@ describe("RequestRecords", () => {
     const inspector = container.querySelector(
       '[data-testid="trajectory-inspector"]',
     );
-    const hits = inspector?.querySelector('[data-testid="privacy-hits"]');
-    expect(hits?.textContent).toContain("邮箱 ×2");
-    expect(hits?.textContent).toContain("电话 ×1");
-    expect(hits?.textContent).not.toContain("alice@");
-    expect(hits?.querySelector('[data-testid="privacy-mark"]')).toBeNull();
+    await act(async () => {
+      inspector
+        ?.querySelector<HTMLButtonElement>(
+          '[data-testid="policy-kinds-toggle"]',
+        )
+        ?.click();
+    });
+    const table = inspector?.querySelector('[data-testid="policy-kinds"]');
+    if (!table) throw new Error("Missing policy kind table");
+    expect(
+      [...table.querySelectorAll("tbody tr")].map((row) =>
+        [...row.querySelectorAll("td")].map((cell) => cell.textContent),
+      ),
+    ).toEqual([
+      ["邮箱", "2"],
+      ["电话", "1"],
+    ]);
+    expect(table.textContent).not.toContain("alice@");
+    expect(table.querySelector('[data-testid="privacy-mark"]')).toBeNull();
     const pane = inspector?.querySelector('[aria-label="脱敏后请求"]');
     expect(pane?.textContent).toContain("脱敏后请求");
     expect(
@@ -2164,8 +2178,15 @@ describe("RequestRecords", () => {
     const scrollIntoView = vi.fn();
     mark.scrollIntoView = scrollIntoView;
 
+    await act(async () => {
+      inspector
+        ?.querySelector<HTMLButtonElement>(
+          '[data-testid="policy-kinds-toggle"]',
+        )
+        ?.click();
+    });
     const emailHit = inspector?.querySelector<HTMLButtonElement>(
-      '[data-testid="privacy-hits"] button[data-kind="email"]',
+      '[data-testid="policy-kinds"] button[data-kind="email"]',
     );
     if (!emailHit) throw new Error("Missing email privacy hit");
     await act(async () => {
@@ -2280,7 +2301,7 @@ describe("RequestRecords", () => {
     );
     expect(
       inspector?.querySelector('[data-testid="policy-outcome"]')?.textContent,
-    ).toBe("已脱敏替换 4 处");
+    ).toBe("已脱敏替换 4 项");
     expect(inspector?.querySelector('[data-testid="privacy-hits"]')).toBeNull();
   });
 
@@ -2384,6 +2405,7 @@ describe("RequestRecords", () => {
   it("summarizes what the privacy policy replaced and restored", async () => {
     const redacted: RequestRecord = {
       ...firstRecord,
+      turn_index: 1,
       privacy_decision: "redact",
       privacy_restore: {
         enabled: true,
@@ -2433,19 +2455,375 @@ describe("RequestRecords", () => {
     const panel = container.querySelector('[data-testid="privacy-audit"]');
     const text = panel?.textContent ?? "";
     expect(text).toContain("已脱敏");
-    expect(text).toContain("发送给模型前替换了 3 处隐私内容");
+    expect(text).toContain("发送给模型前替换了 3 项隐私内容");
     expect(text).toContain("替换内容");
     expect(text).toContain("邮箱 ×2");
     expect(text).toContain("电话 ×1");
     expect(text).toContain("已还原");
     expect(text).toContain("未还原");
-    // Only the call that did something gets a row; the clean one is a count.
+    // Only the call that did something gets a row; the clean turn is a count.
     const rows = panel?.querySelectorAll('[data-testid="privacy-audit-call"]');
     expect(rows).toHaveLength(1);
     expect(rows?.[0].textContent).toContain("第 1 次调用");
-    expect(rows?.[0].textContent).toContain("替换 3 处");
+    expect(rows?.[0].textContent).toContain("替换 3 项");
     expect(rows?.[0].textContent).toContain("还原 2 处");
-    expect(text).toContain("其余 1 次调用没有替换内容。");
+    expect(
+      [
+        ...(panel?.querySelectorAll('[data-testid="privacy-audit-turn"]') ??
+          []),
+      ].map((turn) => turn.textContent),
+    ).toEqual([expect.stringContaining("第 1 轮")]);
+    expect(text).toContain("其余 1 轮没有替换内容。");
+  });
+
+  it("folds the call list by turn", async () => {
+    const restore = (count: number): RequestRecord["privacy_restore"] => ({
+      enabled: true,
+      mapping_count: count,
+      restored_count: count,
+      visible_restored_count: count,
+      tool_argument_restored_count: 0,
+      fallback_count: 0,
+      hits: [{ kind: "email", count }],
+    });
+    const call = (
+      id: string,
+      turn: number,
+      minute: number,
+      replaced: number,
+    ): RequestRecord => ({
+      ...firstRecord,
+      id: `req_${id.repeat(32)}`,
+      started_at: `2026-07-25T12:0${minute}:00Z`,
+      completed_at: `2026-07-25T12:0${minute}:01Z`,
+      turn_index: turn,
+      privacy_decision: replaced > 0 ? "redact" : "allow",
+      privacy_restore: replaced > 0 ? restore(replaced) : null,
+    });
+    const turns = [
+      call("a", 1, 0, 1),
+      call("b", 1, 1, 2),
+      call("c", 2, 2, 0),
+      call("d", 3, 3, 1),
+    ];
+    bridgeMocks.listRequestSessions.mockResolvedValueOnce({
+      items: [sessionFromRecord(turns[0])],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValueOnce({
+      ...sessionFromRecord(turns[0]),
+      turns,
+    });
+    await renderRecords();
+    await act(async () => {
+      (
+        container.querySelector(
+          `[data-session-id="${turns[0].id}"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => {
+      exactButton("隐私保护").click();
+    });
+
+    const panel = () =>
+      container.querySelector('[data-testid="privacy-audit"]');
+    const headers = () =>
+      [
+        ...(panel()?.querySelectorAll('[data-testid="privacy-audit-turn"]') ??
+          []),
+      ] as HTMLButtonElement[];
+    const callLabels = () =>
+      [
+        ...(panel()?.querySelectorAll('[data-testid="privacy-audit-call"]') ??
+          []),
+      ].map((row) => row.textContent?.match(/第 \d+ 次调用/)?.[0]);
+    // The turn that replaced nothing gets no header, and only the latest
+    // turn, which holds the selected call, starts open.
+    expect(headers().map((header) => header.textContent)).toEqual([
+      expect.stringContaining("第 1 轮"),
+      expect.stringContaining("第 3 轮"),
+    ]);
+    expect(headers()[0].textContent).toContain("2 次调用 · 替换 3 项");
+    expect(
+      headers().map((header) => header.getAttribute("aria-expanded")),
+    ).toEqual(["false", "true"]);
+    expect(callLabels()).toEqual(["第 1 次调用"]);
+    expect(panel()?.textContent).toContain("其余 1 轮没有替换内容。");
+
+    await act(async () => {
+      headers()[0].click();
+    });
+    expect(callLabels()).toEqual(["第 1 次调用", "第 2 次调用", "第 1 次调用"]);
+
+    // Picking a call in another turn leaves the open turns open.
+    const earlier = panel()?.querySelector<HTMLButtonElement>(
+      `[data-call-id="${turns[1].id}"] [data-testid="privacy-audit-call"]`,
+    );
+    expect(earlier).toBeTruthy();
+    await act(async () => {
+      earlier?.click();
+      await Promise.resolve();
+    });
+    expect(
+      headers().map((header) => header.getAttribute("aria-expanded")),
+    ).toEqual(["true", "true"]);
+
+    await act(async () => {
+      headers()[0].click();
+    });
+    expect(callLabels()).toEqual(["第 1 次调用"]);
+  });
+
+  it("opens a call's replacements in place on the privacy tab", async () => {
+    const policyEvents = (summary: string): RequestRecord["events"] => [
+      {
+        kind: "privacy",
+        started_at: firstRecord.started_at,
+        ended_at: firstRecord.started_at,
+        status: "succeeded",
+        summary,
+        attempt_index: 1,
+      },
+      {
+        kind: "completed",
+        started_at: firstRecord.started_at,
+        ended_at: firstRecord.completed_at,
+        status: "succeeded",
+        summary: "HTTP 200",
+        attempt_index: 1,
+      },
+    ];
+    const restore = (
+      hits: Array<{ kind: string; count: number }>,
+    ): RequestRecord["privacy_restore"] => ({
+      enabled: true,
+      mapping_count: hits.length,
+      restored_count: 0,
+      visible_restored_count: 0,
+      tool_argument_restored_count: 0,
+      fallback_count: 0,
+      hits,
+    });
+    const first: RequestRecord = {
+      ...firstRecord,
+      turn_index: 1,
+      privacy_decision: "redact",
+      privacy_restore: restore([
+        { kind: "email", count: 1 },
+        { kind: "phone", count: 1 },
+      ]),
+      events: policyEvents("redact · 2 · skill"),
+    };
+    const second: RequestRecord = {
+      ...first,
+      id: "req_cccccccccccccccccccccccccccccccc",
+      started_at: "2026-07-25T12:00:00Z",
+      completed_at: "2026-07-25T12:00:01Z",
+      privacy_restore: restore([{ kind: "email", count: 1 }]),
+      privacy_findings: [
+        {
+          kind: "email",
+          json_path: "/input/0/content",
+          count: 1,
+          confidence: { min: 0.97, max: 0.97, threshold: 0.8 },
+        },
+      ],
+      privacy_ignored: [
+        {
+          kind: "ip_address",
+          reason: "kind_disabled",
+          count: 16,
+          confidence: { min: 0.8181, max: 0.9913, threshold: 0.8 },
+        },
+      ],
+      events: policyEvents("redact · 1 · skill"),
+    };
+    const email = "<PRIVATE_EMAIL_0123456789abcdef>";
+    const phone = "<PRIVATE_PHONE_fedcba9876543210>";
+    const earlier = "<PRIVATE_EMAIL_aaaaaaaaaaaaaaaa>";
+    const upstream: Record<string, string> = {
+      [first.id]: JSON.stringify({
+        instructions:
+          "Treat redaction markers of the form <PRIVATE_KIND_hex> as opaque.",
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: `Mail ${email} about the invoice, then call ${phone}.`,
+              },
+            ],
+          },
+        ],
+      }),
+      [second.id]: JSON.stringify({
+        input: [
+          { role: "user", content: `Again ${email}` },
+          {
+            type: "function_call_output",
+            output: "Stand-in addresses come from `192.0.2.0/24`.",
+          },
+          {
+            type: "reasoning",
+            content: [
+              { type: "reasoning_text", text: `It was sent to ${earlier}.` },
+            ],
+          },
+        ],
+      }),
+    };
+    bridgeMocks.getRequestAuditContent.mockImplementation(
+      async (requestId: string) => ({
+        request_id: requestId,
+        view: "shareable",
+        withheld: {},
+        http_meta: null,
+        request_body: null,
+        response_content: null,
+        upstream_http_meta: null,
+        upstream_request_body: {
+          media_type: "application/json",
+          content: upstream[requestId],
+          truncated: false,
+          captured_bytes: upstream[requestId].length,
+        },
+        upstream_response_content: null,
+        privacy_findings: [],
+      }),
+    );
+    bridgeMocks.listRequestSessions.mockResolvedValueOnce({
+      items: [sessionFromRecord(first)],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValueOnce({
+      ...sessionFromRecord(first),
+      turns: [first, second],
+    });
+    await renderRecords();
+    await act(async () => {
+      (
+        container.querySelector(
+          `[data-session-id="${first.id}"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => {
+      exactButton("隐私保护").click();
+    });
+
+    const panel = () =>
+      container.querySelector('[data-testid="privacy-audit"]');
+    const callRows = () =>
+      [
+        ...(panel()?.querySelectorAll('[data-testid="privacy-audit-call"]') ??
+          []),
+      ] as HTMLButtonElement[];
+    const placeholders = () =>
+      [
+        ...(panel()?.querySelectorAll(
+          '[data-testid="privacy-replacements"] [data-testid="privacy-replacement"]',
+        ) ?? []),
+      ].map((item) => item.getAttribute("data-placeholder"));
+    // Every call explained its stand-ins the same way, so it is said once.
+    expect(
+      panel()?.querySelector('[data-testid="privacy-audit-explanation"]')
+        ?.textContent,
+    ).toContain("客户端已有隐私脱敏 Skill");
+    expect(callRows().map((row) => row.textContent?.includes("Skill"))).toEqual(
+      [false, false],
+    );
+    // The session opens on its latest call, which opens in place.
+    expect(callRows().map((row) => row.getAttribute("aria-expanded"))).toEqual([
+      "false",
+      "true",
+    ]);
+    // The IP kind was turned off, so a quoted reserved range is not a
+    // replacement.
+    expect(placeholders()).toEqual([email]);
+    expect(panel()?.textContent).toContain("user · input[0].content");
+    const detail = panel()?.querySelector(
+      '[data-testid="privacy-call-detail"]',
+    );
+    const [acted, left] = [
+      ...(detail?.querySelectorAll('[data-testid="policy-kinds"]') ?? []),
+    ];
+    expect(
+      [...(acted?.querySelectorAll("tbody tr") ?? [])].map((row) =>
+        row.getAttribute("data-kind"),
+      ),
+    ).toEqual(["email"]);
+    expect(acted?.textContent).not.toContain("类型已关闭");
+    // What the policy left in place stays folded until asked for.
+    const ignored = detail?.querySelector(
+      '[data-testid="privacy-call-ignored"] details',
+    ) as HTMLDetailsElement | null;
+    expect(ignored?.open).toBe(false);
+    expect(ignored?.querySelector("summary")?.textContent).toBe(
+      "未替换的匹配 16 处（类型已关闭 16）",
+    );
+    expect(
+      [...(left?.querySelectorAll("tbody tr") ?? [])].map((row) =>
+        row.getAttribute("data-kind"),
+      ),
+    ).toEqual(["ip_address"]);
+    expect(left?.textContent).not.toContain("命中");
+    // An earlier call's marker came back in the model's reasoning: this call
+    // neither replaced nor restores it.
+    const carried = detail?.querySelector(
+      '[data-testid="privacy-carried"] details',
+    ) as HTMLDetailsElement | null;
+    expect(carried?.open).toBe(false);
+    expect(carried?.querySelector("summary")?.textContent).toBe(
+      "对话里带回的旧替身值 1 个",
+    );
+    expect(
+      [
+        ...(carried?.querySelectorAll('[data-testid="privacy-replacement"]') ??
+          []),
+      ].map((item) => item.getAttribute("data-placeholder")),
+    ).toEqual([earlier]);
+
+    await act(async () => {
+      callRows()[0].click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+    expect(bridgeMocks.getRequestAuditContent).toHaveBeenLastCalledWith(
+      first.id,
+    );
+    expect(exactButton("隐私保护").getAttribute("aria-selected")).toBe("true");
+    expect(callRows().map((row) => row.getAttribute("aria-expanded"))).toEqual([
+      "true",
+      "false",
+    ]);
+    // The notice's quoted marker shape replaced nothing.
+    expect(placeholders()).toEqual([email, phone]);
+    const item = panel()?.querySelector(
+      `[data-testid="privacy-replacement"][data-placeholder="${email}"]`,
+    );
+    expect(item?.textContent).toContain("邮箱");
+    expect(item?.textContent).toContain("请求中 1 处");
+    expect(item?.textContent).toContain("user · input[0].content[0].text");
+    // The context stops short of the next marker instead of splitting it.
+    expect(item?.textContent).toContain(
+      `Mail ${email} about the invoice, then call…`,
+    );
+
+    await act(async () => {
+      callRows()[0].click();
+    });
+    expect(callRows()[0].getAttribute("aria-expanded")).toBe("false");
+    expect(
+      panel()?.querySelector('[data-testid="privacy-call-detail"]'),
+    ).toBeNull();
   });
 
   it("names what a warning found in the policy step", async () => {
@@ -2531,9 +2909,10 @@ describe("RequestRecords", () => {
     expect(
       inspector?.querySelector('[data-testid="inspector-policy-body"]'),
     ).toBeNull();
-    // Regex findings carry no confidence, so there is no confidence line.
+    // Regex findings carry no confidence, so the counts stay inline.
+    expect(inspector?.querySelector('[data-testid="policy-kinds"]')).toBeNull();
     expect(
-      inspector?.querySelector('[data-testid="policy-confidence"]'),
+      inspector?.querySelector('[data-testid="policy-threshold"]'),
     ).toBeNull();
 
     await act(async () => {
@@ -2643,14 +3022,117 @@ describe("RequestRecords", () => {
       '[data-testid="trajectory-inspector"]',
     );
     expect(
-      inspector?.querySelector('[data-testid="policy-confidence"]')
-        ?.textContent,
-    ).toBe("模型置信度（门槛 70%）邮箱 81%–99.87% · 人名 88%");
+      inspector?.querySelector('[data-testid="policy-threshold"]')?.textContent,
+    ).toBe("置信度门槛 70%");
+    // The table carries the counts, so the outcome line does not repeat them.
     expect(
-      inspector?.querySelector('[data-testid="policy-ignored"]')?.textContent,
-    ).toBe(
-      "已忽略人名 ×2（置信度 41%–62.34%，低于门槛） · 邮箱 ×1（免脱敏名单） · URL ×5（类型已关闭）",
+      inspector?.querySelector(
+        '[data-testid="policy-outcome"] [data-testid="privacy-hits"]',
+      ),
+    ).toBeNull();
+    const table = inspector?.querySelector('[data-testid="policy-kinds"]');
+    if (!table) throw new Error("Missing policy kind table");
+    expect(
+      [...table.querySelectorAll("th")].map((th) => th.textContent),
+    ).toEqual(["类型", "命中", "低于门槛", "免脱敏名单", "类型已关闭"]);
+    expect(
+      [...table.querySelectorAll("tbody tr")].map((row) =>
+        [...row.querySelectorAll("td")].map((cell) => cell.textContent),
+      ),
+    ).toEqual([
+      ["邮箱", "3", "81%–99.87%", "", "", "1", ""],
+      ["人名", "1", "88%", "2", "41%–62.34%", "", ""],
+      ["URL", "", "", "", "", "", "5"],
+    ]);
+    // Without a body the table is the content, so it does not fold.
+    expect(
+      inspector?.querySelector('[data-testid="policy-kinds-toggle"]'),
+    ).toBeNull();
+  });
+
+  it("folds the kind table above a redacted body until asked", async () => {
+    const body = `{"input":"<PRIVATE_EMAIL_aaaaaaaaaaaaaaaa>"}`;
+    const redacted: RequestRecord = {
+      ...firstRecord,
+      privacy_findings: [
+        {
+          kind: "email",
+          json_path: "/input",
+          count: 2,
+          confidence: { min: 0.9, max: 0.99, threshold: 0.8 },
+        },
+      ],
+      privacy_ignored: [{ kind: "url", reason: "kind_disabled", count: 3 }],
+    };
+    bridgeMocks.listRequestSessions.mockResolvedValueOnce({
+      items: [sessionFromRecord(redacted)],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValueOnce({
+      ...sessionFromRecord(redacted),
+      turns: [redacted],
+    });
+    bridgeMocks.getRequestAuditContent.mockResolvedValue({
+      request_id: redacted.id,
+      withheld: {},
+      http_meta: null,
+      request_body: null,
+      response_content: null,
+      upstream_http_meta: null,
+      upstream_request_body: {
+        media_type: "application/json",
+        content: body,
+        truncated: false,
+        captured_bytes: body.length,
+      },
+      upstream_response_content: null,
+    });
+    await renderRecords();
+    await act(async () => {
+      (
+        container.querySelector(
+          `[data-session-id="${redacted.id}"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => {
+      (
+        container.querySelector(
+          '[data-testid="trajectory-row"][data-chip="POLICY"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    const inspector = container.querySelector(
+      '[data-testid="trajectory-inspector"]',
     );
+    const table = () =>
+      inspector?.querySelector('[data-testid="policy-kinds"]') ?? null;
+    const inlineHits = () =>
+      inspector?.querySelector(
+        '[data-testid="policy-outcome"] [data-testid="privacy-hits"]',
+      ) ?? null;
+    const toggle = inspector?.querySelector<HTMLButtonElement>(
+      '[data-testid="policy-kinds-toggle"]',
+    );
+    if (!toggle) throw new Error("Missing policy kind table toggle");
+    expect(
+      inspector?.querySelector('[data-testid="inspector-policy-body"]'),
+    ).not.toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(table()).toBeNull();
+    // However many kinds one redaction spans, the outcome line stays one row.
+    expect(inlineHits()).toBeNull();
+
+    await act(async () => toggle.click());
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(table()?.textContent).toContain("邮箱");
+    expect(inlineHits()).toBeNull();
   });
 
   it("explains missing capture in the inspector", async () => {

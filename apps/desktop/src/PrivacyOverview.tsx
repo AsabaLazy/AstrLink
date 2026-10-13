@@ -24,7 +24,7 @@ import { CompactCount } from "@/components/CompactCount";
 import { EmptyState } from "@/components/EmptyState";
 import { FormMessage } from "@/components/FormMessage";
 import { HelpPopover } from "@/components/HelpPopover";
-import { EyeOff, Fingerprint, RotateCcw, ScanText } from "@/components/icons";
+import { Eye, EyeOff, Fingerprint, ScanText } from "@/components/icons";
 import { Metric, MetricGroup } from "@/components/Metric";
 import { Panel, PanelHeader } from "@/components/Panel";
 import { StackedBar } from "@/components/StackedBar";
@@ -326,7 +326,7 @@ function PrivacyMetrics({ totals }: { totals: PrivacyTotals }) {
             </span>
           ) : null
         }
-        icon={<RotateCcw />}
+        icon={<Eye />}
         label={
           <span title={t("privacyStats.restoredHint")}>
             {t("privacyStats.restored")}
