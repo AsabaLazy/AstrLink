@@ -2,13 +2,17 @@ package privacy
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/astrlink/core/contract"
+	"github.com/QuantumNous/astrlink/core/internal/storage"
 )
 
 type Engine struct {
@@ -29,6 +33,30 @@ func New(provider PolicyProvider, modelDetector Detector) (*Engine, error) {
 		regexDetector: NewRegexDetector(),
 		modelDetector: modelDetector,
 	}, nil
+}
+
+// placeholderKeyInfo is the HKDF info string that separates the placeholder
+// key from every other use of the audit data key. Changing it renames every
+// value once.
+const placeholderKeyInfo = "astrlink/privacy-placeholder/v1"
+
+// PersistPlaceholders derives the placeholder key from the device's audit data
+// key and keeps each conversation's IPv4 stand-ins in store, so a restart
+// gives no value a new name: the history a client sends back then matches
+// the upstream prompt cache, and a placeholder quoted in unrestored reasoning
+// is still the one the response path restores. Call it before the engine
+// serves requests.
+func (engine *Engine) PersistPlaceholders(auditKey []byte, store storage.PrivacyStandInStore) error {
+	if len(auditKey) == 0 || store == nil {
+		return fmt.Errorf("privacy: an audit key and a stand-in store are required")
+	}
+	key, err := hkdf.Key(sha256.New, auditKey, nil, placeholderKeyInfo, sha256.Size)
+	if err != nil {
+		return fmt.Errorf("privacy: derive the placeholder key: %w", err)
+	}
+	engine.derivationKey = key
+	engine.standIns.store = store
+	return nil
 }
 
 func (engine *Engine) ResolvePolicy(ctx context.Context, scope Scope) (Policy, error) {
@@ -135,7 +163,9 @@ func (engine *Engine) Inspect(ctx context.Context, policy Policy, protocol contr
 			}, ErrUnsafeRewrite
 		}
 		allocator := newPlaceholderAllocator(engine.derivationKey, policy.KindRule, body)
-		allocator.ledger = engine.standIns.conversation(conversationFrom(ctx))
+		if slices.ContainsFunc(accepted, func(finding Finding) bool { return finding.Kind == KindIPAddress }) {
+			allocator.ledger = engine.standIns.conversation(ctx, conversationFrom(ctx))
+		}
 		skillListed := placeholderSkillListed(protocol, body)
 		notice := ""
 		if policy.PlaceholderNotice && !skillListed {
@@ -155,6 +185,7 @@ func (engine *Engine) Inspect(ctx context.Context, policy Policy, protocol contr
 				SuppressedFindings: suppressed,
 			}, ErrUnsafeRewrite
 		}
+		allocator.ledger.save(ctx)
 		return Result{
 			Decision:           DecisionRedact,
 			Body:               outcome.Body,

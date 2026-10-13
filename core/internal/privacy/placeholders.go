@@ -21,16 +21,17 @@ const (
 	placeholderDerivationTrials = 64
 )
 
-// derivationKey is the process-lifetime HMAC key behind every placeholder
-// suffix. Deriving suffixes from the plaintext instead of drawing fresh entropy
-// makes a given value map to the same placeholder on every turn, which keeps a
-// multi-turn conversation internally coherent and keeps the upstream prefix
-// cache alive past the first redacted span.
+// derivationKey is the HMAC key behind every placeholder suffix for an engine
+// without PersistPlaceholders. Deriving suffixes from the plaintext instead of
+// drawing fresh entropy makes a given value map to the same placeholder on
+// every turn, which keeps a multi-turn conversation internally coherent and
+// keeps the upstream prefix cache alive past the first redacted span.
 //
 // The value is HMAC'd rather than hashed bare because a bare digest of an email
-// address or an IP is trivially reversed by enumeration. The key stays in
+// address or an IP is trivially reversed by enumeration. This key stays in
 // memory for the life of the process: it is never persisted, never logged, and
-// never leaves the machine. A restart rotates it, costing one cache miss.
+// never leaves the machine, so a restart renames every value once. Core with
+// storage derives its key from the audit data key instead.
 var derivationKey = sync.OnceValue(func() []byte {
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
@@ -66,7 +67,7 @@ type placeholderAllocator struct {
 	body     []byte
 	bodyText string
 	// ledger is the conversation's record of IPv4 stand-ins; nil when the
-	// request names no conversation.
+	// request names no conversation or its record cannot be read.
 	ledger    *standInLedger
 	used      map[string]struct{}
 	exhausted map[Kind]bool

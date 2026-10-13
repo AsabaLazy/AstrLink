@@ -62,9 +62,9 @@ func warningKindCounts(findings []Finding) []WarningKindCount {
 // never logged, stored, or sent anywhere.
 type Fingerprint [sha256.Size]byte
 
-// fingerprintKey keys every Fingerprint. Like the placeholder key it lives in
-// memory for the life of the process, because a bare digest of an email
-// address or a short secret is reversed by enumeration. A restart rotates it.
+// fingerprintKey keys every Fingerprint, because a bare digest of an email
+// address or a short secret is reversed by enumeration. It lives in memory for
+// the life of the process; a restart rotates it.
 var fingerprintKey = sync.OnceValue(func() []byte {
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {

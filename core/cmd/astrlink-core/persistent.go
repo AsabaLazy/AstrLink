@@ -177,6 +177,14 @@ func openPersistentCore(ctx context.Context, options persistentOptions) (*persis
 	if err != nil {
 		return fail("configure local privacy filter: %w", err)
 	}
+	auditKey, err := store.GetAuditKey(ctx)
+	if err == nil {
+		err = privacyFilter.PersistPlaceholders(auditKey, store)
+		clear(auditKey)
+	}
+	if err != nil {
+		logf("privacy placeholders are renamed on restart: %v", err)
+	}
 	// The desktop polls this feed to notify about requests the warn action
 	// let through; it lives in memory only.
 	privacyWarnings := privacy.NewWarningFeed()

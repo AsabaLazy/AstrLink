@@ -538,6 +538,9 @@ func (store *Store) PurgeRequestRecords(
 			err = rowsErr
 			return contract.PurgeResult{}, fmt.Errorf("read purge result: %w", err)
 		}
+		if err = deleteOrphanedStandIns(ctx, transaction); err != nil {
+			return contract.PurgeResult{}, err
+		}
 		if err = transaction.Commit(); err != nil {
 			return contract.PurgeResult{}, fmt.Errorf("commit request purge: %w", err)
 		}
@@ -597,6 +600,9 @@ WHERE parent_request_id IN (
 		); err != nil {
 			return contract.PurgeResult{}, fmt.Errorf("purge request records: %w", err)
 		}
+		if err = deleteOrphanedStandIns(ctx, transaction); err != nil {
+			return contract.PurgeResult{}, err
+		}
 		if err = transaction.Commit(); err != nil {
 			return contract.PurgeResult{}, fmt.Errorf("commit request purge: %w", err)
 		}
@@ -604,6 +610,9 @@ WHERE parent_request_id IN (
 	case contract.PurgeScopeSessions:
 		var result contract.PurgeResult
 		if result, err = purgeRequestSessions(ctx, transaction, request.SessionIDs); err != nil {
+			return contract.PurgeResult{}, err
+		}
+		if err = deleteOrphanedStandIns(ctx, transaction); err != nil {
 			return contract.PurgeResult{}, err
 		}
 		if err = transaction.Commit(); err != nil {

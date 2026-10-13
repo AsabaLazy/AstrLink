@@ -1015,5 +1015,17 @@ END`,
 		{Version: 51, Name: "request_privacy_ignored", Statements: []string{
 			`ALTER TABLE request_records ADD COLUMN privacy_ignored_json TEXT`,
 		}},
+		{Version: 52, Name: "privacy_stand_ins", Statements: []string{
+			// The IPv4 stand-ins each conversation issued, so a restart does
+			// not rename one its history quotes. owner is a keyed fingerprint
+			// of the value, never the value.
+			`CREATE TABLE privacy_stand_ins (
+    session_id TEXT NOT NULL,
+    stand_in TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, stand_in)
+)`,
+		}},
 	}
 }
