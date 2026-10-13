@@ -580,7 +580,7 @@ describe("desktop bridge contract", () => {
 
       expect(invokeMock).toHaveBeenCalledWith(command);
       expect(parsed).toEqual(wireSnapshot);
-      expect(parsed.capabilities?.protocols).toHaveLength(8);
+      expect(parsed.capabilities?.protocols).toHaveLength(11);
     },
   );
 
@@ -678,7 +678,7 @@ describe("desktop bridge contract", () => {
     (invalid.capabilities as any).protocols.shift();
     invokeMock.mockResolvedValueOnce(invalid);
     await expect(getCoreStatus()).rejects.toThrow(
-      "expected at least 8 entries",
+      "expected at least 11 entries",
     );
 
     const extended = validSnapshot();

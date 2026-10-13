@@ -173,6 +173,19 @@ export const alphaProtocolDescriptors: readonly ProtocolDescriptor[] = [
   },
   { id: "openai.models", phase: "alpha", primary: false, streaming: false },
   { id: "google.models", phase: "alpha", primary: false, streaming: false },
+  {
+    id: "openai.embeddings",
+    phase: "alpha",
+    primary: false,
+    streaming: false,
+  },
+  {
+    id: "google.embeddings",
+    phase: "alpha",
+    primary: false,
+    streaming: false,
+  },
+  { id: "rerank", phase: "alpha", primary: false, streaming: false },
 ];
 
 export const protocolLabels: Readonly<Record<string, string>> = {
@@ -184,6 +197,9 @@ export const protocolLabels: Readonly<Record<string, string>> = {
   "openai.completions": "OpenAI Legacy Completions",
   "openai.models": "OpenAI Models",
   "google.models": "Gemini Models",
+  "openai.embeddings": "OpenAI Embeddings",
+  "google.embeddings": "Gemini Embeddings",
+  rerank: "Rerank",
 };
 
 export const protocolClients: Readonly<Record<string, string>> = {
@@ -213,6 +229,9 @@ export const protocolEntryPaths: Readonly<Record<string, string>> = {
   "openai.completions": "/v1/completions",
   "openai.models": "/v1/models",
   "google.models": "/v1beta/models",
+  "openai.embeddings": "/v1/embeddings",
+  "google.embeddings": "/v1beta/models/:model:embedContent",
+  rerank: "/v1/rerank",
 };
 
 export function protocolEntryPath(
@@ -370,7 +389,12 @@ const profileDefinitions: Readonly<
     baseURLPlaceholder: "https://api.example.com/v1",
     authScheme: "bearer",
     headerName: "",
-    capabilityIDs: ["openai.chat", "openai.completions", "openai.models"],
+    capabilityIDs: [
+      "openai.chat",
+      "openai.completions",
+      "openai.models",
+      "openai.embeddings",
+    ],
     advancedOnStart: false,
   },
   openai: {
@@ -386,6 +410,7 @@ const profileDefinitions: Readonly<
       "openai.chat",
       "openai.completions",
       "openai.models",
+      "openai.embeddings",
     ],
     advancedOnStart: false,
   },
@@ -406,7 +431,12 @@ const profileDefinitions: Readonly<
     baseURLPlaceholder: "https://generativelanguage.googleapis.com",
     authScheme: "google_api_key",
     headerName: "",
-    capabilityIDs: ["google.generate_content", "google.models", "openai.chat"],
+    capabilityIDs: [
+      "google.generate_content",
+      "google.models",
+      "google.embeddings",
+      "openai.chat",
+    ],
     convertTo: { "openai.chat": "google.generate_content" },
     advancedOnStart: false,
   },

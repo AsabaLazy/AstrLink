@@ -5505,6 +5505,9 @@ fn verify_capabilities(capabilities: &CapabilitiesResponse) -> Result<(), String
         ("openai.completions", false, true),
         ("openai.models", false, false),
         ("google.models", false, false),
+        ("openai.embeddings", false, false),
+        ("google.embeddings", false, false),
+        ("rerank", false, false),
     ];
     for (id, primary, streaming) in required_protocols {
         let matches: Vec<_> = capabilities
@@ -6460,6 +6463,9 @@ mod tests {
                 ("openai.completions", false, true),
                 ("openai.models", false, false),
                 ("google.models", false, false),
+                ("openai.embeddings", false, false),
+                ("google.embeddings", false, false),
+                ("rerank", false, false),
             ]
             .into_iter()
             .map(|(id, primary, streaming)| ProtocolCapability {

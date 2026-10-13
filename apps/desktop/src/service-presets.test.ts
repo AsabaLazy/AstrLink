@@ -19,7 +19,7 @@ describe("HTTP service product presets", () => {
     expect(preset.kind).toBe("newapi");
     expect(preset.authScheme).toBe("bearer");
     expect(preset.baseURL).toBe("");
-    expect(preset.capabilities).toHaveLength(8);
+    expect(preset.capabilities).toHaveLength(11);
     expect(new Set(preset.capabilities.map(({ mode }) => mode))).toEqual(
       new Set(["native"]),
     );
@@ -32,6 +32,9 @@ describe("HTTP service product presets", () => {
       "openai.completions",
       "openai.models",
       "google.models",
+      "openai.embeddings",
+      "google.embeddings",
+      "rerank",
     ]);
   });
 
@@ -100,6 +103,7 @@ describe("HTTP service product presets", () => {
           streaming: true,
         },
         { protocol: "openai.models", mode: "native", streaming: false },
+        { protocol: "openai.embeddings", mode: "native", streaming: false },
       ],
     });
   });
@@ -122,6 +126,7 @@ describe("HTTP service product presets", () => {
           streaming: true,
         },
         { protocol: "openai.models", mode: "native", streaming: false },
+        { protocol: "openai.embeddings", mode: "native", streaming: false },
       ],
     });
     expect(httpServicePreset("anthropic")).toMatchObject({
@@ -146,6 +151,7 @@ describe("HTTP service product presets", () => {
           streaming: true,
         },
         { protocol: "google.models", mode: "native", streaming: false },
+        { protocol: "google.embeddings", mode: "native", streaming: false },
         {
           protocol: "openai.chat",
           mode: "native",
@@ -421,6 +427,7 @@ describe("default protocol conversions", () => {
         "gemini": [
           "google.generate_content:native:true",
           "google.models:native:false",
+          "google.embeddings:native:false",
           "openai.chat:native:true → google.generate_content",
           "openai.responses:native:true → google.generate_content",
         ],
@@ -481,6 +488,9 @@ describe("default protocol conversions", () => {
           "openai.completions:native:true",
           "openai.models:native:false",
           "google.models:native:false",
+          "openai.embeddings:native:false",
+          "google.embeddings:native:false",
+          "rerank:native:false",
         ],
         "openai": [
           "openai.responses:native:true",
@@ -488,6 +498,7 @@ describe("default protocol conversions", () => {
           "openai.chat:native:true",
           "openai.completions:native:true",
           "openai.models:native:false",
+          "openai.embeddings:native:false",
           "anthropic.messages:native:true → openai.responses",
           "google.generate_content:native:true → openai.responses",
         ],
@@ -495,6 +506,7 @@ describe("default protocol conversions", () => {
           "openai.chat:native:true",
           "openai.completions:native:true",
           "openai.models:native:false",
+          "openai.embeddings:native:false",
           "openai.responses:native:true → openai.chat",
           "anthropic.messages:native:true → openai.chat",
           "google.generate_content:native:true → openai.chat",

@@ -98,6 +98,9 @@ expected_protocols = %w[
   openai.completions
   openai.models
   google.models
+  openai.embeddings
+  google.embeddings
+  rerank
 ]
 actual_protocols = fixture.fetch("protocols").map { |protocol| protocol.fetch("id") }
 raise "Alpha protocol registry drifted" unless actual_protocols == expected_protocols

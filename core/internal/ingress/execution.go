@@ -1148,7 +1148,10 @@ func requiresInspectedJSON(protocol contract.ProtocolID) bool {
 		contract.ProtocolOpenAIResponsesCompact,
 		contract.ProtocolAnthropicMessages,
 		contract.ProtocolOpenAIChat,
-		contract.ProtocolOpenAICompletions:
+		contract.ProtocolOpenAICompletions,
+		contract.ProtocolOpenAIEmbeddings,
+		contract.ProtocolRerank,
+		contract.ProtocolGoogleEmbeddings:
 		return true
 	default:
 		return false

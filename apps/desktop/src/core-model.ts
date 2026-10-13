@@ -139,6 +139,9 @@ const requiredAlphaProtocols = [
   { id: "openai.completions", primary: false, streaming: true },
   { id: "openai.models", primary: false, streaming: false },
   { id: "google.models", primary: false, streaming: false },
+  { id: "openai.embeddings", primary: false, streaming: false },
+  { id: "google.embeddings", primary: false, streaming: false },
+  { id: "rerank", primary: false, streaming: false },
 ] as const;
 
 function invalid(path: string, detail: string): never {

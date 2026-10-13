@@ -177,6 +177,14 @@ func protocolRoots(protocol contract.ProtocolID) ([]string, bool) {
 		return []string{"system", "messages"}, true
 	case contract.ProtocolGoogleGenerateContent:
 		return []string{"systemInstruction", "contents"}, true
+	case contract.ProtocolOpenAIEmbeddings:
+		return []string{"input"}, true
+	case contract.ProtocolGoogleEmbeddings:
+		// embedContent carries one request at the root, batchEmbedContents a
+		// list of them.
+		return []string{"title", "content", "requests"}, true
+	case contract.ProtocolRerank:
+		return []string{"query", "documents"}, true
 	case contract.ProtocolOpenAIImages:
 		// Reference images travel as data URLs, which are never inspected.
 		return []string{"prompt"}, true
