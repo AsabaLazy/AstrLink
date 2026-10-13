@@ -5209,12 +5209,12 @@ components:
           $ref: "#/components/schemas/PlaceholderStyle"
       additionalProperties: false
       description: >
-        Per-kind detection switch and placeholder shape. url and ip_address ship
-        disabled because they are the dominant false-positive source for coding
-        agents. common_secret, payment_card, account, phone, private_person,
-        private_address, and private_date are rejected with any style other
-        than token; models regroup, truncate, or remark on stand-in numbers in
-        ways restoration cannot follow.
+        Per-kind detection switch and placeholder shape. url, ip_address, and
+        private_date ship disabled because they are the dominant false-positive
+        sources for coding agents. common_secret, payment_card, account, phone,
+        private_person, private_address, and private_date are rejected with any
+        style other than token; models regroup, truncate, or remark on stand-in
+        numbers in ways restoration cannot follow.
     PlaceholderStyle:
       type: string
       enum: [natural, token]

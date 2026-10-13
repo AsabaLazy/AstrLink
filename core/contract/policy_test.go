@@ -172,7 +172,8 @@ func TestDefaultKindRulesCoverEveryKindAndDisableTheNoisyOnes(t *testing.T) {
 		if rule.Style != wantStyle {
 			t.Fatalf("kind %q default style = %q", rule.Kind, rule.Style)
 		}
-		wantEnabled := rule.Kind != "url" && rule.Kind != "ip_address"
+		wantEnabled := rule.Kind != "url" && rule.Kind != "ip_address" &&
+			rule.Kind != "private_date"
 		if rule.Enabled != wantEnabled {
 			t.Fatalf("kind %q default enabled = %v", rule.Kind, rule.Enabled)
 		}

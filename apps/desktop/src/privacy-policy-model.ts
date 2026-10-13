@@ -835,13 +835,13 @@ export function parsePrivacyPolicy(value: unknown, path = "$"): PrivacyPolicy {
 
 /**
  * Mirrors core/contract.DefaultPrivacyKindRules for responses that predate the
- * field. url and ip_address are off because they were the dominant
- * false-positive source for coding agents.
+ * field. url, ip_address, and private_date are off because they were the
+ * dominant false-positive sources for coding agents.
  */
 export function defaultPrivacyKindRules(): PrivacyKindRule[] {
   return PRIVACY_KINDS.map((kind) => ({
     kind,
-    enabled: kind !== "url" && kind !== "ip_address",
+    enabled: kind !== "url" && kind !== "ip_address" && kind !== "private_date",
     style: PLACEHOLDER_STYLE_LOCKED_KINDS.has(kind) ? "token" : "natural",
   }));
 }
