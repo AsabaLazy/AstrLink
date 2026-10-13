@@ -1056,6 +1056,24 @@ paths:
         `/api/status` quota per USD. The response is sanitized: email, user_id,
         account_id, key names, and credential material never appear. This
         lookup does not consume quota and does not redeem reset credits.
+
+        Snapshots are cached per service for 30 seconds (5 minutes for
+        `newapi`). An API-key plan snapshot is dropped when the service is
+        edited or its lookup fails. When an API-key provider answers 429, Core
+        stops asking that host, for every service on it, until the provider's
+        `Retry-After` (5 minutes when it sends none), answering 429
+        `subscription_usage_rate_limited` meanwhile.
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          description: >-
+            `1` asks the provider for current numbers instead of the cached
+            snapshot. An API-key plan snapshot younger than 10 seconds still
+            answers.
+          schema:
+            type: string
+            enum: ["1"]
       responses:
         "200":
           description: Sanitized live usage snapshot.
@@ -1072,6 +1090,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "502":
           $ref: "#/components/responses/BadGateway"
         "503":

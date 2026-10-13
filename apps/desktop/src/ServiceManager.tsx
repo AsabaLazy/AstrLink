@@ -2135,7 +2135,10 @@ export function ServiceManager({
                   aria-hidden="true"
                   className={cn(
                     "motion-reduce:animate-none",
-                    busy && "animate-spin motion-reduce:animate-none",
+                    // Rows keep their settled quota while it reloads, so the
+                    // toolbar is where a refresh in flight shows.
+                    (busy || refreshingUsageIDs.size > 0) &&
+                      "animate-spin motion-reduce:animate-none",
                   )}
                 />
               </IconButton>

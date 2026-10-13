@@ -98,7 +98,7 @@ type RateLimitReleaser interface {
 // CodingPlanUsage is satisfied by *codingplan.Fetcher.
 type CodingPlanUsage interface {
 	Usage(context.Context, contract.Service) (contract.SubscriptionUsage, error)
-	ForgetUsage(contract.ServiceID)
+	Refresh(context.Context, contract.Service) (contract.SubscriptionUsage, error)
 }
 
 type AccessTokenManager interface {

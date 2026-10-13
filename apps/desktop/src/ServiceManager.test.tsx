@@ -2466,6 +2466,83 @@ describe("ServiceManager", () => {
     ).toBeNull();
   });
 
+  it("flags a failed toolbar refresh instead of passing the last key quota off as current", async () => {
+    bridgeMocks.getServiceUsage.mockResolvedValueOnce({
+      service_id: gatewayService.id,
+      fetched_at: timestamp,
+      limit_reached: false,
+      quota: {
+        unlimited: false,
+        used_usd: "0",
+        remaining_usd: "300",
+        total_usd: "300",
+      },
+    });
+    await act(async () => {
+      root.render(
+        <ServiceManager
+          catalogError={null}
+          catalogStatus="ready"
+          isReady
+          onDirtyChange={() => {}}
+          onRefresh={() => {}}
+          onServiceRemoved={() => {}}
+          onServiceSaved={() => {}}
+          onViewChange={() => {}}
+          protocols={[]}
+          services={[gatewayService]}
+          view={{ kind: "list" }}
+        />,
+      );
+    });
+    const usage = container.querySelector('[data-testid="subscription-usage"]');
+    expect(usage?.textContent).toContain("剩余 $300.00 / $300.00");
+    const toolbarRefresh = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="刷新列表"]',
+    )!;
+    expect(toolbarRefresh.querySelector(".animate-spin")).toBeNull();
+
+    let reject!: (cause: Error) => void;
+    bridgeMocks.getServiceUsage.mockImplementationOnce(
+      () =>
+        new Promise((_, fail) => {
+          reject = fail;
+        }),
+    );
+    await act(async () => toolbarRefresh.click());
+    expect(bridgeMocks.getServiceUsage).toHaveBeenLastCalledWith(
+      gatewayService.id,
+      { fresh: true },
+    );
+    // The row keeps its numbers while the lookup runs; the toolbar shows it.
+    expect(toolbarRefresh.querySelector(".animate-spin")).not.toBeNull();
+    expect(usage?.textContent).not.toContain("额度刷新失败");
+
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () =>
+        reject(
+          new Error(
+            `GET /control/v1/services/service_gateway/usage?refresh=1 returned 502 Bad Gateway: {"error":{"code":"subscription_usage_failed","message":"new-api usage unavailable: status 401"}}`,
+          ),
+        ),
+      );
+    } finally {
+      log.mockRestore();
+    }
+    expect(toolbarRefresh.querySelector(".animate-spin")).toBeNull();
+    const quota = container.querySelector(
+      '[data-testid="subscription-usage-quota"]',
+    );
+    expect(quota?.closest(".opacity-60")).not.toBeNull();
+    expect(usage?.textContent).toContain("额度刷新失败");
+    expect(usage?.textContent).toContain(
+      "subscription_usage_failed: new-api usage unavailable: status 401",
+    );
+    expect(usage?.textContent).toContain("仍显示");
+    expect(usage?.querySelector('button[aria-label="刷新"]')).not.toBeNull();
+  });
+
   it.each([
     ["codex_subscription", "openai_codex", "pro", "Pro 20×", false],
     ["claude_subscription", "claude_code", "pro", "Pro", false],

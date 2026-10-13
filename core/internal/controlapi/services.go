@@ -863,9 +863,10 @@ func (handler *Handler) getServiceUsage(writer http.ResponseWriter, request *htt
 		usage, err = handler.subscriptions.Usage(request.Context(), id)
 	case handler.codingPlans != nil && codingplan.Supports(record.Service.Kind):
 		if refresh {
-			handler.codingPlans.ForgetUsage(id)
+			usage, err = handler.codingPlans.Refresh(request.Context(), record.Service)
+		} else {
+			usage, err = handler.codingPlans.Usage(request.Context(), record.Service)
 		}
-		usage, err = handler.codingPlans.Usage(request.Context(), record.Service)
 	default:
 		writeError(writer, http.StatusConflict, "service_not_subscription", "service does not support subscription usage")
 		return
@@ -1011,7 +1012,13 @@ func writeServiceResetError(writer http.ResponseWriter, err error) {
 }
 
 func writeServiceUsageError(writer http.ResponseWriter, err error) {
+	var limited *codingplan.RateLimitError
 	switch {
+	case errors.As(err, &limited):
+		seconds := max(1, int((limited.RetryAfter+time.Second-1)/time.Second))
+		writer.Header().Set("Retry-After", strconv.Itoa(seconds))
+		writeErrorDetails(writer, http.StatusTooManyRequests, "subscription_usage_rate_limited", sanitizeUsageError(err),
+			[]errorDetail{{Reason: "retry_after", RetryAfterSeconds: seconds}})
 	case errors.Is(err, subscription.ErrNotConnected):
 		writeError(writer, http.StatusConflict, "service_not_connected", "subscription service is not connected")
 	case errors.Is(err, codingplan.ErrUnsupported):

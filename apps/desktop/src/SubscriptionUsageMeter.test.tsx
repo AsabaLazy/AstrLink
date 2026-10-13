@@ -97,6 +97,56 @@ describe("subscription usage summary", () => {
     );
   });
 
+  it("dims the last reading under a refresh notice after a failed refresh", async () => {
+    let refreshes = 0;
+    await act(async () =>
+      root.render(
+        <SubscriptionUsageMeter
+          error="new-api usage unavailable: status 401"
+          now={now}
+          onRefresh={() => refreshes++}
+          status="error"
+          usage={{
+            ...snapshot,
+            quota: {
+              unlimited: false,
+              used_usd: "0",
+              remaining_usd: "300",
+              total_usd: "300",
+            },
+          }}
+        />,
+      ),
+    );
+    const meter = container.querySelector('[role="progressbar"]')!;
+    expect(meter.closest(".opacity-60")).not.toBeNull();
+    const notice = container.querySelector("details")!;
+    expect(notice.closest(".opacity-60")).toBeNull();
+    expect(notice.querySelector("summary")?.textContent).toBe("额度刷新失败");
+    expect(notice.textContent).toContain(
+      "new-api usage unavailable: status 401",
+    );
+    expect(notice.textContent).toMatch(/仍显示 \d{2}:\d{2} 读取的额度。/);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="刷新"]')!
+        .click(),
+    );
+    expect(refreshes).toBe(1);
+
+    await render({
+      ...snapshot,
+      quota: {
+        unlimited: false,
+        used_usd: "0",
+        remaining_usd: "300",
+        total_usd: "300",
+      },
+    });
+    expect(container.querySelector(".opacity-60")).toBeNull();
+    expect(container.querySelector("details")).toBeNull();
+  });
+
   it.each([0, 1, 2])(
     "keeps %i unused quotas in source order without a popover",
     async (count) => {
