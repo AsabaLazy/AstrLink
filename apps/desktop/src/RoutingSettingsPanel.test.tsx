@@ -1897,6 +1897,163 @@ describe("shared global recovery settings", () => {
     expect(container.textContent).not.toContain("returned 422");
   });
 
+  it("never autosaves a half-typed built-in tool model", async () => {
+    const webSearch = {
+      enabled: true,
+      backend: "upstream" as const,
+      service_id: "service_r",
+      model: "gpt-5.6-sol",
+    };
+    bridge.getRoutingSettings.mockResolvedValue({
+      ...settings(),
+      builtin_tools: {
+        web_search: webSearch,
+        image_generation: { enabled: false, backend: "upstream" },
+      },
+    });
+    await act(async () =>
+      root.render(
+        <RoutingSettingsPanel
+          services={[
+            {
+              id: "service_r",
+              name: "R",
+              kind: "openai",
+              enabled: true,
+              models: ["gpt-5.6-sol", "gpt-5.6-luna"],
+              capabilities: [
+                {
+                  protocol: "openai.responses",
+                  mode: "native",
+                  streaming: true,
+                },
+              ],
+            },
+          ]}
+          ready
+          onDirtyChange={vi.fn()}
+        />,
+      ),
+    );
+    await selectTab("重定向");
+    const input = redirectField("网页搜索执行模型");
+    expect(input.value).toBe("gpt-5.6-sol");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "gpt-5.6-l");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).not.toHaveBeenCalled();
+    await typeRedirect("网页搜索执行模型", "gpt-5.6-luna");
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).toHaveBeenCalledExactlyOnceWith({
+      builtin_tools: {
+        web_search: { ...webSearch, model: "gpt-5.6-luna" },
+        image_generation: { enabled: false, backend: "upstream" },
+      },
+    });
+  });
+
+  it("saves other settings while a built-in tool is incomplete", async () => {
+    const search = {
+      enabled: false,
+      backend: "upstream" as const,
+      service_id: "service_r",
+    };
+    const images = {
+      enabled: true,
+      backend: "service_images" as const,
+      service_id: "service_r",
+      model: "gpt-image-1",
+    };
+    let stored: Record<string, unknown> = {
+      ...settings(),
+      builtin_tools: { web_search: search, image_generation: images },
+    };
+    bridge.getRoutingSettings.mockResolvedValue(stored);
+    bridge.updateRoutingSettings.mockImplementation(
+      async (patch) => (stored = { ...stored, ...patch }),
+    );
+    await act(async () =>
+      root.render(
+        <RoutingSettingsPanel
+          services={[
+            {
+              id: "service_r",
+              name: "R",
+              kind: "openai",
+              enabled: true,
+              models: ["gpt-5.6-sol", "gpt-image-1"],
+              capabilities: [
+                {
+                  protocol: "openai.responses",
+                  mode: "native",
+                  streaming: true,
+                },
+              ],
+            },
+          ]}
+          ready
+          onDirtyChange={vi.fn()}
+        />,
+      ),
+    );
+    const status = () =>
+      container.querySelector('[role="status"][aria-live="polite"]')
+        ?.textContent;
+    const toggle = (label: string) =>
+      container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+    const notice =
+      "「重定向」中有未填完的设置，填完后会自动保存。其他修改照常保存。";
+
+    await selectTab("重定向");
+    await act(async () => toggle("启用网页搜索接管").click());
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).not.toHaveBeenCalled();
+    expect(status()).toBe("未填完的设置未保存");
+
+    // The other tool in the same document still saves on its own.
+    await act(async () => toggle("启用图片生成接管").click());
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).toHaveBeenLastCalledWith({
+      builtin_tools: {
+        web_search: search,
+        image_generation: { ...images, enabled: false },
+      },
+    });
+    expect(toggle("启用网页搜索接管").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(container.textContent).not.toContain(notice);
+
+    await selectTab("转发身份");
+    expect(container.textContent).toContain(notice);
+    await act(async () => toggle("统一 Codex 客户端身份").click());
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).toHaveBeenLastCalledWith({
+      codex_identity_enforcement: false,
+    });
+    expect(status()).toBe("未填完的设置未保存");
+
+    await selectTab("重定向");
+    expect(toggle("启用网页搜索接管").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    await typeRedirect("网页搜索执行模型", "gpt-5.6-sol");
+    await flushAutosave();
+    expect(bridge.updateRoutingSettings).toHaveBeenLastCalledWith({
+      builtin_tools: {
+        web_search: { ...search, enabled: true, model: "gpt-5.6-sol" },
+        image_generation: { ...images, enabled: false },
+      },
+    });
+    expect(bridge.updateRoutingSettings).toHaveBeenCalledTimes(3);
+    expect(status()).toBe("已自动保存，新请求立即生效");
+  });
+
   it("blocks saving until every redirect is valid", async () => {
     bridge.getRoutingSettings.mockResolvedValue({
       ...settings(),

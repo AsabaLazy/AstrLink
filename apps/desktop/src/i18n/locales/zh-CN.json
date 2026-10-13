@@ -3022,10 +3022,12 @@
     "autosave": "修改自动保存，新请求立即生效",
     "autoSaved": "已自动保存，新请求立即生效",
     "notSaved": "未保存",
+    "incomplete": "未填完的设置未保存",
     "editing": "输入完成后自动保存",
     "waitingConnection": "等待连接后自动保存",
     "autosaveFailed": "自动保存失败，修改已保留。",
-    "autosaveInvalid": "请完善设置，完成后会自动保存。"
+    "autosaveInvalid": "{{tabs}}中有未填完的设置，填完后会自动保存。其他修改照常保存。",
+    "tabMention": "「{{tab}}」"
   },
   "modelRedirect": {
     "title": "重定向规则",
@@ -3350,6 +3352,7 @@
     "keySaved": "密钥状态已更新，下次调用工具时生效。",
     "failed": "工具操作失败。",
     "keyStatusFailed": "无法读取密钥状态。",
+    "incomplete": "请填写{{fields}}。填完之前这个工具的修改不会保存，网关仍按上次保存的设置执行。",
     "description": "匹配 OpenAI Responses 请求中 tools 数组的 type 字段。开启后，网关把对应工具声明转换为函数供主模型调用，再交给这里选定的模型或 API 执行，结果交回主模型继续回答。主模型须支持函数调用。Codex 自带的生图和联网搜索工具也按这里的设置执行。这里关闭时，Codex 订阅等自带这两个工具的 API 提供商会直接处理。",
     "noProviders": "暂无支持原生 Responses 的已启用提供商。请先在 API 提供商中配置。",
     "noImageProviders": "暂无已启用的 OpenAI、OpenAI 兼容、New API 或 MiniMax 提供商。请先在 API 提供商中配置。"
