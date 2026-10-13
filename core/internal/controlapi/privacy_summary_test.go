@@ -56,8 +56,9 @@ func TestPrivacySummaryAPI(t *testing.T) {
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &summary) != nil {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	wantTotals := map[string]int64{"requests": 1, "allowed": 0, "warned": 0, "redacted": 1, "blocked": 0, "fail_open": 0,
-		"replaced": 2, "restored": 1, "restored_visible": 1, "restored_tool_arguments": 0, "unrestored": 0}
+	wantTotals := map[string]int64{"requests": 1, "allowed": 0, "ignored": 0, "warned": 0, "redacted": 1, "blocked": 0, "fail_open": 0,
+		"replaced": 2, "restored": 1, "restored_visible": 1, "restored_tool_arguments": 0, "unrestored": 0,
+		"ignored_allowlisted": 0, "ignored_low_confidence": 0}
 	if len(summary.Totals) != len(wantTotals) {
 		t.Fatalf("totals = %v", summary.Totals)
 	}

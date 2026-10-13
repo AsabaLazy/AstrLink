@@ -3856,12 +3856,14 @@ components:
     PrivacyTotals:
       type: object
       description: >-
-        Each request lands in at most one decision count; a request no policy
-        applied to is counted in requests alone.
+        Each request lands in at most one outcome count (allowed, ignored,
+        warned, redacted, blocked, fail_open); a request no policy applied to
+        is counted in requests alone.
       required:
         [
           requests,
           allowed,
+          ignored,
           warned,
           redacted,
           blocked,
@@ -3871,10 +3873,19 @@ components:
           restored_visible,
           restored_tool_arguments,
           unrestored,
+          ignored_allowlisted,
+          ignored_low_confidence,
         ]
       properties:
         requests: { type: integer, minimum: 0 }
-        allowed: { type: integer, minimum: 0 }
+        allowed:
+          type: integer
+          minimum: 0
+          description: Allowed requests with nothing to protect. Matches of a disabled kind still count here.
+        ignored:
+          type: integer
+          minimum: 0
+          description: Allowed requests whose every protected match was allowlisted or below the confidence threshold.
         warned: { type: integer, minimum: 0 }
         redacted: { type: integer, minimum: 0 }
         blocked: { type: integer, minimum: 0 }
@@ -3893,6 +3904,14 @@ components:
           type: integer
           minimum: 0
           description: Response parts left with replacements in them.
+        ignored_allowlisted:
+          type: integer
+          minimum: 0
+          description: Matches left in requests because they matched the allowlist, whatever each request's outcome.
+        ignored_low_confidence:
+          type: integer
+          minimum: 0
+          description: Matches left in requests because the local model's confidence was below the threshold.
     PrivacyDayBucket:
       allOf:
         - $ref: "#/components/schemas/PrivacyTotals"
@@ -6420,6 +6439,12 @@ components:
           items:
             $ref: "#/components/schemas/PrivacyFinding"
           description: Present for warn, redact and block decisions. Omitted on legacy rows, including warn rows recorded before warn kept its findings.
+        privacy_ignored:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/PrivacyIgnored"
+          description: Matches the policy left in the request, by kind and reason, for any decision. Omitted when none were left and on rows recorded before ignored matches were kept.
         extensions:
           $ref: ./protocol-capabilities.schema.json#/$defs/Extensions
       additionalProperties: false
@@ -6471,6 +6496,49 @@ components:
         count:
           type: integer
           minimum: 1
+        confidence:
+          $ref: "#/components/schemas/PrivacyConfidence"
+      additionalProperties: false
+    PrivacyConfidence:
+      type: object
+      required: [min, max, threshold]
+      description: |
+        Range of local model confidence over the matches an entry counts, and
+        the policy threshold they were judged against. Omitted when the regex
+        detector decided, since regex matches carry no confidence, and on rows
+        recorded before confidence was kept.
+      properties:
+        min:
+          type: number
+          minimum: 0
+          maximum: 1
+        max:
+          type: number
+          minimum: 0
+          maximum: 1
+        threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+      additionalProperties: false
+    PrivacyIgnored:
+      type: object
+      required: [kind, reason, count]
+      description: |
+        Matches of one kind the policy left in the request for one reason. A
+        match that was already a placeholder is not counted. Never carries the
+        matched value.
+      properties:
+        kind:
+          $ref: "#/components/schemas/PrivacyCanonicalKind"
+        reason:
+          type: string
+          enum: [kind_disabled, low_confidence, allowlisted]
+        count:
+          type: integer
+          minimum: 1
+        confidence:
+          $ref: "#/components/schemas/PrivacyConfidence"
       additionalProperties: false
     PrivacyWarningPage:
       type: object
@@ -6647,11 +6715,18 @@ components:
               accepted,
               model_redirect,
               privacy,
+              image_compression,
               routed,
               upstream,
               restore,
               completed,
             ]
+          description: |
+            image_compression is a closed phase just ahead of an attempt's routed
+            event when request image compression found inline images. Its summary
+            is "<mode> · <compressed>/<found> images · <before> → <after> bytes",
+            where mode is "lossless" or "lossy q<quality>" and the sizes are the
+            decoded image bytes.
         started_at:
           type: string
           format: date-time

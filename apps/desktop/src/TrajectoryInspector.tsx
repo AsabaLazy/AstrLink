@@ -30,13 +30,21 @@ import {
 } from "./request-service-model";
 import {
   clientDisconnectNote,
+  confidencePercent,
+  confidenceRange,
   extractPrivacyHits,
+  formatImageBytes,
+  imageCompressionModeLabel,
+  imageCompressionSavedPercent,
   inspectorChainRows,
   inspectorPart,
   inspectorTitle,
   policyDecision,
+  privacyIgnoredText,
+  recordedPrivacyConfidence,
   recordedPrivacyFindings,
   recordedPrivacyHits,
+  recordedPrivacyIgnored,
   type InspectorPart,
   type PolicyDecision,
   type PrivacyHitGroup,
@@ -54,7 +62,7 @@ import {
 } from "./TrajectoryResponse";
 
 /** The parts backed by a captured body, as opposed to record metadata. */
-type BodyPart = Exclude<InspectorPart, "route" | "redirect">;
+type BodyPart = Exclude<InspectorPart, "route" | "redirect" | "compression">;
 
 /**
  * One selected call. Header chips are tabs; only the active section body is
@@ -319,7 +327,10 @@ function InspectorSection({
   const part = inspectorPart(row.chip);
   const title = inspectorTitle(row.chip);
   const captured =
-    part === "route" || part === "redirect" || omitCapturedBody
+    part === "route" ||
+    part === "redirect" ||
+    part === "compression" ||
+    omitCapturedBody
       ? null
       : auditPart(auditContent, part);
   const disconnectNote = clientDisconnectNote(record);
@@ -361,6 +372,8 @@ function InspectorSection({
         </>
       ) : part === "redirect" ? (
         <RedirectInspector redirect={row.redirect ?? record.model_redirect} />
+      ) : part === "compression" ? (
+        <CompressionInspector row={row} />
       ) : (
         <BodyInspector
           auditContent={auditContent}
@@ -487,6 +500,59 @@ function RedirectInspector({
       ) : null}
       <p className="text-xs leading-6 text-muted-foreground">
         {t("trajectory.modelRedirectHint")}
+      </p>
+    </div>
+  );
+}
+
+/** The sizes image compression changed; the body it sent is on the upstream tab. */
+function CompressionInspector({ row }: { row: TrajectoryRow }) {
+  const t = i18n.t.bind(i18n);
+  const value = row.compression;
+  const saved = value ? imageCompressionSavedPercent(value) : null;
+  return (
+    <div className="space-y-2" data-testid="compression-inspector">
+      {value ? (
+        <dl className="grid gap-2 text-xs">
+          <InspectorField
+            label={t("trajectory.imageCompressionMode")}
+            value={imageCompressionModeLabel(value)}
+          />
+          <InspectorField
+            label={t("trajectory.imageCompressionReplaced")}
+            value={t("trajectory.imageCompressionReplacedValue", {
+              count: value.images,
+              compressed: value.compressed,
+            })}
+          />
+          <InspectorField
+            label={t("trajectory.imageCompressionBefore")}
+            value={formatImageBytes(value.beforeBytes)}
+          />
+          <InspectorField
+            label={t("trajectory.imageCompressionAfter")}
+            value={
+              saved === null
+                ? formatImageBytes(value.afterBytes)
+                : `${formatImageBytes(value.afterBytes)} · ${t(
+                    "trajectory.imageCompressionSaved",
+                    { percent: saved },
+                  )}`
+            }
+          />
+        </dl>
+      ) : (
+        <p className="break-words font-mono text-xs text-foreground">
+          {row.summary}
+        </p>
+      )}
+      {value && value.compressed === 0 ? (
+        <p className="text-xs leading-6 text-muted-foreground">
+          {t("trajectory.imageCompressionKeptHint")}
+        </p>
+      ) : null}
+      <p className="text-xs leading-6 text-muted-foreground">
+        {t("trajectory.imageCompressionHint")}
       </p>
     </div>
   );
@@ -684,6 +750,8 @@ function PolicyInspector({
     replacedHits.length > 0
       ? replacedHits
       : recordedPrivacyFindings(record.privacy_findings);
+  const confidence = recordedPrivacyConfidence(record.privacy_findings);
+  const ignored = recordedPrivacyIgnored(record.privacy_ignored);
   const mappings = record.privacy_restore?.mapping_count ?? 0;
   const segments = row.summary.split(" · ");
   const body = redacted ? (auditContent?.upstream_request_body ?? null) : null;
@@ -732,6 +800,33 @@ function PolicyInspector({
           </code>
         ) : null}
       </div>
+      {confidence || ignored.length > 0 ? (
+        <dl className="grid shrink-0 gap-1 text-xs">
+          {confidence ? (
+            <PolicyDetail
+              label={t("trajectory.policyConfidence", {
+                threshold: confidencePercent(confidence.threshold),
+              })}
+              testId="policy-confidence"
+            >
+              {confidence.groups
+                .map(
+                  (group) =>
+                    `${group.label} ${confidenceRange(group.min, group.max)}`,
+                )
+                .join(" · ")}
+            </PolicyDetail>
+          ) : null}
+          {ignored.length > 0 ? (
+            <PolicyDetail
+              label={t("trajectory.policyIgnored")}
+              testId="policy-ignored"
+            >
+              {ignored.map(privacyIgnoredText).join(" · ")}
+            </PolicyDetail>
+          ) : null}
+        </dl>
+      ) : null}
       {hint ? (
         <p
           className="text-xs leading-6 text-muted-foreground"
@@ -761,6 +856,23 @@ function PolicyInspector({
           ]}
         />
       ) : null}
+    </div>
+  );
+}
+
+function PolicyDetail({
+  label,
+  testId,
+  children,
+}: {
+  label: string;
+  testId: string;
+  children: string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap gap-x-2" data-testid={testId}>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-foreground">{children}</dd>
     </div>
   );
 }

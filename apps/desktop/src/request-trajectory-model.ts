@@ -9,6 +9,8 @@ import {
 } from "./privacy-kind";
 import {
   statusLabel,
+  type PrivacyIgnoreReason,
+  type PrivacyIgnored,
   type RequestEvent,
   type RequestModelRedirect,
   type RequestRecord,
@@ -21,6 +23,7 @@ export type TrajectoryChip =
   | "CLIENT"
   | "REDIRECT"
   | "POLICY"
+  | "COMPRESS"
   | "ROUTE"
   | "UPSTREAM"
   | "RETRY"
@@ -40,7 +43,8 @@ export type InspectorPart =
   | "upstream_response_content"
   | "response_content"
   | "route"
-  | "redirect";
+  | "redirect"
+  | "compression";
 
 export function inspectorPart(chip: TrajectoryChip): InspectorPart {
   switch (chip) {
@@ -51,6 +55,8 @@ export function inspectorPart(chip: TrajectoryChip): InspectorPart {
       return "redirect";
     case "POLICY":
       return "upstream_request_body";
+    case "COMPRESS":
+      return "compression";
     case "ROUTE":
       return "route";
     case "UPSTREAM":
@@ -72,6 +78,8 @@ export function inspectorTitle(chip: TrajectoryChip): string {
       return i18n.t("trajectory.modelRedirect");
     case "POLICY":
       return i18n.t("trajectory.hit");
+    case "COMPRESS":
+      return i18n.t("trajectory.imageCompression");
     case "ROUTE":
       return i18n.t("trajectory.route");
     case "UPSTREAM":
@@ -162,6 +170,96 @@ export function recordedPrivacyFindings(
     count: counts.get(kind) ?? 0,
     placeholders: [],
   }));
+}
+
+/** A 0–1 confidence written the way the dry run writes it: "99.53%". */
+export function confidencePercent(value: number): string {
+  return `${Number((value * 100).toFixed(2))}%`;
+}
+
+/** "81%–99.53%", or one value when both ends read the same. */
+export function confidenceRange(min: number, max: number): string {
+  const low = confidencePercent(min);
+  const high = confidencePercent(max);
+  return low === high ? low : `${low}–${high}`;
+}
+
+export interface PrivacyConfidenceGroup {
+  kind: string;
+  label: string;
+  min: number;
+  max: number;
+}
+
+/**
+ * The local model's confidence in the accepted matches, by kind, and the
+ * threshold they met. Null when no finding carries confidence: the regex
+ * detector decided, or the record predates confidence.
+ */
+export function recordedPrivacyConfidence(
+  findings: RequestRecord["privacy_findings"],
+): { groups: PrivacyConfidenceGroup[]; threshold: number } | null {
+  const groups = new Map<string, PrivacyConfidenceGroup>();
+  let threshold: number | null = null;
+  for (const { kind, confidence } of findings ?? []) {
+    if (!confidence) continue;
+    threshold ??= confidence.threshold;
+    const group = groups.get(kind);
+    groups.set(kind, {
+      kind,
+      label: privacyHitLabel(kind),
+      min: Math.min(group?.min ?? confidence.min, confidence.min),
+      max: Math.max(group?.max ?? confidence.max, confidence.max),
+    });
+  }
+  if (threshold === null) return null;
+  return {
+    groups: sortPrivacyKinds([...groups.keys()]).flatMap(
+      (kind) => groups.get(kind) ?? [],
+    ),
+    threshold,
+  };
+}
+
+export interface PrivacyIgnoredGroup extends PrivacyIgnored {
+  label: string;
+}
+
+const ignoreReasonOrder: PrivacyIgnoreReason[] = [
+  "low_confidence",
+  "allowlisted",
+  "kind_disabled",
+];
+
+/** What the policy left in the request, by reason and then kind. */
+export function recordedPrivacyIgnored(
+  ignored: RequestRecord["privacy_ignored"],
+): PrivacyIgnoredGroup[] {
+  const entries = ignored ?? [];
+  const kinds = sortPrivacyKinds([...new Set(entries.map(({ kind }) => kind))]);
+  return [...entries]
+    .sort(
+      (left, right) =>
+        ignoreReasonOrder.indexOf(left.reason) -
+          ignoreReasonOrder.indexOf(right.reason) ||
+        kinds.indexOf(left.kind) - kinds.indexOf(right.kind),
+    )
+    .map((entry) => ({ ...entry, label: privacyHitLabel(entry.kind) }));
+}
+
+/** "人名 ×2（置信度 41%–62%，低于门槛）". */
+export function privacyIgnoredText(group: PrivacyIgnoredGroup): string {
+  const reason =
+    group.reason === "low_confidence" && group.confidence
+      ? i18n.t("trajectory.policyIgnoredReasons.low_confidence_range", {
+          range: confidenceRange(group.confidence.min, group.confidence.max),
+        })
+      : i18n.t(`trajectory.policyIgnoredReasons.${group.reason}`);
+  return i18n.t("trajectory.policyIgnoredEntry", {
+    kind: group.label,
+    count: group.count,
+    reason,
+  });
 }
 
 /**
@@ -294,6 +392,8 @@ export interface TrajectoryRow {
   conversationContinued?: boolean;
   /** Set on REDIRECT rows: the client model and the model routed with. */
   redirect?: RequestModelRedirect;
+  /** Set on COMPRESS rows whose summary Core wrote in its usual shape. */
+  compression?: ImageCompression;
 }
 
 export const TIMELINE_GAP_COLLAPSE_MS = 2000;
@@ -349,6 +449,7 @@ const chipByKind: Record<RequestEvent["kind"], TrajectoryChip> = {
   accepted: "CLIENT",
   model_redirect: "REDIRECT",
   privacy: "POLICY",
+  image_compression: "COMPRESS",
   routed: "ROUTE",
   upstream: "UPSTREAM",
   restore: "RESTORE",
@@ -360,6 +461,7 @@ const laneByChip: Record<TrajectoryChip, TrajectoryLane> = {
   CLIENT: "client",
   REDIRECT: "gateway",
   POLICY: "gateway",
+  COMPRESS: "gateway",
   ROUTE: "gateway",
   UPSTREAM: "upstream",
   RETRY: "upstream",
@@ -474,6 +576,79 @@ function rowRedirect(
   const parts = event.summary.split(REDIRECT_SEPARATOR);
   if (parts.length !== 2 || !parts[0] || !parts[1]) return undefined;
   return { from: parts[0], to: parts[1] };
+}
+
+/** What request image compression did to one attempt. */
+export interface ImageCompression {
+  mode: "lossless" | "lossy";
+  /** The lossy quality; null in lossless mode. */
+  quality: number | null;
+  /** Inline images found, and how many of them were replaced. */
+  images: number;
+  compressed: number;
+  /** Decoded bytes of every inline image, before and after. */
+  beforeBytes: number;
+  afterBytes: number;
+}
+
+// Core writes "lossless · 1/2 images · 75301 → 37406 bytes", or "lossy q80 · …".
+const IMAGE_COMPRESSION_SUMMARY =
+  /^(lossless|lossy)(?: q(\d+))? · (\d+)\/(\d+) images · (\d+) → (\d+) bytes$/;
+
+export function parseImageCompression(
+  summary: string,
+): ImageCompression | null {
+  const match = IMAGE_COMPRESSION_SUMMARY.exec(summary);
+  if (!match) return null;
+  return {
+    mode: match[1] === "lossy" ? "lossy" : "lossless",
+    quality: match[2] ? Number(match[2]) : null,
+    compressed: Number(match[3]),
+    images: Number(match[4]),
+    beforeBytes: Number(match[5]),
+    afterBytes: Number(match[6]),
+  };
+}
+
+export function formatImageBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function imageCompressionModeLabel(value: ImageCompression): string {
+  return value.mode === "lossy" && value.quality !== null
+    ? i18n.t("trajectory.imageCompressionModes.lossyQuality", {
+        quality: value.quality,
+      })
+    : i18n.t(`trajectory.imageCompressionModes.${value.mode}`);
+}
+
+/** How much smaller the images got, in whole percent; null when they did not. */
+export function imageCompressionSavedPercent(
+  value: ImageCompression,
+): number | null {
+  if (value.beforeBytes <= 0 || value.afterBytes >= value.beforeBytes) {
+    return null;
+  }
+  return Math.round((1 - value.afterBytes / value.beforeBytes) * 100);
+}
+
+/** The COMPRESS row text: "1/1 张图片 · 无损 WebP · 73.5 KB → 36.5 KB · 减小 50%". */
+export function imageCompressionText(value: ImageCompression): string {
+  const saved = imageCompressionSavedPercent(value);
+  const parts = [
+    i18n.t("trajectory.imageCompressionImages", {
+      count: value.images,
+      compressed: value.compressed,
+    }),
+    imageCompressionModeLabel(value),
+    `${formatImageBytes(value.beforeBytes)} → ${formatImageBytes(value.afterBytes)}`,
+  ];
+  if (saved !== null) {
+    parts.push(i18n.t("trajectory.imageCompressionSaved", { percent: saved }));
+  }
+  return parts.join(" · ");
 }
 
 /**
@@ -839,11 +1014,17 @@ function rowFromEvent(
   const event = settledEvent(record, rawEvent);
   const chip =
     child && event.kind === "upstream" ? "RETRY" : chipByKind[event.kind];
+  const redirect = rowRedirect(record, event);
+  const compression =
+    event.kind === "image_compression"
+      ? parseImageCompression(event.summary)
+      : null;
   const summary =
     event.kind === "upstream" || event.kind === "completed"
       ? readableUsageSummary(event.summary)
-      : event.summary;
-  const redirect = rowRedirect(record, event);
+      : compression
+        ? imageCompressionText(compression)
+        : event.summary;
   return {
     id: `${record.id}:${event.kind}:${event.started_at}:${event.attempt_index}`,
     requestId: record.id,
@@ -859,6 +1040,7 @@ function rowFromEvent(
     child,
     turnIndex: null,
     ...(redirect ? { redirect } : {}),
+    ...(compression ? { compression } : {}),
   };
 }
 

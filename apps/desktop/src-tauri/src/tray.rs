@@ -612,7 +612,7 @@ fn privacy_from(summary: &serde_json::Value, enabled: Option<bool>) -> Option<Pr
         .collect();
     Some(PrivacyDigest {
         enabled,
-        checked: count("allowed")? + warned + redacted + blocked,
+        checked: count("allowed")? + count("ignored")? + warned + redacted + blocked,
         redacted,
         warned,
         blocked,
@@ -2496,15 +2496,16 @@ mod tests {
         assert!(top_client_from(&tokens, &idle).is_none());
 
         let privacy = serde_json::json!({
-            "totals": {"requests": 40, "allowed": 30, "warned": 1, "redacted": 6, "blocked": 2,
-                       "fail_open": 1, "replaced": 11, "restored": 7, "restored_visible": 5,
-                       "restored_tool_arguments": 2, "unrestored": 1},
+            "totals": {"requests": 40, "allowed": 27, "ignored": 3, "warned": 1, "redacted": 6,
+                       "blocked": 2, "fail_open": 1, "replaced": 11, "restored": 7,
+                       "restored_visible": 5, "restored_tool_arguments": 2, "unrestored": 1,
+                       "ignored_allowlisted": 4, "ignored_low_confidence": 0},
             "by_day": [], "by_hour": [],
             "by_kind": [{"kind": "email", "count": 8}, {"kind": "phone", "count": 3}]
         });
         let digest = privacy_from(&privacy, Some(false)).unwrap();
         assert_eq!(digest.enabled, Some(false));
-        // Off and failed checks are calls, not checks.
+        // Off and failed checks are calls, not checks; ignored calls were checked.
         assert_eq!(digest.checked, 39);
         assert_eq!(digest.unchecked, 1);
         assert_eq!(

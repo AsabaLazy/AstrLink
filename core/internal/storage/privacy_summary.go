@@ -5,12 +5,17 @@ package storage
 type PrivacySummaryOptions = UsageSummaryOptions
 
 // PrivacyTotals counts what the privacy policy did to finished root calls.
-// Each call lands in at most one decision column; a call no policy applied to
+// Each call lands in at most one outcome column; a call no policy applied to
 // is counted in Requests alone. Counts never contain placeholders or values.
 type PrivacyTotals struct {
 	// Requests is every finished root inference call, checked or not.
 	Requests int64 `json:"requests"`
-	Allowed  int64 `json:"allowed"`
+	// Allowed calls had nothing to protect. A match of a kind the user
+	// turned off still counts as allowed.
+	Allowed int64 `json:"allowed"`
+	// Ignored calls were allowed only because every match was allowlisted or
+	// below the confidence threshold.
+	Ignored  int64 `json:"ignored"`
 	Warned   int64 `json:"warned"`
 	Redacted int64 `json:"redacted"`
 	Blocked  int64 `json:"blocked"`
@@ -24,6 +29,10 @@ type PrivacyTotals struct {
 	RestoredToolArguments int64 `json:"restored_tool_arguments"`
 	// Unrestored counts response parts left with replacements in them.
 	Unrestored int64 `json:"unrestored"`
+	// IgnoredAllowlisted and IgnoredLowConfidence count matches left in the
+	// request for that reason, whatever the call's outcome.
+	IgnoredAllowlisted   int64 `json:"ignored_allowlisted"`
+	IgnoredLowConfidence int64 `json:"ignored_low_confidence"`
 }
 
 type PrivacyTimeBucket struct {

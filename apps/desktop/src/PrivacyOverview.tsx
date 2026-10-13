@@ -71,13 +71,16 @@ const METRIC_TILES = "gap-3 bg-transparent [&>div]:rounded-md [&>div]:border";
 
 /**
  * Outcome fills. Status tokens carry the meaning of each outcome; a call with
- * nothing found recedes to gray so the outcomes that acted stand out.
+ * nothing found recedes to gray so the outcomes that acted stand out. An
+ * ignored call found something but replaced nothing, so it takes a faded
+ * redaction fill.
  */
 const OUTCOME_FILL: Record<PrivacyOutcomeSegment, string> = {
   redacted: "bg-primary",
   blocked: "bg-blocked",
   warned: "bg-warning",
   fail_open: "bg-destructive",
+  ignored: "bg-primary/40",
   allowed: "bg-muted-foreground/30",
 };
 
@@ -252,7 +255,7 @@ function PrivacyOverviewBody({
       </Panel>
       {/* Side by side, the shorter card stretches to the taller one. */}
       <div className="grid min-w-0 gap-3 @[720px]/privacy:grid-cols-2">
-        <PrivacyKindsPanel kinds={summary.by_kind} />
+        <PrivacyKindsPanel kinds={summary.by_kind} totals={totals} />
         <PrivacyOutcomesPanel totals={totals} />
       </div>
     </>
@@ -549,9 +552,49 @@ function shareLabel(percent: number): string {
   return `${Math.round(percent)}%`;
 }
 
-function PrivacyKindsPanel({ kinds }: { kinds: PrivacyKindCount[] }) {
+/**
+ * Matches the policy found but left in place, by the reason the user can act
+ * on. Matches of a kind the user turned off are not mentioned: leaving those
+ * is what the setting asks for.
+ */
+function ignoredNote(
+  t: ReturnType<typeof useT>,
+  totals: PrivacyTotals,
+): string | null {
+  const allowlisted = totals.ignored_allowlisted;
+  const lowConfidence = totals.ignored_low_confidence;
+  if (allowlisted > 0 && lowConfidence > 0) {
+    return t("privacyStats.ignoredBoth", {
+      total: formatExactNumber(allowlisted + lowConfidence),
+      allowlisted: formatExactNumber(allowlisted),
+      lowConfidence: formatExactNumber(lowConfidence),
+    });
+  }
+  if (allowlisted > 0) {
+    return t("privacyStats.ignoredAllowlisted", {
+      count: allowlisted,
+      value: formatExactNumber(allowlisted),
+    });
+  }
+  if (lowConfidence > 0) {
+    return t("privacyStats.ignoredLowConfidence", {
+      count: lowConfidence,
+      value: formatExactNumber(lowConfidence),
+    });
+  }
+  return null;
+}
+
+function PrivacyKindsPanel({
+  kinds,
+  totals,
+}: {
+  kinds: PrivacyKindCount[];
+  totals: PrivacyTotals;
+}) {
   const t = useT();
   const { rows } = privacyKindShares(kinds);
+  const ignored = ignoredNote(t, totals);
   return (
     <Panel className="flex flex-col" data-slot="privacy-kinds">
       <PanelHeader size="sm">
@@ -584,6 +627,14 @@ function PrivacyKindsPanel({ kinds }: { kinds: PrivacyKindCount[] }) {
           </UsageMeterGrid>
         </div>
       )}
+      {ignored ? (
+        <p
+          className="mx-4 mb-3 border-t pt-2.5 text-xs text-muted-foreground"
+          data-slot="privacy-ignored"
+        >
+          {ignored}
+        </p>
+      ) : null}
     </Panel>
   );
 }

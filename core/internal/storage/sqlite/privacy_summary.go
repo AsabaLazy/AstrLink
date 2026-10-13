@@ -26,7 +26,8 @@ func (store *Store) GetPrivacySummary(ctx context.Context, options storage.Priva
 	if err != nil {
 		return result, err
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT started_at, status, privacy_decision, privacy_restore_json, privacy_findings_json
+	rows, err := store.db.QueryContext(ctx, `SELECT started_at, status, privacy_decision, privacy_restore_json, privacy_findings_json,
+  privacy_ignored_json
 FROM request_records
 WHERE parent_request_id IS NULL AND started_at >= ? AND started_at < ?
   AND status IN ('succeeded', 'failed', 'blocked', 'cancelled') AND input_protocol NOT IN (?, ?)`,
@@ -40,8 +41,8 @@ WHERE parent_request_id IS NULL AND started_at >= ? AND started_at < ?
 	kinds := map[string]int64{}
 	for rows.Next() {
 		var startedAt, status string
-		var decision, restoreJSON, findingsJSON sql.NullString
-		if err := rows.Scan(&startedAt, &status, &decision, &restoreJSON, &findingsJSON); err != nil {
+		var decision, restoreJSON, findingsJSON, ignoredJSON sql.NullString
+		if err := rows.Scan(&startedAt, &status, &decision, &restoreJSON, &findingsJSON, &ignoredJSON); err != nil {
 			return result, fmt.Errorf("scan privacy summary: %w", err)
 		}
 		started, err := time.Parse(time.RFC3339Nano, startedAt)
@@ -59,6 +60,24 @@ WHERE parent_request_id IS NULL AND started_at >= ? AND started_at < ?
 		if findingsJSON.Valid && findingsJSON.String != "" {
 			if err := json.Unmarshal([]byte(findingsJSON.String), &findings); err != nil {
 				return result, fmt.Errorf("%w: privacy findings", storage.ErrInvalidRecord)
+			}
+		}
+		var ignored privacyIgnoredCounts
+		if ignoredJSON.Valid && ignoredJSON.String != "" {
+			var entries []contract.PrivacyIgnored
+			if err := json.Unmarshal([]byte(ignoredJSON.String), &entries); err != nil {
+				return result, fmt.Errorf("%w: privacy ignored", storage.ErrInvalidRecord)
+			}
+			for _, entry := range entries {
+				if !entry.Kind.Valid() || !entry.Reason.Valid() || entry.Count < 1 {
+					return result, fmt.Errorf("%w: privacy ignored", storage.ErrInvalidRecord)
+				}
+				switch entry.Reason {
+				case contract.PrivacyIgnoreAllowlisted:
+					ignored.allowlisted += int64(entry.Count)
+				case contract.PrivacyIgnoreLowConfidence:
+					ignored.lowConfidence += int64(entry.Count)
+				}
 			}
 		}
 		outcome, err := privacyOutcome(decision, status, restore != nil)
@@ -81,7 +100,7 @@ WHERE parent_request_id IS NULL AND started_at >= ? AND started_at < ?
 			targets = append(targets, &hours[key].PrivacyTotals)
 		}
 		for _, target := range targets {
-			addPrivacyCall(target, outcome, restore)
+			addPrivacyCall(target, outcome, restore, ignored)
 		}
 
 		// A redacted call names its kinds by distinct replaced value; a call
@@ -149,11 +168,29 @@ func privacyOutcome(decision sql.NullString, status string, restored bool) (cont
 	}
 }
 
-func addPrivacyCall(target *storage.PrivacyTotals, outcome contract.PrivacyDecision, restore *contract.PrivacyRestoreSummary) {
+// privacyIgnoredCounts are one call's matches left in place by the allowlist
+// or the confidence threshold. Matches of a disabled kind are not among them:
+// the user chose not to protect that kind.
+type privacyIgnoredCounts struct {
+	allowlisted, lowConfidence int64
+}
+
+func addPrivacyCall(
+	target *storage.PrivacyTotals,
+	outcome contract.PrivacyDecision,
+	restore *contract.PrivacyRestoreSummary,
+	ignored privacyIgnoredCounts,
+) {
 	target.Requests++
+	target.IgnoredAllowlisted += ignored.allowlisted
+	target.IgnoredLowConfidence += ignored.lowConfidence
 	switch outcome {
 	case contract.PrivacyDecisionAllow:
-		target.Allowed++
+		if ignored.allowlisted+ignored.lowConfidence > 0 {
+			target.Ignored++
+		} else {
+			target.Allowed++
+		}
 	case contract.PrivacyDecisionWarn:
 		target.Warned++
 	case contract.PrivacyDecisionRedact:

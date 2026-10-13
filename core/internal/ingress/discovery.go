@@ -126,7 +126,7 @@ func (handler *Handler) aggregateModelDiscovery(
 			}
 		}
 		session.notePrivacyDecision(decision, contract.RequestStatusSucceeded)
-		session.notePrivacyOutcome(outcome, nil)
+		session.notePrivacyOutcome(outcome, nil, nil, nil)
 	}
 	merged, succeeded := mergeDiscoveryEntries(results)
 	if succeeded == 0 {

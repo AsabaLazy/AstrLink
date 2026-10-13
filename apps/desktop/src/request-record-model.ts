@@ -104,6 +104,30 @@ export interface PrivacyFinding {
   kind: string;
   json_path: string;
   count: number;
+  /** Absent when the regex detector decided and on older records. */
+  confidence?: PrivacyConfidence;
+}
+
+/** Local model confidence over the matches an entry counts, from 0 to 1. */
+export interface PrivacyConfidence {
+  min: number;
+  max: number;
+  /** The policy threshold the matches were judged against. */
+  threshold: number;
+}
+
+export type PrivacyIgnoreReason =
+  | "kind_disabled"
+  | "low_confidence"
+  | "allowlisted";
+
+/** Matches of one kind the policy left in the request for one reason. */
+export interface PrivacyIgnored {
+  kind: string;
+  reason: PrivacyIgnoreReason;
+  count: number;
+  /** Absent when the regex detector decided and on older records. */
+  confidence?: PrivacyConfidence;
 }
 
 export interface PrivacyRestoreSummary {
@@ -124,6 +148,7 @@ export type RequestEventKind =
   | "accepted"
   | "model_redirect"
   | "privacy"
+  | "image_compression"
   | "routed"
   | "upstream"
   | "restore"
@@ -266,6 +291,8 @@ export interface RequestRecord {
   privacy_decision?: PrivacyDecision;
   /** Present for redact and block decisions; absent otherwise. */
   privacy_findings?: PrivacyFinding[];
+  /** Absent when nothing was left in place and on older records. */
+  privacy_ignored?: PrivacyIgnored[];
   session_id: string | null;
   previous_response_id: string | null;
   output_response_id: string | null;
@@ -763,8 +790,68 @@ function parsePrivacyFindings(value: unknown, path: string): PrivacyFinding[] {
       kind: stringAt(finding.kind, `${path}[${index}].kind`),
       json_path: stringAt(finding.json_path, `${path}[${index}].json_path`),
       count,
+      ...optionalPrivacyConfidence(
+        finding.confidence,
+        `${path}[${index}].confidence`,
+      ),
     };
   });
+}
+
+const privacyIgnoreReasons = new Set<PrivacyIgnoreReason>([
+  "kind_disabled",
+  "low_confidence",
+  "allowlisted",
+]);
+
+function optionalPrivacyIgnored(
+  value: unknown,
+  path: string,
+): { privacy_ignored?: PrivacyIgnored[] } {
+  if (value === undefined || value === null) return {};
+  if (!Array.isArray(value)) return invalid(`${path}.privacy_ignored`, "array");
+  const ignored = value.map((item, index): PrivacyIgnored => {
+    const itemPath = `${path}.privacy_ignored[${index}]`;
+    const entry = objectAt(item, itemPath);
+    const reason = stringAt(entry.reason, `${itemPath}.reason`);
+    if (!privacyIgnoreReasons.has(reason as PrivacyIgnoreReason)) {
+      return invalid(`${itemPath}.reason`, "unknownReason");
+    }
+    const count = intAt(entry.count, `${itemPath}.count`);
+    if (count < 1) return invalid(`${itemPath}.count`, "positiveInteger");
+    return {
+      kind: stringAt(entry.kind, `${itemPath}.kind`),
+      reason: reason as PrivacyIgnoreReason,
+      count,
+      ...optionalPrivacyConfidence(entry.confidence, `${itemPath}.confidence`),
+    };
+  });
+  return ignored.length === 0 ? {} : { privacy_ignored: ignored };
+}
+
+function optionalPrivacyConfidence(
+  value: unknown,
+  path: string,
+): { confidence?: PrivacyConfidence } {
+  if (value === undefined || value === null) return {};
+  const confidence = objectAt(value, path);
+  const min = probabilityAt(confidence.min, `${path}.min`);
+  const max = probabilityAt(confidence.max, `${path}.max`);
+  if (min > max) return invalid(`${path}.min`, "unexpectedValue");
+  return {
+    confidence: {
+      min,
+      max,
+      threshold: probabilityAt(confidence.threshold, `${path}.threshold`),
+    },
+  };
+}
+
+function probabilityAt(value: unknown, path: string): number {
+  if (typeof value !== "number" || !(value >= 0 && value <= 1)) {
+    return invalid(path, "unexpectedValue");
+  }
+  return value;
 }
 
 function parseRecovery(value: unknown, path: string): RequestRecovery {
@@ -1021,6 +1108,7 @@ function parseRequestRecordAt(value: unknown, path: string): RequestRecord {
     ),
     ...optionalPrivacyDecision(record.privacy_decision, path),
     ...optionalPrivacyFindings(record.privacy_findings, path),
+    ...optionalPrivacyIgnored(record.privacy_ignored, path),
     session_id: Object.hasOwn(record, "session_id")
       ? nullableStringAt(record.session_id, `${path}.session_id`)
       : null,
@@ -1101,6 +1189,7 @@ const eventKinds = new Set<RequestEventKind>([
   "accepted",
   "model_redirect",
   "privacy",
+  "image_compression",
   "routed",
   "upstream",
   "restore",

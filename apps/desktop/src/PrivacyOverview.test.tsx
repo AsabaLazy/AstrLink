@@ -182,6 +182,74 @@ describe("PrivacyOverview", () => {
     expect(
       outcomes.querySelector('[data-slot="privacy-unprotected"]')?.textContent,
     ).toBe("另有 1 次请求发出时隐私保护已关闭，模型收到的是原文。");
+    expect(container.querySelector('[data-slot="privacy-ignored"]')).toBeNull();
+  });
+
+  it("counts ignored calls apart and names the matches left in place", async () => {
+    const ignoredBusy: PrivacyTotals = {
+      ...busy,
+      allowed: 7,
+      ignored: 3,
+      ignored_allowlisted: 1200,
+      ignored_low_confidence: 4,
+    };
+    bridge.getPrivacySummary.mockImplementation(async (window: UsageWindow) =>
+      summaryFor(window, ignoredBusy, [{ kind: "email", count: 6 }]),
+    );
+    await render();
+
+    const metrics = container.querySelector('[data-slot="privacy-metrics"]')!;
+    expect(metrics.querySelector("dd")?.textContent).toBe("18");
+    const outcomes = container.querySelector('[data-slot="privacy-outcomes"]')!;
+    expect(
+      [...outcomes.querySelectorAll("[data-outcome]")].map((item) =>
+        item.getAttribute("data-outcome"),
+      ),
+    ).toEqual([
+      "redacted",
+      "blocked",
+      "warned",
+      "fail_open",
+      "ignored",
+      "allowed",
+    ]);
+    const ignored = outcomes.querySelector('[data-outcome="ignored"]')!;
+    expect(ignored.textContent).toContain("已忽略");
+    expect(ignored.textContent).toContain(
+      "发现的内容命中免脱敏名单或低于置信度门槛，请求按原文发给了模型",
+    );
+    expect(
+      container.querySelector('[data-slot="privacy-ignored"]')?.textContent,
+    ).toBe(
+      "另有 1,204 处已忽略，模型收到的是原文：1,200 处命中免脱敏名单，4 处低于置信度门槛。",
+    );
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    bridge.getPrivacySummary.mockImplementation(async (window: UsageWindow) =>
+      summaryFor(window, { ...ignoredBusy, ignored_low_confidence: 0 }),
+    );
+    await render();
+    expect(
+      container.querySelector('[data-slot="privacy-ignored"]')?.textContent,
+    ).toBe("另有 1,200 处命中免脱敏名单，已忽略，模型收到的是原文。");
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await applyLocale("en");
+    bridge.getPrivacySummary.mockImplementation(async (window: UsageWindow) =>
+      summaryFor(window, {
+        ...ignoredBusy,
+        ignored_allowlisted: 0,
+        ignored_low_confidence: 1,
+      }),
+    );
+    await render();
+    expect(
+      container.querySelector('[data-slot="privacy-ignored"]')?.textContent,
+    ).toBe(
+      "1 more match was below the confidence threshold and ignored. The model received it as written.",
+    );
   });
 
   it("explains an empty range by what was switched on", async () => {

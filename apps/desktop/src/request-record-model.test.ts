@@ -525,6 +525,51 @@ describe("request-record IPC contract", () => {
     ]);
   });
 
+  it("parses model confidence and ignored matches", () => {
+    const confidence = { min: 0.81, max: 0.99, threshold: 0.7 };
+    const parsed = parseRequestRecord({
+      ...fullRecord,
+      privacy_findings: [
+        { kind: "email", json_path: "/input/0/content", count: 2, confidence },
+        { kind: "url", json_path: "/input/1/content", count: 1 },
+      ],
+      privacy_ignored: [
+        { kind: "private_person", reason: "low_confidence", count: 2 },
+        { kind: "email", reason: "allowlisted", count: 1, confidence },
+      ],
+    });
+    expect(parsed.privacy_findings).toEqual([
+      { kind: "email", json_path: "/input/0/content", count: 2, confidence },
+      { kind: "url", json_path: "/input/1/content", count: 1 },
+    ]);
+    expect(parsed.privacy_ignored).toEqual([
+      { kind: "private_person", reason: "low_confidence", count: 2 },
+      { kind: "email", reason: "allowlisted", count: 1, confidence },
+    ]);
+    expect(parseRequestRecord(fullRecord)).not.toHaveProperty(
+      "privacy_ignored",
+    );
+
+    const finding = (value: object) => ({
+      ...fullRecord,
+      privacy_findings: [
+        { kind: "email", json_path: "/", count: 1, confidence: value },
+      ],
+    });
+    expect(() =>
+      parseRequestRecord(finding({ ...confidence, threshold: 1.5 })),
+    ).toThrow("$.privacy_findings[0].confidence.threshold");
+    expect(() =>
+      parseRequestRecord(finding({ ...confidence, min: 0.995 })),
+    ).toThrow("$.privacy_findings[0].confidence.min");
+    expect(() =>
+      parseRequestRecord({
+        ...fullRecord,
+        privacy_ignored: [{ kind: "email", reason: "placeholder", count: 1 }],
+      }),
+    ).toThrow("$.privacy_ignored[0].reason");
+  });
+
   it("maps legacy cached_input_tokens to cache_read_tokens", () => {
     const parsed = parseRequestRecord({
       ...fullRecord,

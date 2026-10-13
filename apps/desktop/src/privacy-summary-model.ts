@@ -9,11 +9,14 @@ import {
 /**
  * What the privacy policy did over a window. Mirrors `PrivacyTotals` in
  * `core/internal/storage/privacy_summary.go`: every finished root call is in
- * `requests`, and at most one decision count holds it.
+ * `requests`, and at most one outcome count holds it.
  */
 export interface PrivacyTotals {
   requests: number;
+  /** Calls with nothing to protect, matches of a disabled kind included. */
   allowed: number;
+  /** Calls allowed only because every match was allowlisted or too unsure. */
+  ignored: number;
   warned: number;
   redacted: number;
   blocked: number;
@@ -26,6 +29,10 @@ export interface PrivacyTotals {
   restored_tool_arguments: number;
   /** Answer parts left with stand-in values in them. */
   unrestored: number;
+  /** Matches left in requests by the allowlist, over every outcome. */
+  ignored_allowlisted: number;
+  /** Matches left in requests below the confidence threshold. */
+  ignored_low_confidence: number;
 }
 
 export interface PrivacyDayBucket extends PrivacyTotals {
@@ -58,6 +65,7 @@ export interface PrivacySummary {
 const totalKeys = [
   "requests",
   "allowed",
+  "ignored",
   "warned",
   "redacted",
   "blocked",
@@ -67,6 +75,8 @@ const totalKeys = [
   "restored_visible",
   "restored_tool_arguments",
   "unrestored",
+  "ignored_allowlisted",
+  "ignored_low_confidence",
 ] as const satisfies readonly (keyof PrivacyTotals)[];
 
 /** Core names ten kinds; the bound leaves room for newer ones. */
@@ -136,6 +146,7 @@ function totalsAt(object: Record<string, unknown>): PrivacyTotals {
   ) as unknown as PrivacyTotals;
   if (
     totals.allowed +
+      totals.ignored +
       totals.warned +
       totals.redacted +
       totals.blocked +
@@ -217,7 +228,13 @@ export function parsePrivacySummary(
 
 /** Calls the policy finished checking. */
 export function checkedCalls(totals: PrivacyTotals): number {
-  return totals.allowed + totals.warned + totals.redacted + totals.blocked;
+  return (
+    totals.allowed +
+    totals.ignored +
+    totals.warned +
+    totals.redacted +
+    totals.blocked
+  );
 }
 
 /** Checked calls in which the policy found private data. */
@@ -280,6 +297,7 @@ export const PRIVACY_OUTCOME_SEGMENTS = [
   "blocked",
   "warned",
   "fail_open",
+  "ignored",
   "allowed",
 ] as const;
 export type PrivacyOutcomeSegment = (typeof PRIVACY_OUTCOME_SEGMENTS)[number];

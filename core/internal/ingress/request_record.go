@@ -221,6 +221,7 @@ type recordSession struct {
 	// until one inspection decides.
 	privacyDecision contract.PrivacyDecision
 	privacyFindings []contract.PrivacyFinding
+	privacyIgnored  []contract.PrivacyIgnored
 	// requestExposure is the label of the stored client body; empty until
 	// it is stored.
 	requestExposure storage.AuditExposure
@@ -553,6 +554,7 @@ func (session *recordSession) recordSnapshot(
 		Audit:              session.liveAuditSummary(),
 		PrivacyRestore:     session.privacyRestore,
 		PrivacyFindings:    append([]contract.PrivacyFinding(nil), session.privacyFindings...),
+		PrivacyIgnored:     append([]contract.PrivacyIgnored(nil), session.privacyIgnored...),
 		Events:             append([]contract.RequestEvent(nil), session.events...),
 	}
 	record.ConversionDiagnostics = slices.Clone(session.conversionDiagnostics)
@@ -747,14 +749,24 @@ func (session *recordSession) noteGatewayReasoning(reasoning gatewayReasoning) {
 	}
 }
 
-// noteImageCompression records what image compression did to the current
-// network attempt.
-func (session *recordSession) noteImageCompression(result imageCompressionResult) {
-	if message := result.diagnostic(); session != nil && message != "" {
-		session.noteConversionDiagnostics(contract.ConversionDiagnosticPhaseRequest, []relaykitbridge.ConversionDiagnostic{{
-			Code: imageCompressionDiagnostic, Path: "images", Message: message, Severity: string(contract.ConversionDiagnosticWarning),
-		}})
+// addImageCompressionEvent records what image compression did to the
+// attempt beginNetworkAttempt opens. Compression ran while the attempt was
+// prepared, so the phase keeps its own times and lands ahead of the route
+// event, which is stamped when the request leaves.
+func (session *recordSession) addImageCompressionEvent(result imageCompressionResult) {
+	summary := result.summary()
+	if summary == "" {
+		return
 	}
+	ended := result.endedAt
+	session.events = append(session.events, contract.RequestEvent{
+		Kind:         contract.RequestEventImageCompression,
+		StartedAt:    result.startedAt,
+		EndedAt:      &ended,
+		Status:       contract.RequestStatusSucceeded,
+		Summary:      sanitizeSummary(summary),
+		AttemptIndex: session.attemptIndex,
+	})
 }
 
 // reasoningEffort is the level the record shows: the one the attempt sent.
@@ -819,6 +831,7 @@ func (session *recordSession) beginNetworkAttempt(
 	ctx context.Context,
 	candidate endpoint.Resolved,
 	plan contract.ExecutionPlan,
+	images imageCompressionResult,
 	store RequestRecordStore,
 	logf func(string, ...any),
 ) {
@@ -831,6 +844,7 @@ func (session *recordSession) beginNetworkAttempt(
 	session.networkAttemptOpen = true
 	session.upstreamScanner = newUsageScanner(plan.UpstreamProtocol, session.classified.Streaming)
 	session.noteSelected(candidate, plan)
+	session.addImageCompressionEvent(images)
 	serviceName := string(candidate.Service.ID)
 	session.addEvent(contract.RequestEventRouted, contract.RequestStatusSucceeded, string(plan.Type)+" · "+serviceName)
 	session.addEvent(contract.RequestEventUpstream, contract.RequestStatusPending, string(plan.UpstreamProtocol))
@@ -1622,15 +1636,22 @@ func (session *recordSession) visibleInputPreview() string {
 // notePrivacyOutcome keeps the structured decision beside the event summary.
 // Findings are kept for every decision that found something (warn, redact and
 // block); their paths are reduced to structure so no request value reaches the
-// record.
-func (session *recordSession) notePrivacyOutcome(decision contract.PrivacyDecision, findings []privacy.Finding) {
+// record. Suppressed matches are counted for every decision, allow included,
+// so a call that found only allowlisted values is told apart from a clean one.
+// threshold is the policy's model confidence threshold, nil for regex.
+func (session *recordSession) notePrivacyOutcome(
+	decision contract.PrivacyDecision,
+	findings, suppressed []privacy.Finding,
+	threshold *float64,
+) {
 	if session == nil || !decision.Valid() {
 		return
 	}
 	if session.privacyDecision == "" || decision.Severity() > session.privacyDecision.Severity() {
 		session.privacyDecision = decision
 	}
-	session.privacyFindings = mergePrivacyFindings(session.privacyFindings, findings)
+	session.privacyFindings = mergePrivacyFindings(session.privacyFindings, findings, threshold)
+	session.privacyIgnored = mergePrivacyIgnored(session.privacyIgnored, suppressed, threshold)
 }
 
 // requestID is the root record's id, which every attempt shares; empty when

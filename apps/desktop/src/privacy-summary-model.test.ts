@@ -21,7 +21,8 @@ function totals(overrides: Partial<PrivacyTotals> = {}): PrivacyTotals {
 
 const busyDay = totals({
   requests: 20,
-  allowed: 10,
+  allowed: 8,
+  ignored: 2,
   warned: 1,
   redacted: 5,
   blocked: 2,
@@ -31,6 +32,8 @@ const busyDay = totals({
   restored_visible: 5,
   restored_tool_arguments: 2,
   unrestored: 1,
+  ignored_allowlisted: 3,
+  ignored_low_confidence: 1,
 });
 
 describe("privacy summary IPC contract", () => {
@@ -93,6 +96,9 @@ describe("privacy summary IPC contract", () => {
       { ...valid, scanned_records: 1 },
       { ...valid, totals: { ...busyDay, replaced: -1 } },
       { ...valid, totals: { ...busyDay, requests: 3 } },
+      // Ignored calls are an outcome of their own, not part of allowed.
+      { ...valid, totals: { ...busyDay, ignored: 5 } },
+      { ...valid, totals: { ...busyDay, ignored_allowlisted: -1 } },
       { ...valid, totals: { ...busyDay, restored: 1 } },
       { ...valid, by_day: [{ date: "2020-01-01", ...busyDay }] },
       {
@@ -120,6 +126,7 @@ describe("privacy summary IPC contract", () => {
 describe("privacy summary figures", () => {
   it("separates checked, flagged and unprotected calls", () => {
     expect(checkedCalls(busyDay)).toBe(18);
+    // A call whose matches were all ignored was checked but not flagged.
     expect(flaggedCalls(busyDay)).toBe(8);
     // 20 calls: 18 checked, 1 failed check, 1 with no policy at all.
     expect(unprotectedCalls(busyDay)).toBe(1);

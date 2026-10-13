@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"math/rand"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -166,15 +167,54 @@ func TestImageCompressionLeavesOtherBodiesAlone(t *testing.T) {
 	}
 }
 
-// imageDiagnostic is the record's image_compression message, empty when it
-// has none.
-func imageDiagnostic(record contract.RequestRecord) string {
-	for _, diagnostic := range record.ConversionDiagnostics {
-		if diagnostic.Code == imageCompressionDiagnostic {
-			return diagnostic.Message
+// imageEvents are the record's image_compression events.
+func imageEvents(record contract.RequestRecord) []contract.RequestEvent {
+	var events []contract.RequestEvent
+	for _, event := range record.Events {
+		if event.Kind == contract.RequestEventImageCompression {
+			events = append(events, event)
 		}
 	}
-	return ""
+	return events
+}
+
+// imageSummary is the summary of the record's only image_compression event,
+// which must be a closed phase just ahead of the attempt's route event.
+func imageSummary(t *testing.T, record contract.RequestRecord) string {
+	t.Helper()
+	if diagnostics := record.ConversionDiagnostics; len(diagnostics) > 0 {
+		t.Fatalf("image compression is not a conversion loss: %+v", diagnostics)
+	}
+	events := imageEvents(record)
+	if len(events) != 1 {
+		t.Fatalf("image_compression events = %+v", events)
+	}
+	kinds := eventKinds(record.Events)
+	at := slices.Index(kinds, string(contract.RequestEventImageCompression))
+	event := events[0]
+	if at+1 >= len(kinds) || kinds[at+1] != string(contract.RequestEventRouted) ||
+		event.Status != contract.RequestStatusSucceeded || event.EndedAt == nil || event.EndedAt.Before(event.StartedAt) ||
+		event.EndedAt.After(record.Events[at+1].StartedAt) || event.AttemptIndex != record.Events[at+1].AttemptIndex {
+		t.Fatalf("image_compression is not the closed phase before routing: %v %+v", kinds, event)
+	}
+	return event.Summary
+}
+
+func TestImageCompressionSummary(t *testing.T) {
+	for _, test := range []struct {
+		result imageCompressionResult
+		want   string
+	}{
+		{imageCompressionResult{mode: contract.ImageCompressionLossless, quality: 85}, ""},
+		{imageCompressionResult{mode: contract.ImageCompressionLossless, quality: 85, images: 2, compressed: 1, before: 75301, after: 37406},
+			"lossless · 1/2 images · 75301 → 37406 bytes"},
+		{imageCompressionResult{mode: contract.ImageCompressionLossy, quality: 70, images: 1, before: 900, after: 900},
+			"lossy q70 · 0/1 images · 900 → 900 bytes"},
+	} {
+		if got := test.result.summary(); got != test.want {
+			t.Errorf("summary(%+v) = %q, want %q", test.result, got, test.want)
+		}
+	}
 }
 
 func TestImageCompressionEndToEnd(t *testing.T) {
@@ -189,24 +229,29 @@ func TestImageCompressionEndToEnd(t *testing.T) {
 	}
 
 	got, record := serveReasoning(t, contract.DefaultRoutingSettings(), contract.ProtocolOpenAIChat, []string{"model-test"}, "/v1/chat/completions", body, nil)
-	if got != body || imageDiagnostic(record) != "" {
-		t.Fatalf("off by default, yet the body changed or a diagnostic was recorded: %q", imageDiagnostic(record))
+	if got != body || len(imageEvents(record)) != 0 {
+		t.Fatalf("off by default, yet the body changed or an event was recorded: %+v", imageEvents(record))
 	}
 
 	got, record = serveReasoning(t, compressed(contract.ImageCompressionLossless), contract.ProtocolOpenAIChat, []string{"model-test"}, "/v1/chat/completions", body, nil)
 	if strings.Count(got, "data:image/webp;base64,") != 1 || !strings.Contains(got, jpegURL) || len(got) >= len(body) {
 		t.Fatalf("lossless upstream body = %.300s", got)
 	}
-	if message := imageDiagnostic(record); !strings.HasPrefix(message, "re-encoded 1 of 2 images as lossless WebP, ") {
-		t.Fatalf("diagnostic = %q", message)
+	if summary := imageSummary(t, record); !strings.HasPrefix(summary, "lossless · 1/2 images · ") {
+		t.Fatalf("summary = %q", summary)
 	}
 
 	got, record = serveReasoning(t, compressed(contract.ImageCompressionLossy), contract.ProtocolOpenAIChat, []string{"model-test"}, "/v1/chat/completions", body, nil)
 	if strings.Count(got, "data:image/webp;base64,") != 2 || strings.Contains(got, "image/jpeg") || strings.Contains(got, "image/png") {
 		t.Fatalf("lossy upstream body = %.300s", got)
 	}
-	if message := imageDiagnostic(record); !strings.HasPrefix(message, "re-encoded 2 of 2 images as lossy WebP, ") {
-		t.Fatalf("diagnostic = %q", message)
+	if summary := imageSummary(t, record); !strings.HasPrefix(summary, "lossy q80 · 2/2 images · ") {
+		t.Fatalf("summary = %q", summary)
+	}
+
+	text := `{"model":"model-test","messages":[{"role":"user","content":"hello"}]}`
+	if _, record = serveReasoning(t, compressed(contract.ImageCompressionLossless), contract.ProtocolOpenAIChat, []string{"model-test"}, "/v1/chat/completions", text, nil); len(imageEvents(record)) != 0 {
+		t.Fatalf("a request without images recorded %+v", imageEvents(record))
 	}
 }
 
@@ -223,7 +268,7 @@ func TestImageCompressionSendsTheSameBytesOnEveryAttempt(t *testing.T) {
 	candidates[0].Failover = &contract.FailoverPolicy{Enabled: true, Strategy: contract.RetryFirst, MaxAttempts: 6}
 	settings := contract.DefaultRoutingSettings()
 	settings.ImageCompression.Enabled = true
-	got, _ := serveRewrite(t, settings, candidates, "/v1/chat/completions", body, nil)
+	got, store := serveRewrite(t, settings, candidates, "/v1/chat/completions", body, nil)
 	if got.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", got.Code, got.Body.String())
 	}
@@ -234,6 +279,16 @@ func TestImageCompressionSendsTheSameBytesOnEveryAttempt(t *testing.T) {
 	for index, attempt := range attempts {
 		if attempt != attempts[0] || !strings.Contains(attempt, "data:image/webp;base64,") {
 			t.Fatalf("attempt %d differs from the first or kept the PNG", index)
+		}
+	}
+	// Every attempt record, the failed children too, shows its own compression.
+	records := store.snapshot()
+	if len(records) != len(attempts) {
+		t.Fatalf("records = %d, attempts = %d", len(records), len(attempts))
+	}
+	for _, record := range records {
+		if summary := imageSummary(t, record); !strings.HasPrefix(summary, "lossless · 1/1 images · ") {
+			t.Fatalf("%s summary = %q", record.ID, summary)
 		}
 	}
 }

@@ -1156,6 +1156,97 @@ describe("RequestRecords", () => {
     expect(payload.records[0].model_redirect).toStrictEqual(redirect);
   });
 
+  it("shows image compression as a trajectory step with its sizes", async () => {
+    const at = (ms: number) =>
+      new Date(Date.parse(firstRecord.started_at) + ms).toISOString();
+    const root: RequestRecord = {
+      ...firstRecord,
+      events: [
+        {
+          kind: "accepted",
+          started_at: at(0),
+          ended_at: at(3),
+          status: "succeeded",
+          summary: "gpt-4.1 · openai.responses",
+          attempt_index: 0,
+        },
+        {
+          kind: "image_compression",
+          started_at: at(4),
+          ended_at: at(52),
+          status: "succeeded",
+          summary: "lossless · 1/1 images · 75301 → 37406 bytes",
+          attempt_index: 1,
+        },
+        {
+          kind: "routed",
+          started_at: at(53),
+          ended_at: at(53),
+          status: "succeeded",
+          summary: "native · service_01",
+          attempt_index: 1,
+        },
+        {
+          kind: "upstream",
+          started_at: at(53),
+          ended_at: at(120),
+          status: "succeeded",
+          summary: "HTTP 200 · 10 → 20",
+          attempt_index: 1,
+        },
+      ],
+    };
+    const session = sessionFromRecord(root);
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [session],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValue({
+      ...session,
+      turns: [root],
+    });
+
+    await renderRecords();
+    await act(async () => {
+      (
+        container.querySelector(
+          `[data-session-id="${root.id}"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+
+    const chips = [
+      ...container.querySelectorAll<HTMLElement>(
+        '[data-testid="trajectory-row"]',
+      ),
+    ].map((row) => row.dataset.chip);
+    expect(chips.slice(0, 3)).toEqual(["CLIENT", "COMPRESS", "ROUTE"]);
+    const row = container.querySelector<HTMLButtonElement>(
+      '[data-testid="trajectory-row"][data-chip="COMPRESS"]',
+    );
+    expect(row?.textContent).toContain("压缩");
+    expect(row?.textContent).toContain(
+      "1/1 张图片 · 无损 WebP · 73.5 KB → 36.5 KB · 减小 50%",
+    );
+    expect(row?.textContent).toContain("48 ms");
+
+    await act(async () => {
+      row?.click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+    const inspector = container.querySelector(
+      '[data-testid="trajectory-inspector"] [data-testid="compression-inspector"]',
+    );
+    expect(inspector?.textContent).toContain("方式无损 WebP");
+    expect(inspector?.textContent).toContain("已压缩1 张，共 1 张");
+    expect(inspector?.textContent).toContain("压缩前73.5 KB");
+    expect(inspector?.textContent).toContain("实际发送36.5 KB · 减小 50%");
+    expect(inspector?.textContent).toContain("不减少 Token 用量");
+  });
+
   // The detail carries every root turn of the conversation, and the children
   // fetch is one request per root that retried. Tying either to the session
   // list poll meant a 95-turn conversation re-downloaded and rebuilt its whole
@@ -2426,6 +2517,10 @@ describe("RequestRecords", () => {
     expect(
       inspector?.querySelector('[data-testid="inspector-policy-body"]'),
     ).toBeNull();
+    // Regex findings carry no confidence, so there is no confidence line.
+    expect(
+      inspector?.querySelector('[data-testid="policy-confidence"]'),
+    ).toBeNull();
 
     await act(async () => {
       exactButton("隐私保护").click();
@@ -2438,6 +2533,110 @@ describe("RequestRecords", () => {
     expect(panel).toContain("命中类别");
     expect(panel).toContain("邮箱 ×2");
     expect(panel).not.toContain("替换");
+  });
+
+  it("shows model confidence and ignored matches in the policy step", async () => {
+    const warned: RequestRecord = {
+      ...firstRecord,
+      privacy_restore: null,
+      privacy_decision: "warn",
+      privacy_findings: [
+        {
+          kind: "email",
+          json_path: "/input/0/content",
+          count: 2,
+          confidence: { min: 0.9312, max: 0.9987, threshold: 0.7 },
+        },
+        {
+          kind: "email",
+          json_path: "/input/2/content",
+          count: 1,
+          confidence: { min: 0.81, max: 0.81, threshold: 0.7 },
+        },
+        {
+          kind: "private_person",
+          json_path: "/input/2/content",
+          count: 1,
+          confidence: { min: 0.88, max: 0.88, threshold: 0.7 },
+        },
+      ],
+      privacy_ignored: [
+        { kind: "url", reason: "kind_disabled", count: 5 },
+        {
+          kind: "private_person",
+          reason: "low_confidence",
+          count: 2,
+          confidence: { min: 0.41, max: 0.6234, threshold: 0.7 },
+        },
+        { kind: "email", reason: "allowlisted", count: 1 },
+      ],
+      events: [
+        {
+          kind: "accepted",
+          started_at: firstRecord.started_at,
+          ended_at: firstRecord.started_at,
+          status: "succeeded",
+          summary: "gpt-4.1 · openai.responses",
+          attempt_index: 1,
+        },
+        {
+          kind: "privacy",
+          started_at: firstRecord.started_at,
+          ended_at: firstRecord.started_at,
+          status: "succeeded",
+          summary: "warn",
+          attempt_index: 1,
+        },
+        {
+          kind: "completed",
+          started_at: firstRecord.started_at,
+          ended_at: firstRecord.completed_at,
+          status: "succeeded",
+          summary: "HTTP 200",
+          attempt_index: 1,
+        },
+      ],
+    };
+    bridgeMocks.listRequestSessions.mockResolvedValueOnce({
+      items: [sessionFromRecord(warned, { privacy_warned: true })],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValueOnce({
+      ...sessionFromRecord(warned, { privacy_warned: true }),
+      turns: [warned],
+    });
+    await renderRecords();
+    await act(async () => {
+      (
+        container.querySelector(
+          `[data-session-id="${warned.id}"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await Promise.resolve();
+    });
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => await Promise.resolve());
+    await act(async () => {
+      (
+        container.querySelector(
+          '[data-testid="trajectory-row"][data-chip="POLICY"]',
+        ) as HTMLButtonElement
+      ).click();
+    });
+
+    const inspector = container.querySelector(
+      '[data-testid="trajectory-inspector"]',
+    );
+    expect(
+      inspector?.querySelector('[data-testid="policy-confidence"]')
+        ?.textContent,
+    ).toBe("模型置信度（门槛 70%）邮箱 81%–99.87% · 人名 88%");
+    expect(
+      inspector?.querySelector('[data-testid="policy-ignored"]')?.textContent,
+    ).toBe(
+      "已忽略人名 ×2（置信度 41%–62.34%，低于门槛） · 邮箱 ×1（免脱敏名单） · URL ×5（类型已关闭）",
+    );
   });
 
   it("explains missing capture in the inspector", async () => {

@@ -27,7 +27,7 @@ const requestRecordSelectColumns = `
            WHERE request_record_cursors.request_id = request_records.id
            ORDER BY kind, direction, value)) AS cursors_json, first_token_ms, model_redirect_json,
     routing_decision_json, client_type, privacy_decision, privacy_findings_json, conversion_diagnostics_json,
-    first_answer_ms`
+    first_answer_ms, privacy_ignored_json`
 
 const requestRecordInsertColumns = `
     id, parent_request_id, attempt_index, started_at, completed_at, status, input_protocol,
@@ -36,9 +36,9 @@ const requestRecordInsertColumns = `
     session_id, previous_response_id, output_response_id, input_preview, events_json, created_at,
     turn_index, session_link_json, turn_user_messages, turn_user_fingerprint, recovery_json, first_token_ms,
     model_redirect_json, routing_decision_json, client_type, privacy_decision, privacy_findings_json,
-    conversion_diagnostics_json, first_answer_ms`
+    conversion_diagnostics_json, first_answer_ms, privacy_ignored_json`
 
-const requestRecordInsertValues = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+const requestRecordInsertValues = `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 func (row requestRecordRow) insertArgs() []any {
 	return []any{
@@ -49,7 +49,7 @@ func (row requestRecordRow) insertArgs() []any {
 		row.outputResponseID, row.inputPreview, row.eventsJSON, row.createdAt,
 		row.turnIndex, row.sessionLinkJSON, row.turnUserMessages, row.turnUserFingerprint, row.recoveryJSON, row.firstTokenMs,
 		row.modelRedirectJSON, row.routingDecisionJSON, row.clientType, row.privacyDecision, row.privacyFindingsJSON,
-		row.conversionDiagnosticsJSON, row.firstAnswerMs,
+		row.conversionDiagnosticsJSON, row.firstAnswerMs, row.privacyIgnoredJSON,
 	}
 }
 
@@ -141,6 +141,7 @@ ON CONFLICT(id) DO UPDATE SET
     client_type = excluded.client_type,
     privacy_decision = excluded.privacy_decision,
     privacy_findings_json = excluded.privacy_findings_json,
+    privacy_ignored_json = excluded.privacy_ignored_json,
     conversion_diagnostics_json = excluded.conversion_diagnostics_json
 WHERE request_records.status = 'pending' OR excluded.status <> 'pending'`,
 		row.insertArgs()...,
@@ -717,6 +718,7 @@ type requestRecordRow struct {
 	turnUserFingerprint       any
 	privacyDecision           any
 	privacyFindingsJSON       any
+	privacyIgnoredJSON        any
 	conversionDiagnosticsJSON any
 }
 
@@ -830,6 +832,13 @@ func encodeRequestRecordRow(record contract.RequestRecord, createdAt time.Time) 
 		}
 		row.privacyFindingsJSON = string(encoded)
 	}
+	if len(record.PrivacyIgnored) > 0 {
+		encoded, err := json.Marshal(record.PrivacyIgnored)
+		if err != nil {
+			return requestRecordRow{}, fmt.Errorf("encode privacy ignored: %w", err)
+		}
+		row.privacyIgnoredJSON = string(encoded)
+	}
 	if len(record.ConversionDiagnostics) > 0 {
 		encoded, err := json.Marshal(record.ConversionDiagnostics)
 		if err != nil {
@@ -881,7 +890,7 @@ type scannable interface {
 
 func scanRequestRecord(row scannable) (contract.RequestRecord, error) {
 	var recoveryJSON, modelRedirectJSON, routingDecisionJSON, clientType sql.NullString
-	var privacyDecision, privacyFindingsJSON, conversionDiagnosticsJSON sql.NullString
+	var privacyDecision, privacyFindingsJSON, privacyIgnoredJSON, conversionDiagnosticsJSON sql.NullString
 	var firstTokenMs, firstAnswerMs sql.NullInt64
 	var (
 		id, startedAt, status, inputProtocol, auditJSON, createdAt        string
@@ -902,7 +911,7 @@ func scanRequestRecord(row scannable) (contract.RequestRecord, error) {
 		&sessionID, &previousResponseID, &outputResponseID, &inputPreview, &eventsJSON,
 		&createdAt, &turnIndex, &sessionLinkJSON, &turnUserMessages, &turnUserFingerprint, &recoveryJSON, &childCount, &cursorsJSON, &firstTokenMs,
 		&modelRedirectJSON, &routingDecisionJSON, &clientType, &privacyDecision, &privacyFindingsJSON,
-		&conversionDiagnosticsJSON, &firstAnswerMs,
+		&conversionDiagnosticsJSON, &firstAnswerMs, &privacyIgnoredJSON,
 	); err != nil {
 		return contract.RequestRecord{}, err
 	}
@@ -1028,6 +1037,11 @@ func scanRequestRecord(row scannable) (contract.RequestRecord, error) {
 	if privacyFindingsJSON.Valid && privacyFindingsJSON.String != "" {
 		if err := json.Unmarshal([]byte(privacyFindingsJSON.String), &record.PrivacyFindings); err != nil {
 			return contract.RequestRecord{}, fmt.Errorf("%w: request %q privacy_findings", storagecontract.ErrInvalidRecord, id)
+		}
+	}
+	if privacyIgnoredJSON.Valid && privacyIgnoredJSON.String != "" {
+		if err := json.Unmarshal([]byte(privacyIgnoredJSON.String), &record.PrivacyIgnored); err != nil {
+			return contract.RequestRecord{}, fmt.Errorf("%w: request %q privacy_ignored", storagecontract.ErrInvalidRecord, id)
 		}
 	}
 	if conversionDiagnosticsJSON.Valid && conversionDiagnosticsJSON.String != "" {

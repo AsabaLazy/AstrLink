@@ -1981,6 +1981,7 @@
       "blocked": "Blocked",
       "warned": "Warned",
       "fail_open": "Check failed",
+      "ignored": "Ignored",
       "allowed": "Nothing found"
     },
     "outcomeHelp": {
@@ -1988,8 +1989,14 @@
       "blocked": "Matched a block rule. The request stayed on this computer",
       "warned": "Private data found. The model received the request as written",
       "fail_open": "The check failed. The model received the request as written",
-      "allowed": "Checked with no private data found"
+      "ignored": "Every match was on the allowlist or below the confidence threshold. The model received the request as written",
+      "allowed": "Checked with nothing found that needs protection"
     },
+    "ignoredAllowlisted_one": "{{value}} more match was on the allowlist and ignored. The model received it as written.",
+    "ignoredAllowlisted_other": "{{value}} more matches were on the allowlist and ignored. The model received them as written.",
+    "ignoredLowConfidence_one": "{{value}} more match was below the confidence threshold and ignored. The model received it as written.",
+    "ignoredLowConfidence_other": "{{value}} more matches were below the confidence threshold and ignored. The model received them as written.",
+    "ignoredBoth": "{{total}} more matches were ignored and reached the model as written: {{allowlisted}} on the allowlist, {{lowConfidence}} below the confidence threshold.",
     "unprotected_one": "{{count}} more request went out while privacy protection was off. The model received it as written.",
     "unprotected_other": "{{count}} more requests went out while privacy protection was off. The model received them as written.",
     "emptyOffTitle": "Privacy protection is off",
@@ -2353,6 +2360,7 @@
       "CLIENT": "Accepting request",
       "REDIRECT": "Model redirect",
       "POLICY": "Privacy inspection",
+      "COMPRESS": "Image compression",
       "ROUTE": "Choosing an API provider",
       "UPSTREAM": "Waiting for upstream",
       "RETRY": "Retrying upstream",
@@ -2418,6 +2426,7 @@
       "CLIENT": "CLIENT",
       "REDIRECT": "REDIRECT",
       "POLICY": "POLICY",
+      "COMPRESS": "COMPRESS",
       "ROUTE": "ROUTE",
       "UPSTREAM": "UPSTREAM",
       "RETRY": "RETRY",
@@ -2437,6 +2446,23 @@
     "requestedModel": "Requested model",
     "redirectTarget": "Redirected to",
     "modelRedirectHint": "The gateway routes with the redirected model; responses to the client still show the original model name.",
+    "imageCompression": "Image compression",
+    "imageCompressionImages_one": "{{compressed}}/{{count}} image",
+    "imageCompressionImages_other": "{{compressed}}/{{count}} images",
+    "imageCompressionModes": {
+      "lossless": "Lossless WebP",
+      "lossy": "Lossy WebP",
+      "lossyQuality": "Lossy WebP, quality {{quality}}"
+    },
+    "imageCompressionSaved": "{{percent}}% smaller",
+    "imageCompressionMode": "Mode",
+    "imageCompressionReplaced": "Compressed",
+    "imageCompressionReplacedValue_one": "{{compressed}} of {{count}} image",
+    "imageCompressionReplacedValue_other": "{{compressed}} of {{count}} images",
+    "imageCompressionBefore": "Before",
+    "imageCompressionAfter": "Sent",
+    "imageCompressionKeptHint": "None of these images got smaller as WebP, so they were sent as they were. Lossless mode leaves JPEG images alone.",
+    "imageCompressionHint": "Sizes are decoded image bytes. Models count image tokens by pixel size, so compression shrinks the upload but not token usage. The compressed request is under Request on the Upstream tab.",
     "route": "Route",
     "redactedRequest": "Redacted request",
     "policyDecisions": {
@@ -2449,6 +2475,15 @@
     },
     "policyReplaced": "{{count}} replaced",
     "policyNotice": "Placeholder note added",
+    "policyConfidence": "Model confidence (threshold {{threshold}})",
+    "policyIgnored": "Ignored",
+    "policyIgnoredEntry": "{{kind}} ×{{count}} ({{reason}})",
+    "policyIgnoredReasons": {
+      "low_confidence": "below the confidence threshold",
+      "low_confidence_range": "confidence {{range}}, below the threshold",
+      "allowlisted": "allowlisted",
+      "kind_disabled": "type turned off"
+    },
     "policyAllowHint": "The policy left the request unchanged; the body is under Client.",
     "policyWarnHint": "The model received the matched content as is. The body is under Client. With “Redact and continue”, privacy protection replaces this content before sending.",
     "policyBlockHint": "The policy blocked this request before it reached the upstream.",
@@ -3326,7 +3361,7 @@
     "hint": "Converts request images to WebP before forwarding to save upload bandwidth.",
     "description": "Re-encodes base64 images inlined in requests as WebP before forwarding, reducing upload bandwidth. Applies to OpenAI Chat, Responses, Anthropic Messages, and Gemini requests; an image is replaced only when its WebP is smaller. In lossy mode, a PNG or GIF is sent lossless when that is smaller.",
     "keptHelp": "Image URLs, file IDs, WebP images, and animated GIFs are sent as they are. The same image always encodes to the same bytes, so multi-turn conversations still hit the upstream prompt cache. The first compression of a high-resolution screenshot usually takes a few tenths of a second.",
-    "recordHelp": "Request record details show how many images each request re-encoded and how much their size changed.",
+    "recordHelp": "A COMPRESS row in a request record's trace shows how many images each request re-encoded and how much their size changed. Models count image tokens by pixel size, so compression does not lower token usage.",
     "mode": "Mode",
     "modes": {
       "lossless": "Lossless",

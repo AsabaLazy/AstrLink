@@ -1012,5 +1012,8 @@ END`,
     sealed INTEGER NOT NULL DEFAULT 1 CHECK(sealed IN (0, 1))
 )`,
 		}},
+		{Version: 51, Name: "request_privacy_ignored", Statements: []string{
+			`ALTER TABLE request_records ADD COLUMN privacy_ignored_json TEXT`,
+		}},
 	}
 }

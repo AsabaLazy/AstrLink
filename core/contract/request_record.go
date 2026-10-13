@@ -23,19 +23,20 @@ func (id SessionID) Validate() error {
 type RequestEventKind string
 
 const (
-	RequestEventAccepted      RequestEventKind = "accepted"
-	RequestEventModelRedirect RequestEventKind = "model_redirect"
-	RequestEventPrivacy       RequestEventKind = "privacy"
-	RequestEventRouted        RequestEventKind = "routed"
-	RequestEventUpstream      RequestEventKind = "upstream"
-	RequestEventRestore       RequestEventKind = "restore"
-	RequestEventCompleted     RequestEventKind = "completed"
+	RequestEventAccepted         RequestEventKind = "accepted"
+	RequestEventModelRedirect    RequestEventKind = "model_redirect"
+	RequestEventPrivacy          RequestEventKind = "privacy"
+	RequestEventImageCompression RequestEventKind = "image_compression"
+	RequestEventRouted           RequestEventKind = "routed"
+	RequestEventUpstream         RequestEventKind = "upstream"
+	RequestEventRestore          RequestEventKind = "restore"
+	RequestEventCompleted        RequestEventKind = "completed"
 )
 
 func (kind RequestEventKind) Valid() bool {
 	switch kind {
-	case RequestEventAccepted, RequestEventModelRedirect, RequestEventPrivacy, RequestEventRouted,
-		RequestEventUpstream, RequestEventRestore, RequestEventCompleted:
+	case RequestEventAccepted, RequestEventModelRedirect, RequestEventPrivacy, RequestEventImageCompression,
+		RequestEventRouted, RequestEventUpstream, RequestEventRestore, RequestEventCompleted:
 		return true
 	default:
 		return false
@@ -340,6 +341,32 @@ type PrivacyFinding struct {
 	Kind     CanonicalKind `json:"kind"`
 	JSONPath string        `json:"json_path"`
 	Count    int           `json:"count"`
+	// Confidence is nil when the regex detector decided and on records
+	// written before confidence was kept.
+	Confidence *PrivacyConfidence `json:"confidence,omitempty"`
+}
+
+// PrivacyConfidence is the range of local model confidence over the matches
+// an entry counts, beside the policy threshold they were judged against.
+type PrivacyConfidence struct {
+	Min       float64 `json:"min"`
+	Max       float64 `json:"max"`
+	Threshold float64 `json:"threshold"`
+}
+
+func (confidence *PrivacyConfidence) validate() error {
+	if confidence == nil {
+		return nil
+	}
+	for _, value := range []float64{confidence.Min, confidence.Max, confidence.Threshold} {
+		if math.IsNaN(value) || value < 0 || value > 1 {
+			return fmt.Errorf("privacy confidence must be between 0 and 1")
+		}
+	}
+	if confidence.Min > confidence.Max {
+		return fmt.Errorf("privacy confidence min must not exceed max")
+	}
+	return nil
 }
 
 func validatePrivacyFindings(findings []PrivacyFinding) error {
@@ -356,6 +383,68 @@ func validatePrivacyFindings(findings []PrivacyFinding) error {
 		if finding.Count < 1 {
 			return fmt.Errorf("privacy finding counts must be positive")
 		}
+		if err := finding.Confidence.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PrivacyIgnoreReason says why the policy left a match in the request.
+type PrivacyIgnoreReason string
+
+const (
+	PrivacyIgnoreKindDisabled  PrivacyIgnoreReason = "kind_disabled"
+	PrivacyIgnoreLowConfidence PrivacyIgnoreReason = "low_confidence"
+	PrivacyIgnoreAllowlisted   PrivacyIgnoreReason = "allowlisted"
+)
+
+func (reason PrivacyIgnoreReason) Valid() bool {
+	switch reason {
+	case PrivacyIgnoreKindDisabled, PrivacyIgnoreLowConfidence, PrivacyIgnoreAllowlisted:
+		return true
+	default:
+		return false
+	}
+}
+
+// PrivacyIgnored counts the matches of one kind the policy left in the
+// request for one reason, whatever it decided. A match that is already a
+// placeholder is not counted: it is not private content. Like
+// PrivacyFinding it never contains the matched value.
+type PrivacyIgnored struct {
+	Kind   CanonicalKind       `json:"kind"`
+	Reason PrivacyIgnoreReason `json:"reason"`
+	Count  int                 `json:"count"`
+	// Confidence is nil when the regex detector decided and on records
+	// written before confidence was kept.
+	Confidence *PrivacyConfidence `json:"confidence,omitempty"`
+}
+
+func validatePrivacyIgnored(ignored []PrivacyIgnored) error {
+	if len(ignored) > MaxPrivacyFindings {
+		return fmt.Errorf("privacy_ignored must contain at most %d items", MaxPrivacyFindings)
+	}
+	type ignoredKey struct {
+		kind   CanonicalKind
+		reason PrivacyIgnoreReason
+	}
+	seen := make(map[ignoredKey]struct{}, len(ignored))
+	for _, entry := range ignored {
+		if !entry.Kind.Valid() || !entry.Reason.Valid() {
+			return fmt.Errorf("privacy ignored kind or reason is invalid")
+		}
+		if entry.Count < 1 {
+			return fmt.Errorf("privacy ignored counts must be positive")
+		}
+		if err := entry.Confidence.validate(); err != nil {
+			return err
+		}
+		key := ignoredKey{kind: entry.Kind, reason: entry.Reason}
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("privacy ignored kind and reason must be unique")
+		}
+		seen[key] = struct{}{}
 	}
 	return nil
 }
@@ -491,8 +580,11 @@ type RequestRecord struct {
 	PrivacyRestore *PrivacyRestoreSummary `json:"privacy_restore"`
 	// PrivacyDecision is nil on historical records and while the decision is
 	// still pending.
-	PrivacyDecision    *PrivacyDecision `json:"privacy_decision,omitempty"`
-	PrivacyFindings    []PrivacyFinding `json:"privacy_findings,omitempty"`
+	PrivacyDecision *PrivacyDecision `json:"privacy_decision,omitempty"`
+	PrivacyFindings []PrivacyFinding `json:"privacy_findings,omitempty"`
+	// PrivacyIgnored is empty when nothing was left in place and on records
+	// written before ignored matches were kept.
+	PrivacyIgnored     []PrivacyIgnored `json:"privacy_ignored,omitempty"`
 	SessionID          *SessionID       `json:"session_id"`
 	PreviousResponseID *string          `json:"previous_response_id"`
 	OutputResponseID   *string          `json:"output_response_id"`
@@ -631,6 +723,9 @@ func (record RequestRecord) Validate() error {
 		return fmt.Errorf("unknown privacy decision %q", *record.PrivacyDecision)
 	}
 	if err := validatePrivacyFindings(record.PrivacyFindings); err != nil {
+		return err
+	}
+	if err := validatePrivacyIgnored(record.PrivacyIgnored); err != nil {
 		return err
 	}
 	if err := validateConversionDiagnostics(record.ConversionDiagnostics); err != nil {

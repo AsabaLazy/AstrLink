@@ -1981,6 +1981,7 @@
       "blocked": "已阻止",
       "warned": "已警告",
       "fail_open": "检查失败",
+      "ignored": "已忽略",
       "allowed": "未发现"
     },
     "outcomeHelp": {
@@ -1988,8 +1989,14 @@
       "blocked": "命中阻止规则，请求停在了本机",
       "warned": "发现隐私内容，请求按原文发给了模型",
       "fail_open": "检查出错，请求按原文发给了模型",
-      "allowed": "检查完成，没有发现隐私内容"
+      "ignored": "发现的内容命中免脱敏名单或低于置信度门槛，请求按原文发给了模型",
+      "allowed": "检查完成，没有发现需要保护的内容"
     },
+    "ignoredAllowlisted_one": "另有 {{value}} 处命中免脱敏名单，已忽略，模型收到的是原文。",
+    "ignoredAllowlisted_other": "另有 {{value}} 处命中免脱敏名单，已忽略，模型收到的是原文。",
+    "ignoredLowConfidence_one": "另有 {{value}} 处低于置信度门槛，已忽略，模型收到的是原文。",
+    "ignoredLowConfidence_other": "另有 {{value}} 处低于置信度门槛，已忽略，模型收到的是原文。",
+    "ignoredBoth": "另有 {{total}} 处已忽略，模型收到的是原文：{{allowlisted}} 处命中免脱敏名单，{{lowConfidence}} 处低于置信度门槛。",
     "unprotected_one": "另有 {{count}} 次请求发出时隐私保护已关闭，模型收到的是原文。",
     "unprotected_other": "另有 {{count}} 次请求发出时隐私保护已关闭，模型收到的是原文。",
     "emptyOffTitle": "隐私保护已关闭",
@@ -2353,6 +2360,7 @@
       "CLIENT": "接收请求",
       "REDIRECT": "模型重定向",
       "POLICY": "隐私检测",
+      "COMPRESS": "图片压缩",
       "ROUTE": "选择 API 提供商",
       "UPSTREAM": "等待上游响应",
       "RETRY": "重试上游",
@@ -2418,6 +2426,7 @@
       "CLIENT": "客户端",
       "REDIRECT": "重定向",
       "POLICY": "策略",
+      "COMPRESS": "压缩",
       "ROUTE": "路由",
       "UPSTREAM": "上游",
       "RETRY": "重试",
@@ -2437,6 +2446,23 @@
     "requestedModel": "客户端请求模型",
     "redirectTarget": "重定向到",
     "modelRedirectHint": "网关按重定向后的模型选择 API 提供商；客户端收到的响应仍显示原模型名。",
+    "imageCompression": "图片压缩",
+    "imageCompressionImages_one": "{{compressed}}/{{count}} 张图片",
+    "imageCompressionImages_other": "{{compressed}}/{{count}} 张图片",
+    "imageCompressionModes": {
+      "lossless": "无损 WebP",
+      "lossy": "有损 WebP",
+      "lossyQuality": "有损 WebP，质量 {{quality}}"
+    },
+    "imageCompressionSaved": "减小 {{percent}}%",
+    "imageCompressionMode": "方式",
+    "imageCompressionReplaced": "已压缩",
+    "imageCompressionReplacedValue_one": "{{compressed}} 张，共 {{count}} 张",
+    "imageCompressionReplacedValue_other": "{{compressed}} 张，共 {{count}} 张",
+    "imageCompressionBefore": "压缩前",
+    "imageCompressionAfter": "实际发送",
+    "imageCompressionKeptHint": "这些图片转成 WebP 后都没有变小，已原样发送。无损方式不压缩 JPEG。",
+    "imageCompressionHint": "大小按解码后的图片字节计算。模型按图片像素尺寸计算 Token，压缩只减小上传体积，不减少 Token 用量。压缩后的请求见「上游」标签的「请求」视图。",
     "route": "路由",
     "redactedRequest": "脱敏后请求",
     "policyDecisions": {
@@ -2449,6 +2475,15 @@
     },
     "policyReplaced": "替换 {{count}} 处",
     "policyNotice": "已附加占位符说明",
+    "policyConfidence": "模型置信度（门槛 {{threshold}}）",
+    "policyIgnored": "已忽略",
+    "policyIgnoredEntry": "{{kind}} ×{{count}}（{{reason}}）",
+    "policyIgnoredReasons": {
+      "low_confidence": "低于置信度门槛",
+      "low_confidence_range": "置信度 {{range}}，低于门槛",
+      "allowlisted": "免脱敏名单",
+      "kind_disabled": "类型已关闭"
+    },
     "policyAllowHint": "策略没有改动请求内容，请求体见「客户端」。",
     "policyWarnHint": "命中的内容已按原文发给模型，请求体见「客户端」。隐私保护设为「脱敏后继续」时，会在发送前替换这些内容。",
     "policyBlockHint": "策略阻止了这次请求，没有发往上游。",
@@ -3326,7 +3361,7 @@
     "hint": "转发前把请求里的图片转成 WebP，节省上传带宽。",
     "description": "转发前把请求中以 base64 内联的图片重新编码为 WebP，减少上传流量。适用于 OpenAI Chat、Responses、Anthropic Messages 和 Gemini 请求；只有编码后更小才替换。有损方式下，PNG 或 GIF 的无损结果更小时改用无损。",
     "keptHelp": "图片链接、文件 ID、已是 WebP 的图片和动图原样发送。同一张图每次编码结果一致，多轮对话仍能命中上游提示缓存。首次压缩高分辨率截图通常需要零点几秒。",
-    "recordHelp": "每次请求压缩了几张图、体积变化多少，会显示在请求记录详情中。",
+    "recordHelp": "每次请求压缩了几张图、体积变化多少，显示在请求记录「追踪」里的「压缩」一行。模型按图片像素尺寸计算 Token，压缩不会减少 Token 用量。",
     "mode": "方式",
     "modes": {
       "lossless": "无损",

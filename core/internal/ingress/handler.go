@@ -469,7 +469,7 @@ func (handler *Handler) applyPrivacy(
 	session.beginPrivacyAttempt()
 	if handler.privacyFilter == nil {
 		session.notePrivacyDecision("allow", contract.RequestStatusSucceeded)
-		session.notePrivacyOutcome(contract.PrivacyDecisionNone, nil)
+		session.notePrivacyOutcome(contract.PrivacyDecisionNone, nil, nil, nil)
 		return func() {}, privacyOutcome{}, nil
 	}
 	accessTokenID, _ := AccessTokenIDFromContext(request.Context())
@@ -486,7 +486,7 @@ func (handler *Handler) applyPrivacy(
 		// This branch deliberately does not read, replace, or otherwise touch
 		// request.Body. Disabled policy preserves the original byte path.
 		session.notePrivacyDecision("allow", contract.RequestStatusSucceeded)
-		session.notePrivacyOutcome(contract.PrivacyDecisionNone, nil)
+		session.notePrivacyOutcome(contract.PrivacyDecisionNone, nil, nil, nil)
 		return func() {}, privacyOutcome{}, nil
 	}
 	encoding := strings.ToLower(strings.TrimSpace(request.Header.Get("Content-Encoding")))
@@ -524,10 +524,11 @@ func (handler *Handler) applyPrivacy(
 	if err != nil {
 		return finish, privacyOutcome{}, err
 	}
+	threshold := privacyThreshold(policy)
 	switch result.Decision {
 	case privacy.DecisionAllow:
 		session.notePrivacyDecision("allow", contract.RequestStatusSucceeded)
-		session.notePrivacyOutcome(contract.PrivacyDecisionAllow, nil)
+		session.notePrivacyOutcome(contract.PrivacyDecisionAllow, nil, result.SuppressedFindings, threshold)
 		return finish, privacyOutcome{}, nil
 	case privacy.DecisionWarn:
 		// This is a response-only signal. Never add it to request.Header, where
@@ -544,11 +545,11 @@ func (handler *Handler) applyPrivacy(
 			})
 		}
 		session.notePrivacyDecision("warn", contract.RequestStatusSucceeded)
-		session.notePrivacyOutcome(contract.PrivacyDecisionWarn, result.Findings)
+		session.notePrivacyOutcome(contract.PrivacyDecisionWarn, result.Findings, result.SuppressedFindings, threshold)
 		return finish, privacyOutcome{}, nil
 	case privacy.DecisionBlock:
 		session.notePrivacyDecision("block", contract.RequestStatusBlocked)
-		session.notePrivacyOutcome(contract.PrivacyDecisionBlock, result.Findings)
+		session.notePrivacyOutcome(contract.PrivacyDecisionBlock, result.Findings, result.SuppressedFindings, threshold)
 		session.noteProtectedValues(result.Protected)
 		return finish, privacyOutcome{}, errPrivacyBlocked
 	case privacy.DecisionRedact:
@@ -559,7 +560,7 @@ func (handler *Handler) applyPrivacy(
 			return finish, privacyOutcome{}, errMetadataTooLarge
 		}
 		buffered.Replace(result.Body)
-		session.notePrivacyOutcome(contract.PrivacyDecisionRedact, result.Findings)
+		session.notePrivacyOutcome(contract.PrivacyDecisionRedact, result.Findings, result.SuppressedFindings, threshold)
 		session.noteProtectedValues(result.Protected)
 		mappingCount := uniqueRedactionMappingCount(result.Redactions)
 		session.notePrivacyMapping(

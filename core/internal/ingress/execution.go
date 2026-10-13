@@ -646,12 +646,12 @@ func (handler *Handler) executeCandidatesWithTest(
 					request.Context(),
 					candidate,
 					plan,
+					images,
 					handler.requestRecords,
 					handler.recordLogger,
 				)
 				recordSession.noteConversionDiagnostics(contract.ConversionDiagnosticPhaseRequest, conversion.Diagnostics)
 				recordSession.noteGatewayReasoning(reasoning)
-				recordSession.noteImageCompression(images)
 				recordSession.observeOutboundCapture(outbound)
 			}
 			if test != nil && test.observer.Outbound != nil {

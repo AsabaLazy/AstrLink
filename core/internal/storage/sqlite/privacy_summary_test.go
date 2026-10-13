@@ -24,6 +24,10 @@ func TestPrivacySummaryCountsDecisionsValuesAndKinds(t *testing.T) {
 		Hits: []contract.PrivacyHitCount{{Kind: contract.CanonicalKindEmail, Count: 2}, {Kind: contract.CanonicalKindPhone, Count: 1}},
 	}
 	secret := []contract.PrivacyFinding{{Kind: contract.CanonicalKindCommonSecret, JSONPath: "/input/0/content", Count: 2}}
+	allowlisted := []contract.PrivacyIgnored{
+		{Kind: contract.CanonicalKindEmail, Reason: contract.PrivacyIgnoreAllowlisted, Count: 2},
+		{Kind: contract.CanonicalKindURL, Reason: contract.PrivacyIgnoreKindDisabled, Count: 5},
+	}
 	for _, test := range []struct {
 		id       string
 		status   contract.RequestStatus
@@ -31,14 +35,20 @@ func TestPrivacySummaryCountsDecisionsValuesAndKinds(t *testing.T) {
 		decision *contract.PrivacyDecision
 		restore  *contract.PrivacyRestoreSummary
 		findings []contract.PrivacyFinding
+		ignored  []contract.PrivacyIgnored
 		child    bool
 		protocol contract.ProtocolID
 	}{
-		{id: "redacted", status: contract.RequestStatusSucceeded, at: from.Add(time.Hour), decision: decision(contract.PrivacyDecisionRedact), restore: redacted, findings: secret},
+		{id: "redacted", status: contract.RequestStatusSucceeded, at: from.Add(time.Hour), decision: decision(contract.PrivacyDecisionRedact), restore: redacted, findings: secret,
+			ignored: []contract.PrivacyIgnored{{Kind: contract.CanonicalKindPerson, Reason: contract.PrivacyIgnoreLowConfidence, Count: 3}}},
 		{id: "redacted_failed", status: contract.RequestStatusFailed, at: from.Add(time.Hour), decision: decision(contract.PrivacyDecisionRedact), restore: redacted},
 		{id: "blocked", status: contract.RequestStatusBlocked, at: from.Add(2 * time.Hour), decision: decision(contract.PrivacyDecisionBlock), findings: secret},
 		{id: "warned", status: contract.RequestStatusSucceeded, at: from.Add(2 * time.Hour), decision: decision(contract.PrivacyDecisionWarn), findings: secret},
 		{id: "allowed", status: contract.RequestStatusCancelled, at: from, decision: decision(contract.PrivacyDecisionAllow)},
+		// A disabled kind is the user's choice, not a match left behind.
+		{id: "allowed_disabled_kind", status: contract.RequestStatusSucceeded, at: from, decision: decision(contract.PrivacyDecisionAllow),
+			ignored: []contract.PrivacyIgnored{{Kind: contract.CanonicalKindURL, Reason: contract.PrivacyIgnoreKindDisabled, Count: 4}}},
+		{id: "ignored", status: contract.RequestStatusSucceeded, at: from, decision: decision(contract.PrivacyDecisionAllow), ignored: allowlisted},
 		{id: "fail_open", status: contract.RequestStatusSucceeded, at: from, decision: decision(contract.PrivacyDecisionFailOpen)},
 		{id: "off", status: contract.RequestStatusSucceeded, at: from, decision: decision(contract.PrivacyDecisionNone)},
 		// Rows from before decisions were recorded keep their own evidence.
@@ -54,7 +64,7 @@ func TestPrivacySummaryCountsDecisionsValuesAndKinds(t *testing.T) {
 	} {
 		record := contract.RequestRecord{ID: contract.RequestID("request_" + test.id), StartedAt: test.at, Status: test.status,
 			InputProtocol: contract.ProtocolOpenAIResponses, Audit: contract.NotCapturedAuditSummary(),
-			PrivacyDecision: test.decision, PrivacyRestore: test.restore, PrivacyFindings: test.findings}
+			PrivacyDecision: test.decision, PrivacyRestore: test.restore, PrivacyFindings: test.findings, PrivacyIgnored: test.ignored}
 		if test.protocol != "" {
 			record.InputProtocol = test.protocol
 		}
@@ -71,8 +81,9 @@ func TestPrivacySummaryCountsDecisionsValuesAndKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := storage.PrivacyTotals{Requests: 10, Allowed: 1, Warned: 1, Redacted: 3, Blocked: 2, FailOpen: 1,
-		Replaced: 7, Restored: 9, RestoredVisible: 6, RestoredToolArguments: 2, Unrestored: 2}
+	want := storage.PrivacyTotals{Requests: 12, Allowed: 2, Ignored: 1, Warned: 1, Redacted: 3, Blocked: 2, FailOpen: 1,
+		Replaced: 7, Restored: 9, RestoredVisible: 6, RestoredToolArguments: 2, Unrestored: 2,
+		IgnoredAllowlisted: 2, IgnoredLowConfidence: 3}
 	if summary.Totals != want {
 		t.Fatalf("totals = %+v, want %+v", summary.Totals, want)
 	}

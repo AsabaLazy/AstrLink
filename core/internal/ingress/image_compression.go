@@ -9,15 +9,12 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/astrlink/core/contract"
 	"github.com/QuantumNous/astrlink/core/internal/imagecompress"
 	"github.com/tidwall/gjson"
 )
-
-// imageCompressionDiagnostic is the request diagnostic that tells what image
-// compression did to an attempt.
-const imageCompressionDiagnostic = "image_compression"
 
 // maxImageNesting bounds the walk; request images sit a few levels deep, also
 // inside tool results.
@@ -41,30 +38,28 @@ func imageCompressionFrom(settings contract.RoutingSettings) imageCompression {
 
 // imageCompressionResult is what image compression did to one attempt.
 type imageCompressionResult struct {
-	mode contract.ImageCompressionMode
+	mode    contract.ImageCompressionMode
+	quality int
 	// images counts the inline images found, compressed those replaced.
 	images, compressed int
 	// before and after are the decoded bytes of every inline image.
 	before, after int
+	// startedAt and endedAt bound the step, reading the body included.
+	startedAt, endedAt time.Time
 }
 
-func (result imageCompressionResult) diagnostic() string {
+// summary is the image_compression event summary, empty when the body held
+// no inline image. The desktop parses it, so its shape is fixed:
+// "lossless · 1/2 images · 75301 → 37406 bytes", or "lossy q80 · …".
+func (result imageCompressionResult) summary() string {
 	if result.images == 0 {
 		return ""
 	}
-	return fmt.Sprintf("re-encoded %d of %d images as %s WebP, %s to %s",
-		result.compressed, result.images, result.mode, formatImageBytes(result.before), formatImageBytes(result.after))
-}
-
-func formatImageBytes(size int) string {
-	switch {
-	case size >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(size)/(1<<20))
-	case size >= 1<<10:
-		return fmt.Sprintf("%.1f KiB", float64(size)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", size)
+	mode := string(result.mode)
+	if result.mode == contract.ImageCompressionLossy {
+		mode += fmt.Sprintf(" q%d", result.quality)
 	}
+	return fmt.Sprintf("%s · %d/%d images · %d → %d bytes", mode, result.compressed, result.images, result.before, result.after)
 }
 
 // applyImageCompression re-encodes the inline images of one attempt's body
@@ -84,6 +79,7 @@ func (handler *Handler) applyImageCompression(
 	if encoding := strings.ToLower(strings.TrimSpace(request.Header.Get("Content-Encoding"))); encoding != "" && encoding != "identity" {
 		return imageCompressionResult{}, nil
 	}
+	started := time.Now().UTC()
 	raw, err := io.ReadAll(request.Body)
 	_ = request.Body.Close()
 	if err != nil {
@@ -91,6 +87,7 @@ func (handler *Handler) applyImageCompression(
 	}
 	body, result := compressRequestImages(request.Context(), &handler.images, protocol, raw, compression)
 	replaceRecoveryRequestBody(request, body)
+	result.startedAt, result.endedAt = started, time.Now().UTC()
 	return result, nil
 }
 
@@ -126,7 +123,7 @@ func compressRequestImages(
 	body []byte,
 	compression imageCompression,
 ) ([]byte, imageCompressionResult) {
-	result := imageCompressionResult{mode: compression.mode}
+	result := imageCompressionResult{mode: compression.mode, quality: compression.options.Quality}
 	if !slices.ContainsFunc(imageMarkers(protocol), func(marker string) bool { return bytes.Contains(body, []byte(marker)) }) ||
 		!gjson.ValidBytes(body) {
 		return body, result
