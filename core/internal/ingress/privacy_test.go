@@ -815,6 +815,84 @@ func TestPrivacyRetryDoesNotAccumulateNotice(t *testing.T) {
 	}
 }
 
+// TestPrivacyIPv4StandInStaysAcrossLinkedTurns follows a stand-in the model
+// quoted in reasoning, which is never restored: the next turn of the same
+// session must keep it as the name of the same address.
+func TestPrivacyIPv4StandInStaysAcrossLinkedTurns(t *testing.T) {
+	filter := testPrivacyEngine(t, privacy.Policy{
+		Enabled: true, Mode: privacy.ModeRegex, Action: privacy.ActionRedact, ResponseRestore: true,
+		KindRules: map[privacy.Kind]privacy.KindRule{
+			privacy.KindIPAddress: {Enabled: true, Style: contract.PlaceholderStyleNatural},
+		},
+	}, nil)
+	records := &memoryRequestRecordStore{}
+	var standIns []string
+	handler := NewWithDependencies(Dependencies{
+		Resolver: resolverFunc(func(context.Context, endpoint.ResolveRequest) (endpoint.Resolved, error) {
+			return endpoint.Resolved{Endpoint: validEndpoint(contract.ProtocolOpenAIResponses, false)}, nil
+		}),
+		PrivacyFilter:  filter,
+		RequestRecords: records,
+		Forwarder: transport.New(roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload struct {
+				Input []struct {
+					Content json.RawMessage `json:"content"`
+				} `json:"input"`
+			}
+			var text string
+			if err := json.Unmarshal(body, &payload); err != nil || len(payload.Input) == 0 ||
+				json.Unmarshal(payload.Input[0].Content, &text) != nil {
+				t.Fatalf("upstream body = %s", body)
+			}
+			if strings.Contains(string(body), "10.4.7.9") {
+				t.Fatalf("address reached upstream: %s", body)
+			}
+			standIn := strings.TrimPrefix(text, "ssh ")
+			standIns = append(standIns, standIn)
+			return jsonResponse(http.StatusOK, `{"id":"resp_`+strconv.Itoa(len(standIns))+`","output":[`+
+				`{"type":"reasoning","id":"rs_`+strconv.Itoa(len(standIns))+`","summary":[],"content":[`+
+				`{"type":"reasoning_text","text":"Connect to `+standIn+` first."}]},`+
+				`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}`), nil
+		})),
+	})
+	user := `{"role":"user","content":"ssh 10.4.7.9"}`
+	body := `{"model":"gpt-5","store":false,"input":[` + user + `]}`
+	for turn := range 2 {
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("turn %d status=%d %s", turn+1, response.Code, response.Body.String())
+		}
+		var result struct {
+			ID     string            `json:"id"`
+			Output []json.RawMessage `json:"output"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		input := []string{user}
+		for _, item := range result.Output {
+			input = append(input, string(item))
+		}
+		body = `{"model":"gpt-5","store":false,"previous_response_id":"` + result.ID +
+			`","input":[` + strings.Join(append(input, `{"role":"user","content":"again"}`), ",") + `]}`
+	}
+	if len(records.records) != 2 || records.records[0].SessionID == nil ||
+		records.records[1].SessionID == nil ||
+		*records.records[0].SessionID != *records.records[1].SessionID {
+		t.Fatal("turns were not linked into one session")
+	}
+	if len(standIns) != 2 || standIns[0] != standIns[1] {
+		t.Fatalf("stand-ins across turns = %q, want one name for the address", standIns)
+	}
+}
+
 func TestPrivacyDecisionSummaryNamesTheExplanationPath(t *testing.T) {
 	for _, test := range []struct {
 		notice, skill bool

@@ -515,6 +515,9 @@ func (handler *Handler) applyPrivacy(
 			privacyBatchProgress(progress),
 		)
 	})
+	if session != nil {
+		inspectCtx = privacy.WithConversation(inspectCtx, string(session.sessionID))
+	}
 	result, err := handler.privacyFilter.Inspect(
 		inspectCtx,
 		policy,

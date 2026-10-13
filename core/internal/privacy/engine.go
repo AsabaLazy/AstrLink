@@ -17,6 +17,7 @@ type Engine struct {
 	modelDetector Detector
 	// derivationKey keys the placeholder HMAC. Empty means the process-wide key.
 	derivationKey []byte
+	standIns      standInLedgers
 }
 
 func New(provider PolicyProvider, modelDetector Detector) (*Engine, error) {
@@ -134,6 +135,7 @@ func (engine *Engine) Inspect(ctx context.Context, policy Policy, protocol contr
 			}, ErrUnsafeRewrite
 		}
 		allocator := newPlaceholderAllocator(engine.derivationKey, policy.KindRule, body)
+		allocator.ledger = engine.standIns.conversation(conversationFrom(ctx))
 		skillListed := placeholderSkillListed(protocol, body)
 		notice := ""
 		if policy.PlaceholderNotice && !skillListed {
