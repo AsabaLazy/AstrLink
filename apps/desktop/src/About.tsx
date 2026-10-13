@@ -98,6 +98,15 @@ export function About({
       saveUpdatePreferences({ ...snapshot.preferences, ...patch }),
     );
   }
+  function switchToMirror() {
+    void run(async () => {
+      await saveUpdatePreferences({
+        ...snapshot.preferences,
+        official_mirror: true,
+      });
+      return checkAppUpdate();
+    });
+  }
   async function open(url: string) {
     try {
       await openExternalURL(url);
@@ -280,6 +289,18 @@ export function About({
                     <p>
                       {t("about.retryAt", { time: formatRetryWait(retryWait) })}
                     </p>
+                  ) : null}
+                  {snapshot.error_code === "rate_limit" &&
+                  !snapshot.preferences.official_mirror ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="my-1.5"
+                      disabled={!native || working}
+                      onClick={switchToMirror}
+                    >
+                      {t("about.useOfficialMirror")}
+                    </Button>
                   ) : null}
                   {snapshot.error_detail ? (
                     <details className="mt-1 text-xs">

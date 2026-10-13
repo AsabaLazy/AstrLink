@@ -145,6 +145,45 @@ describe("About updates", () => {
       vi.useRealTimers();
     }
   });
+  it("offers the official mirror while GitHub's rate limit holds checks", async () => {
+    const limited: UpdateSnapshot = {
+      ...ready,
+      phase: "error",
+      release: null,
+      error_code: "rate_limit",
+      error_detail: "GitHub HTTP 403 Forbidden; 0 of 60 requests left",
+      retry_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+    };
+    const mirrored = {
+      ...limited,
+      preferences: { ...limited.preferences, official_mirror: true },
+    };
+    mocks.saveUpdatePreferences.mockResolvedValue(mirrored);
+    mocks.checkAppUpdate.mockResolvedValue({
+      ...mirrored,
+      phase: "up_to_date",
+      error_code: null,
+      error_detail: null,
+      retry_at: null,
+    });
+    await render(limited);
+    expect(button("检查更新").disabled).toBe(true);
+    expect(button("改用官方镜像源").disabled).toBe(false);
+    await act(async () => button("改用官方镜像源").click());
+    expect(mocks.saveUpdatePreferences).toHaveBeenCalledWith({
+      ...limited.preferences,
+      official_mirror: true,
+    });
+    expect(mocks.checkAppUpdate).toHaveBeenCalledOnce();
+    expect(
+      mocks.saveUpdatePreferences.mock.invocationCallOrder[0],
+    ).toBeLessThan(mocks.checkAppUpdate.mock.invocationCallOrder[0]);
+    expect(receive).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: "up_to_date" }),
+    );
+    await render(mirrored);
+    expect(button("改用官方镜像源")).toBeUndefined();
+  });
   it("reports command failures and retries checks", async () => {
     mocks.checkAppUpdate.mockRejectedValue(new Error("offline"));
     await render({ ...ready, phase: "idle", release: null });

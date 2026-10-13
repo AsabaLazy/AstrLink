@@ -21,6 +21,8 @@ const RELEASE_API: &str = "https://api.github.com/repos/Calcium-Ion/AstrLink/rel
 const LATEST_MANIFEST: &str =
     "https://github.com/Calcium-Ion/AstrLink/releases/latest/download/latest.json";
 const DOWNLOAD_SITE: &str = "https://download.astrlink.com";
+/// The download domain's CDN serves only `/releases/*`, so the list lives on the site.
+const MIRROR_RELEASE_API: &str = "https://astrlink.com/api/releases";
 const EVENT: &str = "app-update-status";
 const PUBLIC_KEY: &str = env!("TAURI_UPDATER_PUBLIC_KEY");
 const INTERVAL: Duration = Duration::from_secs(3 * 60 * 60);
@@ -41,7 +43,7 @@ pub struct UpdatePreferences {
     pub auto_check: bool,
     pub auto_download: bool,
     pub channel: UpdateChannel,
-    /// Download the installer from the project download site instead of GitHub.
+    /// Check and download updates through the project download site instead of GitHub.
     pub official_mirror: bool,
 }
 impl Default for UpdatePreferences {
@@ -144,6 +146,16 @@ fn select_release(releases: &[GithubRelease], channel: UpdateChannel) -> Option<
         })
         .max_by(|a, b| a.0.cmp_precedence(&b.0))
         .map(|(_, r)| r)
+}
+
+/// A caller that switches only the source retries on its own; waking the
+/// scheduler as well would race it for the operation lock.
+fn reschedules(current: &UpdatePreferences, input: &UpdatePreferences) -> bool {
+    current.official_mirror == input.official_mirror
+        || UpdatePreferences {
+            official_mirror: current.official_mirror,
+            ..input.clone()
+        } != *current
 }
 
 /// The update state worth the operator's attention. `available` only counts
@@ -491,6 +503,23 @@ async fn fetch_releases(
     Ok(releases)
 }
 
+/// The mirror lists its 20 newest releases in GitHub's shape, outside GitHub's
+/// quota; its failures are never GitHub rate limits.
+async fn fetch_mirror_releases(
+    client: &reqwest::Client,
+    endpoint: &str,
+) -> Result<Vec<GithubRelease>, (&'static str, String)> {
+    client
+        .get(endpoint)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| ("network", e.to_string()))?
+        .json()
+        .await
+        .map_err(|e| ("manifest", e.to_string()))
+}
+
 impl UpdateManager {
     pub fn new(app: &AppHandle) -> Result<Self, String> {
         #[cfg(target_os = "linux")]
@@ -619,15 +648,20 @@ impl UpdateManager {
         }
         app.state::<Arc<PreferencesStore>>()
             .replace_updates(input.clone())?;
-        let changed_channel = inner.snapshot.preferences.channel != input.channel;
+        let current = &inner.snapshot.preferences;
+        let changed_channel = current.channel != input.channel;
+        let changed_mirror = current.official_mirror != input.official_mirror;
+        let reschedule = reschedules(current, &input);
         inner.snapshot.preferences = input;
+        if changed_channel || changed_mirror {
+            // Each channel and the mirror read separate sources, so a rate limit does not carry over.
+            inner.retry_after = None;
+            inner.snapshot.retry_at = None;
+        }
         if changed_channel {
             inner.generation += 1;
             inner.pending = None;
             inner.pending_tag = None;
-            // Each channel reads its own GitHub source, so a rate limit does not carry over.
-            inner.retry_after = None;
-            inner.snapshot.retry_at = None;
             inner.snapshot.release = None;
             inner.snapshot.latest_version = None;
             inner.snapshot.phase = "idle".into();
@@ -643,7 +677,9 @@ impl UpdateManager {
         }
         drop(inner);
         self.publish(app, |_| {});
-        self.schedule.notify_one();
+        if reschedule {
+            self.schedule.notify_one();
+        }
         Ok(self.snapshot())
     }
     pub fn start(self: &Arc<Self>, app: AppHandle) {
@@ -714,13 +750,20 @@ impl UpdateManager {
             builder.build().map_err(|e| ("network", e.to_string()))
         };
         let follow = client(reqwest::redirect::Policy::default())?;
+        let mirror = prefs.updates.official_mirror;
         let mut retry_after = None;
-        let fetched = match prefs.updates.channel {
-            UpdateChannel::Stable => {
-                let direct = client(reqwest::redirect::Policy::none())?;
-                fetch_latest(&follow, &direct, LATEST_MANIFEST, &mut retry_after).await
+        let fetched = if mirror {
+            fetch_mirror_releases(&follow, MIRROR_RELEASE_API).await
+        } else {
+            match prefs.updates.channel {
+                UpdateChannel::Stable => {
+                    let direct = client(reqwest::redirect::Policy::none())?;
+                    fetch_latest(&follow, &direct, LATEST_MANIFEST, &mut retry_after).await
+                }
+                UpdateChannel::Preview => {
+                    fetch_releases(&follow, RELEASE_API, &mut retry_after).await
+                }
             }
-            UpdateChannel::Preview => fetch_releases(&follow, RELEASE_API, &mut retry_after).await,
         };
         let releases = match fetched {
             Ok(releases) => releases,
@@ -804,12 +847,19 @@ impl UpdateManager {
                 "missing_artifact",
                 "Release has no latest.json update manifest".into(),
             ))?;
+        let endpoint = if mirror {
+            format!(
+                "{DOWNLOAD_SITE}/releases/download/{}/latest.json",
+                urlencoding(&release.tag_name)
+            )
+        } else {
+            manifest.browser_download_url.clone()
+        };
         let mut updater = app
             .updater_builder()
             .pubkey(PUBLIC_KEY)
             .timeout(Duration::from_secs(30))
-            .endpoints(vec![manifest
-                .browser_download_url
+            .endpoints(vec![endpoint
                 .parse::<reqwest::Url>()
                 .map_err(|e| ("manifest", e.to_string()))?])
             .map_err(|e| ("manifest", e.to_string()))?;
@@ -827,11 +877,11 @@ impl UpdateManager {
                 "Release and update manifest versions disagree".into(),
             ))?;
         if version(&update.version) != Some(selected_version)
-            || !github_asset(update.download_url.as_str(), &release.tag_name)
+            || !official_asset(update.download_url.as_str(), &release.tag_name)
         {
             return Err((
                 "manifest",
-                "Update manifest does not match the selected GitHub release".into(),
+                "Update manifest does not match the selected release".into(),
             ));
         }
         update.timeout = Some(Duration::from_secs(30 * 60));
@@ -1243,6 +1293,71 @@ mod tests {
             "network"
         );
         assert!(retry.is_none());
+    }
+
+    #[tokio::test]
+    async fn mirror_checks_read_github_shaped_releases_and_never_back_off() {
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let listed = r#"[{"tag_name":"v1.1.0-beta.1","draft":false,"prerelease":true,
+            "body":"notes","body_html":"<p>notes</p>","html_url":"https://github.com/x",
+            "published_at":"2026-10-13T05:08:04Z","assets":[{"name":"latest.json",
+            "browser_download_url":"https://github.com/Calcium-Ion/AstrLink/releases/download/v1.1.0-beta.1/latest.json",
+            "download_url":"https://download.astrlink.com/releases/download/v1.1.0-beta.1/latest.json",
+            "digest":"sha256:00"}]}]"#;
+        let (url, server) = response_server("200 OK", "", listed);
+        let releases = fetch_mirror_releases(&client, &url).await.unwrap();
+        server.join().unwrap();
+        assert_eq!(
+            select_release(&releases, UpdateChannel::Preview)
+                .unwrap()
+                .tag_name,
+            "v1.1.0-beta.1"
+        );
+        assert!(select_release(&releases, UpdateChannel::Stable).is_none());
+        for (status, headers, body, code) in [
+            ("503 Service Unavailable", "", "{}", "network"),
+            (
+                "429 Too Many Requests",
+                "Retry-After: 60\r\n",
+                "{}",
+                "network",
+            ),
+            ("200 OK", "", "invalid", "manifest"),
+        ] {
+            let (url, server) = response_server(status, headers, body);
+            let result = fetch_mirror_releases(&client, &url).await;
+            server.join().unwrap();
+            assert_eq!(result.unwrap_err().0, code, "{status} {body}");
+        }
+    }
+
+    #[test]
+    fn switching_only_the_mirror_leaves_the_retry_to_its_caller() {
+        let current = UpdatePreferences::default();
+        let mirror = UpdatePreferences {
+            official_mirror: true,
+            ..current.clone()
+        };
+        assert!(!reschedules(&current, &mirror));
+        assert!(reschedules(&current, &current));
+        assert!(reschedules(
+            &current,
+            &UpdatePreferences {
+                channel: UpdateChannel::Preview,
+                ..mirror.clone()
+            }
+        ));
+        assert!(reschedules(
+            &current,
+            &UpdatePreferences {
+                auto_download: false,
+                ..current.clone()
+            }
+        ));
     }
 
     #[tokio::test]
