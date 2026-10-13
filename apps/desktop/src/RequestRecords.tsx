@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
@@ -2228,6 +2229,29 @@ function useProgressiveRowCount(total: number): number {
   return shown;
 }
 
+/**
+ * Width of the widest status badge in the current language. Each row is its
+ * own grid, so a status column sized to its content would differ per row.
+ */
+function useStatusColumnWidth() {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const sizer = ref.current;
+    if (!sizer) return;
+    const measure = () => {
+      const measured = Math.ceil(sizer.getBoundingClientRect().width);
+      setWidth(measured > 0 ? measured : null);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(sizer);
+    return () => observer.disconnect();
+  }, []);
+  return { ref, width };
+}
+
 function SessionStream({
   sessions,
   services,
@@ -2246,8 +2270,35 @@ function SessionStream({
   // Only the date buckets need "now", and those turn over once a day.
   const groups = groupSessionsByDate(sessions);
   let remaining = useProgressiveRowCount(sessions.length);
+  const statusColumn = useStatusColumnWidth();
   return (
-    <div className="pb-3" role="feed" aria-label={t("records.sessionFlow")}>
+    <div
+      aria-label={t("records.sessionFlow")}
+      className="relative pb-3"
+      role="feed"
+      style={
+        statusColumn.width === null
+          ? undefined
+          : ({
+              "--request-status-column": `${statusColumn.width}px`,
+            } as CSSProperties)
+      }
+    >
+      <span
+        aria-hidden="true"
+        className="invisible absolute top-0 left-0 grid"
+        ref={statusColumn.ref}
+      >
+        {STATUSES.map((status) => (
+          <StatusBadge className="col-start-1 row-start-1" key={status}>
+            {/* Generated content keeps the labels out of the page text and find-in-page. */}
+            <span
+              className="before:content-[attr(data-label)]"
+              data-label={statusLabel(status)}
+            />
+          </StatusBadge>
+        ))}
+      </span>
       {groups.map((group) => {
         const rows = group.sessions.slice(0, remaining);
         remaining -= rows.length;
@@ -2338,7 +2389,7 @@ const DiscoveryRow = memo(function DiscoveryRow({
   return (
     <DataRow
       asChild
-      className="grid grid-cols-[5rem_1.25rem_minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-3 py-2.5 @[680px]:grid-cols-[5rem_1.25rem_minmax(0,1fr)_5rem_6rem]"
+      className="grid grid-cols-[max(5rem,var(--request-status-column,0px))_1.25rem_minmax(0,1fr)_auto] gap-x-3 gap-y-1 px-3 py-2.5 @[680px]:grid-cols-[max(5rem,var(--request-status-column,0px))_1.25rem_minmax(0,1fr)_5rem_6rem]"
     >
       <Button
         {...behavior.props}
@@ -2421,7 +2472,7 @@ const SessionRow = memo(function SessionRow({
   return (
     <DataRow
       asChild
-      className="grid grid-cols-[4.5rem_1.25rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 px-3 py-2.5"
+      className="grid grid-cols-[max(4.5rem,var(--request-status-column,0px))_1.25rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5 px-3 py-2.5"
     >
       <Button
         {...behavior.props}
@@ -2492,6 +2543,7 @@ const SessionRow = memo(function SessionRow({
                 ? "records.sessionMetaTurns"
                 : "records.sessionMeta",
               {
+                count: session.turn_count,
                 turns: session.turn_count,
                 calls: session.call_count,
                 duration: formatDuration(sessionRuntimeMs(session, nowMs)),

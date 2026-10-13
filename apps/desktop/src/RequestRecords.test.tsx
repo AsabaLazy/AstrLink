@@ -65,7 +65,7 @@ import {
 } from "./request-record-model";
 import type { RoutableService } from "./service-model";
 import type { RequestService } from "./request-service-model";
-import { i18n } from "./i18n";
+import { applyLocale, i18n } from "./i18n";
 
 const service: RoutableService & RequestService = {
   id: "service_01",
@@ -656,6 +656,43 @@ describe("RequestRecords", () => {
     );
     expect(provider?.querySelector('[aria-label="New API"]')).not.toBeNull();
     expect(provider?.getAttribute("title")).toContain(service.id);
+  });
+
+  it("widens the status column for English labels and counts one turn in the singular", async () => {
+    await applyLocale("en");
+    try {
+      const measureRect = HTMLElement.prototype.getBoundingClientRect;
+      vi.spyOn(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+      ).mockImplementation(function (this: HTMLElement) {
+        if (this.parentElement?.getAttribute("role") !== "feed") {
+          return measureRect.call(this);
+        }
+        return { width: 88.4, height: 20 } as DOMRect;
+      });
+      bridgeMocks.listRequestSessions.mockResolvedValue({
+        items: [sessionFromRecord(firstRecord)],
+        next_cursor: null,
+      });
+      await renderRecords();
+
+      const feed = container.querySelector<HTMLElement>('[role="feed"]');
+      expect(feed?.style.getPropertyValue("--request-status-column")).toBe(
+        "89px",
+      );
+      // The labels that size the column are not page text.
+      expect(feed?.textContent).not.toContain("Interrupted");
+      expect(feed?.textContent).toContain("Succeeded");
+      expect(feed?.textContent).toContain("1 record");
+      expect(feed?.textContent).not.toContain("1 records");
+      expect(
+        container.querySelector('[data-testid="request-session-row"]')
+          ?.textContent,
+      ).toContain("1 turn ·");
+    } finally {
+      await applyLocale("zh-CN");
+    }
   });
 
   it("mounts what fits the window first and the rest of a long list frame by frame", async () => {
