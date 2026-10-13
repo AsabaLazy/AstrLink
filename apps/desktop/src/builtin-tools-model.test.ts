@@ -59,6 +59,25 @@ describe("builtin tools configuration", () => {
       }),
     ).toThrow();
   });
+  it("limits the provider search API to web search with a provider and model", () => {
+    const tools = defaultBuiltinTools();
+    const web_search = {
+      enabled: true,
+      backend: "service_search" as const,
+      service_id: "newapi_main",
+      model: "gpt-5.5",
+    };
+    expect(parseBuiltinTools({ ...tools, web_search })).toEqual({
+      ...tools,
+      web_search,
+    });
+    for (const invalid of [
+      { ...tools, image_generation: web_search },
+      { ...tools, web_search: { ...web_search, model: "" } },
+      { ...tools, web_search: { ...web_search, service_id: "" } },
+    ])
+      expect(() => parseBuiltinTools(invalid)).toThrow();
+  });
   it("recognizes image generation models by name", () => {
     for (const model of [
       "gpt-image-1",

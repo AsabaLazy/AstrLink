@@ -225,6 +225,97 @@ it("separates the provider Images API from a chat model executing the tool", asy
   expect(field("图片生成绘图模型")).toBeNull();
 });
 
+it("offers Codex subscriptions and New API for the provider search API", async () => {
+  const responses = {
+    protocol: "openai.responses",
+    mode: "native" as const,
+    streaming: true,
+  };
+  const services: RoutableService[] = [
+    {
+      id: "newapi_main",
+      name: "主站",
+      kind: "newapi",
+      enabled: true,
+      models: ["gpt-5.5"],
+      capabilities: [responses],
+    },
+    {
+      id: "codex_team",
+      name: "Codex 团队",
+      kind: "codex_subscription",
+      enabled: true,
+      models: ["gpt-5.6-sol"],
+      capabilities: [responses],
+    },
+    {
+      id: "claude_main",
+      name: "Claude",
+      kind: "anthropic",
+      enabled: true,
+      models: ["claude-sonnet"],
+      capabilities: [responses],
+    },
+  ];
+  let latest: BuiltinTools | undefined;
+  function Editor({ services }: { services: RoutableService[] }) {
+    const [value, setValue] = useState<BuiltinTools>(() => ({
+      ...defaultBuiltinTools(),
+      web_search: {
+        enabled: true,
+        backend: "upstream",
+        service_id: "newapi_main",
+        model: "gpt-5.5",
+      },
+    }));
+    return (
+      <BuiltinToolsEditor
+        value={value}
+        services={services}
+        disabled={false}
+        onChange={(next) => {
+          latest = next;
+          setValue(next);
+        }}
+      />
+    );
+  }
+  await act(async () => root.render(<Editor services={services} />));
+  await choose("网页搜索执行方", "提供商的搜索 API");
+  // A chat model that searched through Responses also names the search
+  // model, so the provider and model carry over.
+  expect(latest?.web_search).toEqual({
+    enabled: true,
+    backend: "service_search",
+    service_id: "newapi_main",
+    model: "gpt-5.5",
+  });
+  expect(container.textContent).not.toContain("API 密钥");
+  const providers = (await choose("网页搜索提供商", "")).join("\n");
+  expect(providers).toContain("主站");
+  expect(providers).toContain("Codex 团队");
+  expect(providers).not.toContain("Claude");
+  await act(async () =>
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
+  );
+  await settleClosedLayer();
+  const test = [
+    ...container.querySelectorAll<HTMLButtonElement>("button"),
+  ].filter((button) => button.textContent === "测试工具")[0]!;
+  await act(async () => test.click());
+  expect(action).toHaveBeenCalledWith("web_search", "test", {
+    enabled: true,
+    backend: "service_search",
+    service_id: "newapi_main",
+    model: "gpt-5.5",
+  });
+
+  await act(async () => root.render(<Editor services={[services[2]!]} />));
+  expect(container.textContent).toContain(
+    "暂无已启用的 Codex 订阅或 New API 提供商",
+  );
+});
+
 it("passes on typed values only when committed and flags an incomplete tool", async () => {
   const services: RoutableService[] = [
     {

@@ -123,7 +123,7 @@ func (handler *Handler) routingSettingsResource(writer http.ResponseWriter, requ
 			writeError(writer, http.StatusUnprocessableEntity, "invalid_routing_settings", err.Error())
 			return
 		}
-		if _, ok := patch["builtin_tools"]; ok && !handler.imagesProviderUsable(writer, request, settings.BuiltinTools) {
+		if _, ok := patch["builtin_tools"]; ok && !handler.toolProvidersUsable(writer, request, settings.BuiltinTools) {
 			return
 		}
 		if err := handler.routingSettings.UpdateRoutingSettings(request.Context(), settings); err != nil {
@@ -137,29 +137,43 @@ func (handler *Handler) routingSettingsResource(writer http.ResponseWriter, requ
 	}
 }
 
-// imagesProviderUsable checks turned-on image generation that calls a
-// provider's Images API against that provider, and answers the request when
-// the provider cannot serve it. The mistake then shows on save instead of on
-// every image call. A turned-off tool keeps any choice, so a stale one can
+// toolProvidersUsable checks each turned-on tool that calls a provider's own
+// API, image generation through its Images API or web search through its
+// search API, against that provider, and answers the request when the
+// provider cannot serve it. The mistake then shows on save instead of on
+// every tool call. A turned-off tool keeps any choice, so a stale one can
 // always be turned off. Whether the provider is enabled and connected is left
 // to each call. Each refusal has its own code, which the desktop shows in the
 // operator's language.
-func (handler *Handler) imagesProviderUsable(writer http.ResponseWriter, request *http.Request, tools *contract.BuiltinTools) bool {
-	if tools == nil || !tools.ImageGeneration.Enabled || tools.ImageGeneration.Backend != "service_images" {
+func (handler *Handler) toolProvidersUsable(writer http.ResponseWriter, request *http.Request, tools *contract.BuiltinTools) bool {
+	if tools == nil {
 		return true
 	}
-	record, err := handler.serviceStore.GetService(request.Context(), tools.ImageGeneration.ServiceID)
-	switch {
-	case errors.Is(err, storage.ErrNotFound):
-		writeError(writer, http.StatusUnprocessableEntity, "image_provider_not_found", "image_generation: the selected provider does not exist")
-	case err != nil:
-		handler.writeStoreError(writer, err)
-	case !contract.BuiltinImagesServiceKind(record.Service.Kind):
-		writeError(writer, http.StatusUnprocessableEntity, "image_provider_unsupported", "image_generation: the selected provider has no Images API. Pick an OpenAI, OpenAI-compatible, New API or MiniMax provider, or use the upstream backend with a Codex subscription.")
-	default:
-		return true
+	for _, check := range []struct {
+		kind, code, backend, unsupported string
+		tool                             contract.BuiltinTool
+		serves                           func(contract.ServiceKind) bool
+	}{
+		{"image_generation", "image", "service_images", "the selected provider has no Images API. Pick an OpenAI, OpenAI-compatible, New API or MiniMax provider, or use the upstream backend with a Codex subscription.", tools.ImageGeneration, contract.BuiltinImagesServiceKind},
+		{"web_search", "search", "service_search", "the selected provider has no search API. Pick a Codex subscription or New API provider.", tools.WebSearch, contract.BuiltinSearchServiceKind},
+	} {
+		if !check.tool.Enabled || check.tool.Backend != check.backend {
+			continue
+		}
+		record, err := handler.serviceStore.GetService(request.Context(), check.tool.ServiceID)
+		switch {
+		case errors.Is(err, storage.ErrNotFound):
+			writeError(writer, http.StatusUnprocessableEntity, check.code+"_provider_not_found", check.kind+": the selected provider does not exist")
+		case err != nil:
+			handler.writeStoreError(writer, err)
+		case !check.serves(record.Service.Kind):
+			writeError(writer, http.StatusUnprocessableEntity, check.code+"_provider_unsupported", check.kind+": "+check.unsupported)
+		default:
+			continue
+		}
+		return false
 	}
-	return false
+	return true
 }
 
 // normalizeRoutingSettings keeps model_redirects an array on the wire even if

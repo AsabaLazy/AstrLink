@@ -3,6 +3,7 @@ import { builtinToolAction } from "../bridge";
 import {
   builtinImageModels,
   builtinImagesServiceKinds,
+  builtinSearchServiceKinds,
   defaultBuiltinTools,
   isImageGenerationModel,
   parseBuiltinTools,
@@ -99,17 +100,20 @@ function ToolEditor({
       : [kind];
   const backend = value.backend || "upstream";
   const direct = backend === "service_images";
+  const searchAPI = backend === "service_search";
   const providersFor = (backend: BuiltinTool["backend"]) =>
     services.filter(
       (service) =>
         service.enabled &&
         (backend === "service_images"
           ? builtinImagesServiceKinds.includes(service.kind)
-          : service.capabilities.some(
-              (capability) =>
-                capability.protocol === "openai.responses" &&
-                !capability.convert_to,
-            )),
+          : backend === "service_search"
+            ? builtinSearchServiceKinds.includes(service.kind)
+            : service.capabilities.some(
+                (capability) =>
+                  capability.protocol === "openai.responses" &&
+                  !capability.convert_to,
+              )),
     );
   const providers = providersFor(backend);
   const selected = providers.find((service) => service.id === value.service_id);
@@ -263,7 +267,9 @@ function ToolEditor({
                         : "builtinTools.externalImagesHint"
                       : direct
                         ? "builtinTools.serviceImagesHint"
-                        : "builtinTools.upstreamHint",
+                        : searchAPI
+                          ? "builtinTools.serviceSearchHint"
+                          : "builtinTools.upstreamHint",
                   )}
                 </p>
               </div>
@@ -274,9 +280,11 @@ function ToolEditor({
                     {t(
                       direct || backend === "external"
                         ? "builtinTools.serviceImageModelHint"
-                        : kind === "web_search"
-                          ? "builtinTools.searchModelHint"
-                          : "builtinTools.imageExecutorHint",
+                        : searchAPI
+                          ? "builtinTools.serviceSearchModelHint"
+                          : kind === "web_search"
+                            ? "builtinTools.searchModelHint"
+                            : "builtinTools.imageExecutorHint",
                     )}
                   </p>
                 </div>
@@ -309,6 +317,10 @@ function ToolEditor({
               options={
                 kind === "web_search"
                   ? [
+                      {
+                        value: "service_search",
+                        label: t("builtinTools.serviceSearch"),
+                      },
                       {
                         value: "upstream",
                         label: t("builtinTools.upstream", { tool: kind }),
@@ -400,7 +412,9 @@ function ToolEditor({
             {t(
               direct
                 ? "builtinTools.noImageProviders"
-                : "builtinTools.noProviders",
+                : searchAPI
+                  ? "builtinTools.noSearchProviders"
+                  : "builtinTools.noProviders",
             )}
           </p>
         ) : null}

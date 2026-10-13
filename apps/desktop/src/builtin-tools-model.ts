@@ -3,7 +3,7 @@ import type { ServiceKind } from "./service-model";
 export type BuiltinToolKind = "web_search" | "image_generation";
 export interface BuiltinTool {
   enabled: boolean;
-  backend: "upstream" | "external" | "service_images" | "";
+  backend: "upstream" | "external" | "service_images" | "service_search" | "";
   service_id?: string;
   model?: string;
   base_url?: string;
@@ -20,6 +20,15 @@ export const builtinImagesServiceKinds: readonly ServiceKind[] = [
   "openai_compatible",
   "minimax",
   "minimax_coding",
+];
+
+/**
+ * Provider kinds that answer Codex's standalone web search, /alpha/search,
+ * with their own credential.
+ */
+export const builtinSearchServiceKinds: readonly ServiceKind[] = [
+  "codex_subscription",
+  "newapi",
 ];
 
 /** Image models suggested for providers whose model list may omit them. */
@@ -77,10 +86,15 @@ export function parseBuiltinTools(value: unknown): BuiltinTools {
     const tool = value as Record<string, unknown>;
     if (
       typeof tool.enabled !== "boolean" ||
-      !["", "upstream", "external", "service_images"].includes(
-        tool.backend as string,
-      ) ||
-      (tool.backend === "service_images" && kind !== "image_generation")
+      ![
+        "",
+        "upstream",
+        "external",
+        "service_images",
+        "service_search",
+      ].includes(tool.backend as string) ||
+      (tool.backend === "service_images" && kind !== "image_generation") ||
+      (tool.backend === "service_search" && kind !== "web_search")
     )
       throw Error("invalid builtin tool backend");
     for (const [key, value] of Object.entries(tool)) {
@@ -122,7 +136,9 @@ export function parseBuiltinTools(value: unknown): BuiltinTools {
     if (
       tool.enabled &&
       (!tool.backend ||
-        ((tool.backend === "upstream" || tool.backend === "service_images") &&
+        ((tool.backend === "upstream" ||
+          tool.backend === "service_images" ||
+          tool.backend === "service_search") &&
           (!tool.service_id || !tool.model)) ||
         (tool.backend === "external" &&
           (!tool.base_url || (kind === "image_generation" && !tool.model))))

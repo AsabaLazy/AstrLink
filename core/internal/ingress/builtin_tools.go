@@ -128,7 +128,7 @@ func (handler *Handler) builtinExecutor(request *http.Request, classified Reques
 	return builtintools.Executor{Secrets: handler.proxyCredentials, Native: func(ctx context.Context, config contract.BuiltinTool, body builtintools.Object) (builtintools.Object, error) {
 		shared, _ := ctx.Value(builtinTestSessionKey{}).(*recordSession)
 		return handler.builtinModel(ctx, request, body, &builtinInternal{Target: config.ServiceID, Native: true, SharedSession: shared})
-	}, Images: handler.builtinServiceImages, Inspect: func(ctx context.Context, args builtintools.Object) (builtintools.Object, error) {
+	}, Images: handler.builtinServiceImages, Search: handler.builtinServiceSearch, Inspect: func(ctx context.Context, args builtintools.Object) (builtintools.Object, error) {
 		body := builtintools.Text(builtintools.Object{"input": builtintools.Text(args), "model": classified.Model})
 		inspect := request.Clone(ctx)
 		inspect.Body = io.NopCloser(strings.NewReader(body))
@@ -278,6 +278,63 @@ func (handler *Handler) builtinServiceImages(ctx context.Context, config contrac
 	return response, nil
 }
 
+// searchService resolves a provider configured to answer web searches with
+// its own search API.
+func (handler *Handler) searchService(ctx context.Context, id contract.ServiceID) (endpoint.Resolved, error) {
+	resolver, ok := handler.resolver.(endpoint.ServiceResolver)
+	if !ok {
+		return endpoint.Resolved{}, fmt.Errorf("provider lookup is unavailable")
+	}
+	candidate, err := resolver.ResolveService(ctx, id)
+	if err != nil {
+		return endpoint.Resolved{}, fmt.Errorf("search provider is unavailable or disabled")
+	}
+	if !contract.BuiltinSearchServiceKind(candidate.CanonicalService().Kind) {
+		return endpoint.Resolved{}, fmt.Errorf("search provider does not offer a search API")
+	}
+	return candidate, nil
+}
+
+// builtinServiceSearch posts a search to a configured provider's own search
+// API the way Codex's own search reaches it, with the provider's shared client
+// identity.
+func (handler *Handler) builtinServiceSearch(ctx context.Context, config contract.BuiltinTool, body builtintools.Object) (builtintools.Object, error) {
+	candidate, err := handler.searchService(ctx, config.ServiceID)
+	if err != nil {
+		return nil, err
+	}
+	data := []byte(builtintools.Text(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost/v1/alpha/search", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	// An empty value suppresses Go's default client identity.
+	request.Header.Set("User-Agent", "")
+	var answer builtintools.Object
+	err = handler.forwardCodexTool(&builtinCapture{header: make(http.Header)}, request, candidate, codexTurnBinding{}, handler.requestRoutingSettings(ctx), data, func(response *http.Response) error {
+		defer response.Body.Close()
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return fmt.Errorf("search provider returned HTTP %d", response.StatusCode)
+		}
+		data, err := readCodexToolResponse(response, maxCodexSearchResponseBytes)
+		if err != nil {
+			return err
+		}
+		if json.Unmarshal(data, &answer) != nil || answer == nil {
+			return fmt.Errorf("invalid search provider response")
+		}
+		return nil
+	})
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		return nil, err
+	}
+	return answer, nil
+}
+
 // builtinCapture parses bounded individual SSE frames. Large image payloads
 // never pass through the ordinary eight-MiB text inspection buffer here.
 type builtinCapture struct {
@@ -408,8 +465,8 @@ func (handler *Handler) TestBuiltinTool(ctx context.Context, kind string, config
 	classified := Request{Protocol: contract.ProtocolOpenAIResponses, Model: config.Model, InputPreview: "Builtin tool test · " + kind}
 	session := handler.startRecordSession(request, classified)
 	session.addEvent(contract.RequestEventAccepted, contract.RequestStatusPending, "builtin tool test · "+kind)
-	if config.Backend == "service_images" {
-		// The provider's Images API is called directly, never through
+	if config.Backend == "service_images" || config.Backend == "service_search" {
+		// The provider's own API is called directly, never through
 		// routing, so the record names the tested provider here.
 		session.noteAttemptedService(config.ServiceID)
 	}

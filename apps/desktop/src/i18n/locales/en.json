@@ -3253,7 +3253,7 @@
     "ccSwitchOpened": "Requested CC Switch to open. Confirm the import there, enable the provider, then reopen the client. While CC Switch starts up, it may miss this import and stay on its main screen. If so, keep it open and import again.",
     "ccSwitchFailed": "Unable to open CC Switch. Check that it is installed with the ccswitch:// protocol registered and that the gateway and token are still available, then retry.",
     "ccSwitchOverwrites": "Switching providers in CC Switch overwrites the config written here.",
-    "codexTools": "After writing, Codex shows its own image generation and web search tools. When Codex calls them, the gateway first uses the settings under Routing → Redirects → Responses tool mapping. A tool turned off there goes to the API provider serving the conversation. A Codex subscription handles both tools. OpenAI API, OpenAI compatible and New API providers handle image generation. Otherwise Codex is told how to turn the tool on.",
+    "codexTools": "After writing, Codex shows its own image generation and web search tools. When Codex calls them, the gateway first uses the settings under Routing → Redirects → Responses tool mapping. A tool turned off there goes to the API provider serving the conversation. Codex subscriptions and New API providers handle both tools. OpenAI API and OpenAI compatible providers handle image generation. Otherwise Codex is told how to turn the tool on.",
     "codexToolsCCSwitch": "A config imported with CC Switch lacks this setting, so Codex does not show these two tools.",
     "ccSwitchElsewhere": "Importing with CC Switch writes to {{client}} ({{target}}). To write to {{client}} ({{place}}), set {{client}} Configuration Directory to {{dir}} under Configuration Directory Override (Advanced) in CC Switch Settings, then reopen this dialog.",
     "limitsTitle": "Limitations",
@@ -3324,11 +3324,13 @@
     "upstream": "Responses · {{tool}}",
     "tavily": "Tavily-compatible API",
     "serviceImages": "Provider’s Images API",
+    "serviceSearch": "Provider’s search API",
     "imagesApi": "Custom Images API",
     "upstreamHint": "Uses the selected provider’s Responses API. The executor model calls the same type of built-in tool, and the result returns to the original request’s main model.",
     "externalSearchHint": "Uses a Tavily-compatible API for searches, page reads and text lookups. Connects through the API base URL and separately saved key below. When Codex asks for cached results only, Tavily still fetches live pages.",
     "externalImagesHint": "Uses an OpenAI Images-compatible API to generate or edit images. Connects through the API base URL and separately saved key below.",
     "serviceImagesHint": "Uses the selected provider’s own image API to generate or edit images, reusing that provider’s configured key and proxy. Given a reference image, MiniMax keeps the person in it and generates a new image.",
+    "serviceSearchHint": "Uses the selected provider’s own web search API, /v1/alpha/search, reusing that provider’s configured key and proxy. The official Codex client calls this API when it searches. Searches from Codex go out with the model below. When another client calls web_search, the gateway sends the same search request for it.",
     "provider": "API provider",
     "providerFor": "{{tool}} provider",
     "model": "Executor model",
@@ -3337,6 +3339,7 @@
     "imageExecutorHint": "Select a chat model supporting the Responses image_generation tool, such as the gpt-5 series. It calls the image tool. To specify an image model such as gpt-image directly, map to an Images API.",
     "imageModelFor": "{{tool}} image model",
     "serviceImageModelHint": "Select an image model supported by this Images API, such as gpt-image-1. This model produces images; the original request’s main model continues the conversation.",
+    "serviceSearchModelHint": "Select the model that runs the search, such as the gpt-5 series. New API hands the search to the channel serving this model. Channels such as Codex and Sub2API handle searches, and channels such as OpenAI return an error.",
     "apiUrl": "API base URL",
     "urlFor": "{{tool}} API URL",
     "imageModel": "Image model",
@@ -3355,7 +3358,8 @@
     "incomplete": "Fill in the {{fields}}. Until then, changes to this tool are not saved, and the gateway keeps its last saved settings.",
     "description": "Matches the type field of entries in the tools array of OpenAI Responses requests. When enabled, the gateway exposes the matching tools to the main model as functions, executes their calls through the model or API configured here, and returns the results so the main model can continue. The main model must support function calling. Codex's own image generation and web search tools run with these settings too. When they are turned off here, an API provider with these tools of its own, such as a Codex subscription, handles them directly.",
     "noProviders": "No enabled provider supports native Responses. Configure one under API providers first.",
-    "noImageProviders": "No enabled OpenAI, OpenAI-compatible, New API, or MiniMax provider. Configure one under API providers first."
+    "noImageProviders": "No enabled OpenAI, OpenAI-compatible, New API, or MiniMax provider. Configure one under API providers first.",
+    "noSearchProviders": "No enabled Codex subscription or New API provider. Configure one under API providers first."
   },
   "imageCompression": {
     "title": "Request image compression",
@@ -3691,7 +3695,9 @@
   },
   "controlErrors": {
     "image_provider_not_found": "The API provider chosen for image generation no longer exists. Choose another provider or turn image generation off.",
-    "image_provider_unsupported": "The API provider chosen for image generation has no Images API. Provider’s Images API works with OpenAI, OpenAI-compatible, New API, and MiniMax providers. For a Codex subscription, choose Responses · image_generation instead."
+    "image_provider_unsupported": "The API provider chosen for image generation has no Images API. Provider’s Images API works with OpenAI, OpenAI-compatible, New API, and MiniMax providers. For a Codex subscription, choose Responses · image_generation instead.",
+    "search_provider_not_found": "The API provider chosen for web search no longer exists. Choose another provider or turn web search off.",
+    "search_provider_unsupported": "The API provider chosen for web search has no search API. Provider’s search API works with Codex subscription and New API providers. For other providers, choose Responses · web_search instead."
   },
   "webConsole": {
     "title": "AstrLink console",
