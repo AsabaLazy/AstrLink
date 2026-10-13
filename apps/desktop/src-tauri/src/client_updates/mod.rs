@@ -305,6 +305,19 @@ impl Environment {
             Some(wsl) => wsl::programs(self, wsl, name),
         }
     }
+    /// `path` and the file it resolves to, if it is an executable file.
+    fn program(&self, path: &Path) -> Option<Program> {
+        match &self.wsl {
+            None => executable(path)
+                .then(|| dunce::canonicalize(path).ok())
+                .flatten()
+                .map(|resolved| Program {
+                    path: path.into(),
+                    resolved,
+                }),
+            Some(wsl) => wsl::program(self, wsl, path),
+        }
+    }
     fn read(&self, path: &Path) -> Option<String> {
         match &self.wsl {
             None => fs::read_to_string(path).ok(),
@@ -561,21 +574,50 @@ fn current_version(
     parse_version(id, &process::run(environment, &command, PROBE_TIMEOUT)?)
 }
 
-fn node_program(environment: &Environment, prefix: &Path) -> Option<PathBuf> {
+/// Node.js beside an npm prefix, else the first on PATH. Bun also answers to
+/// `node` through a link of that name; it is used only when Node.js is absent.
+fn node_program(environment: &Environment, prefix: &Path) -> Option<Program> {
     let sibling = if environment.windows() {
         prefix.join("node.exe")
     } else {
         prefix.join("bin/node")
     };
-    if environment.executable(&sibling) {
-        Some(sibling)
-    } else {
-        environment
-            .programs("node")
-            .into_iter()
-            .next()
-            .map(|p| p.path)
+    let mut programs: Vec<_> = environment
+        .program(&sibling)
+        .into_iter()
+        .chain(environment.programs("node"))
+        .collect();
+    programs.sort_by_key(|program| bun(&program.resolved));
+    programs.into_iter().next()
+}
+
+fn bun(path: &Path) -> bool {
+    path.file_stem()
+        .is_some_and(|stem| stem.eq_ignore_ascii_case("bun"))
+}
+
+/// Pi under Bun takes itself for a Bun install and refuses to update an npm
+/// one, and its launcher's `env node` may find Bun. Run its entry with Node.js.
+fn pi_npm_command(
+    environment: &Environment,
+    prefix: &Path,
+    install: &Installation,
+) -> Result<CommandSpec, ClientError> {
+    let script = install.resolved.extension().is_some_and(|s| {
+        ["js", "cjs", "mjs"]
+            .iter()
+            .any(|e| s.eq_ignore_ascii_case(e))
+    });
+    if !script {
+        return client_command(environment, install);
     }
+    let node = node_program(environment, prefix)
+        .filter(|node| !bun(&node.resolved))
+        .ok_or_else(|| ClientError::new("unsupported", "Node.js is unavailable"))?;
+    Ok(CommandSpec {
+        program: node.path,
+        args: vec![environment.path_arg(&install.resolved)],
+    })
 }
 
 fn client_command(
@@ -607,7 +649,7 @@ fn shim_command(
                 .and_then(|prefix| node_program(environment, prefix))
                 .ok_or_else(|| ClientError::new("unsupported", "Node.js is unavailable"))?;
             Ok(CommandSpec {
-                program: node,
+                program: node.path,
                 args: vec![target.as_os_str().into()],
             })
         }
@@ -642,7 +684,10 @@ fn update_command(
         InstallMethod::Native | InstallMethod::Npm { .. } | InstallMethod::Package(_)
             if id == ClientId::Pi =>
         {
-            let mut command = client_command(environment, install)?;
+            let mut command = match &install.method {
+                InstallMethod::Npm { prefix } => pi_npm_command(environment, prefix, install)?,
+                _ => client_command(environment, install)?,
+            };
             command.args.extend(["update".into(), "--self".into()]);
             Ok(command)
         }
@@ -703,7 +748,7 @@ fn update_command(
             let node = node_program(environment, prefix)
                 .ok_or_else(|| ClientError::new("unsupported", "Node.js is unavailable"))?;
             Ok(CommandSpec {
-                program: node,
+                program: node.path,
                 args: vec![
                     environment.path_arg(&npm),
                     "install".into(),

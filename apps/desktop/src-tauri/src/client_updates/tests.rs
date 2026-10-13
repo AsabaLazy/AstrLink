@@ -881,13 +881,7 @@ fn npm_update_targets_the_detected_prefix_and_pins_the_version() {
 #[test]
 fn pi_delegates_updates_and_cursor_respects_the_static_channel() {
     let fixture = Fixture::new();
-    for method in [
-        InstallMethod::Native,
-        InstallMethod::Package("pnpm"),
-        InstallMethod::Npm {
-            prefix: fixture.0.join("node"),
-        },
-    ] {
+    for method in [InstallMethod::Native, InstallMethod::Package("pnpm")] {
         let install = Installation {
             executable: fixture.0.join("bin/pi"),
             resolved: PathBuf::new(),
@@ -921,6 +915,72 @@ fn pi_delegates_updates_and_cursor_respects_the_static_channel() {
             .code,
         "unsupported"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn pi_npm_updates_run_under_node_when_bun_answers_to_node() {
+    let fixture = Fixture::new();
+    let bun = fixture.script(".bun/bin/bun", "#!/bin/sh\n");
+    for directory in ["bin", "prefix/bin"] {
+        fs::create_dir_all(fixture.0.join(directory)).unwrap();
+    }
+    std::os::unix::fs::symlink(&bun, fixture.0.join("bin/node")).unwrap();
+    let entry = fixture.write(
+        "prefix/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        "",
+    );
+    let pi = Installation {
+        executable: fixture.0.join("prefix/bin/pi"),
+        resolved: entry.clone(),
+        method: InstallMethod::Npm {
+            prefix: fixture.0.join("prefix"),
+        },
+        others: vec![],
+    };
+    let latest = version(ClientId::Pi, "1.2.0");
+    let mut environment = fixture.environment();
+    environment.path = fixture.0.join("bin").into();
+    assert_eq!(
+        update_command(&environment, ClientId::Pi, &pi, &latest)
+            .unwrap_err()
+            .code,
+        "unsupported"
+    );
+    // npm itself runs under Bun when nothing else answers to `node`.
+    fixture.write("prefix/lib/node_modules/npm/bin/npm-cli.js", "");
+    let codex = Installation {
+        executable: fixture.0.join("prefix/bin/codex"),
+        resolved: PathBuf::new(),
+        method: pi.method.clone(),
+        others: vec![],
+    };
+    let command = update_command(
+        &environment,
+        ClientId::Codex,
+        &codex,
+        &version(ClientId::Codex, "0.158.0"),
+    )
+    .unwrap();
+    assert_eq!(command.program, fixture.0.join("bin/node"));
+
+    let node = fixture.script("node/bin/node", "#!/bin/sh\n");
+    environment.path =
+        std::env::join_paths([fixture.0.join("bin"), fixture.0.join("node/bin")]).unwrap();
+    let command = update_command(&environment, ClientId::Pi, &pi, &latest).unwrap();
+    assert_eq!(command.program, node);
+    assert_eq!(
+        command.args,
+        [entry.into_os_string(), "update".into(), "--self".into()]
+    );
+    // Node.js beside the prefix comes before PATH, unless it is Bun.
+    std::os::unix::fs::symlink(&bun, fixture.0.join("prefix/bin/node")).unwrap();
+    let command = update_command(&environment, ClientId::Pi, &pi, &latest).unwrap();
+    assert_eq!(command.program, node);
+    fs::remove_file(fixture.0.join("prefix/bin/node")).unwrap();
+    let sibling = fixture.script("prefix/bin/node", "#!/bin/sh\n");
+    let command = update_command(&environment, ClientId::Pi, &pi, &latest).unwrap();
+    assert_eq!(command.program, sibling);
 }
 
 #[tokio::test]

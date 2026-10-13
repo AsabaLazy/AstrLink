@@ -176,6 +176,19 @@ fn parse_probe(output: &str) -> Option<(&str, &str)> {
 /// WSL appends the Windows PATH, and this computer's own check covers it.
 pub(super) fn programs(environment: &Environment, wsl: &Wsl, name: &str) -> Vec<Program> {
     let candidates = candidates(&environment.path.to_string_lossy(), &wsl.mount_root, name);
+    lookup(environment, wsl, name, &candidates)
+}
+
+/// `path` and the file it resolves to, if it is an executable file.
+pub(super) fn program(environment: &Environment, wsl: &Wsl, path: &Path) -> Option<Program> {
+    let path = linux(path);
+    lookup(environment, wsl, &path, std::slice::from_ref(&path))
+        .into_iter()
+        .next()
+}
+
+/// The executable files among `candidates`, in order, each target once.
+fn lookup(environment: &Environment, wsl: &Wsl, name: &str, candidates: &[String]) -> Vec<Program> {
     if candidates.is_empty() {
         return Vec::new();
     }
