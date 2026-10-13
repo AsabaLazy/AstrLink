@@ -73,9 +73,9 @@ desktop-toolchain:
 	@command -v cargo >/dev/null || { echo "error: cargo not found on PATH"; exit 1; }
 
 # One-shot local desktop: install JS deps, build Go/Rust sidecars, start an
-# isolated development instance with its own data, port and identity. It sets
-# up clients and agent tools in ~/.astrlink-isolated; start a client with
-# HOME=~/.astrlink-isolated to try them against it.
+# isolated development instance with its own data, port and identity. Client
+# configs stay in the user's home; it asks before taking over a client another
+# AstrLink set up.
 dev: desktop-install desktop-toolchain
 	cd apps/desktop && $(BUN) run desktop:dev
 

@@ -3223,6 +3223,7 @@
     "state": {
       "configured": "Configured",
       "outdated": "Port update pending",
+      "elsewhere": "Other instance",
       "modified": "Changed elsewhere",
       "cc_switch": "Via CC Switch",
       "invalid": "Unreadable config"
@@ -3231,6 +3232,7 @@
     "usesOtherToken": "{{client}} currently uses another token; updating switches it to “{{current}}”.",
     "modifiedHint": "This config changed after AstrLink wrote it, so port changes no longer update it. Write it again to restore it.",
     "ccSwitchManagedHint": "CC Switch now manages {{client}}. If the gateway port changes, update the address in CC Switch. To let AstrLink manage it again, choose Write config.",
+    "elsewhereHint": "{{client}} is connected to another AstrLink on this computer. Updating connects it to this one instead.",
     "invalidHint": "The config file has a format error, so AstrLink leaves it alone. Fix it, then write again.",
     "configFile": "Config file",
     "place": "Location",
@@ -3246,6 +3248,9 @@
     "replaceTitle": "Replace existing settings?",
     "replaceBody": "AstrLink did not write these {{client}} settings. Continuing replaces or removes them, and removing AstrLink’s config later will not bring them back.",
     "replaceConfirm": "Replace and write",
+    "switchTitle": "Connect to this AstrLink instead?",
+    "switchBody": "{{client}} is connected to another AstrLink at {{url}}. Continuing connects it to this AstrLink, and the other one stops receiving {{client}}’s requests.",
+    "switchConfirm": "Switch and write",
     "remove": "Remove config",
     "removing": "Removing…",
     "removeTitle": "Remove the {{client}} config?",

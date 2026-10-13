@@ -121,6 +121,10 @@ describe("client-config IPC parsing", () => {
       { state: "modified", token_id: "token_01" },
     );
     expect(parseStatuses(value)).toEqual(value);
+    // Another AstrLink's config names the token it was written with.
+    expect(
+      parseStatuses(statuses({ state: "elsewhere", token_id: "token_09" }))[0],
+    ).toMatchObject({ state: "elsewhere", token_id: "token_09" });
     // A client moved to CC Switch holds no config AstrLink wrote.
     expect(parseStatuses(statuses({ state: "cc_switch" }))[0]).toMatchObject({
       state: "cc_switch",
@@ -146,6 +150,10 @@ describe("client-config IPC parsing", () => {
     ["a multi-line path", statuses({ paths: ["/tmp/a\n/tmp/b"] })],
     ["a malformed token ID", statuses({ state: "configured", token_id: "X" })],
     ["a configured client without a token", statuses({ state: "modified" })],
+    [
+      "another AstrLink's config without a token",
+      statuses({ state: "elsewhere" }),
+    ],
     ["an unconfigured client with a token", statuses({ token_id: "token_01" })],
     [
       "a client moved to CC Switch with a token",
@@ -179,23 +187,29 @@ describe("client-config IPC parsing", () => {
     expect(parseStatuses(value)).toEqual(value);
   });
 
-  it("accepts applied writes and key-only conflicts", () => {
+  it("accepts applied writes, key-only conflicts and another gateway", () => {
     expect(parseClientConfigApplyOutcome({ status: "applied" })).toEqual({
       status: "applied",
     });
-    expect(
-      parseClientConfigApplyOutcome({
-        status: "needs_confirmation",
-        keys: ["env.ANTHROPIC_API_KEY", "model_providers.astrlink"],
-      }),
-    ).toEqual({
+    const conflict = {
       status: "needs_confirmation",
       keys: ["env.ANTHROPIC_API_KEY", "model_providers.astrlink"],
-    });
+      gateway: null,
+    };
+    expect(parseClientConfigApplyOutcome(conflict)).toEqual(conflict);
+    const elsewhere = {
+      status: "needs_confirmation",
+      keys: [],
+      gateway: "http://localhost:8317/v1",
+    };
+    expect(parseClientConfigApplyOutcome(elsewhere)).toEqual(elsewhere);
     for (const value of [
-      { status: "needs_confirmation", keys: [] },
-      { status: "needs_confirmation", keys: ["a\nb"] },
-      { status: "needs_confirmation", keys: ["x".repeat(513)] },
+      { status: "needs_confirmation", keys: [], gateway: null },
+      { status: "needs_confirmation", keys: ["a\nb"], gateway: null },
+      { status: "needs_confirmation", keys: ["x".repeat(513)], gateway: null },
+      { status: "needs_confirmation", keys: [], gateway: "" },
+      { status: "needs_confirmation", keys: [], gateway: "http://a\n/v1" },
+      { status: "needs_confirmation", keys: ["model"] },
       { status: "needs_confirmation" },
       { status: "applied", keys: ["model"] },
       { status: "skipped" },

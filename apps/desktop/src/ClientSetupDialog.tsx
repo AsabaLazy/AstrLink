@@ -147,6 +147,7 @@ const stateTones: Record<
 > = {
   configured: "positive",
   outdated: "pending",
+  elsewhere: "neutral",
   modified: "pending",
   cc_switch: "neutral",
   invalid: "negative",
@@ -277,6 +278,8 @@ function DesktopClientSetupDialog({
   const [conflict, setConflict] = useState<{
     target: WriteTarget;
     keys: string[];
+    /** The base URL of the other AstrLink the config connects to now. */
+    gateway: string | null;
   } | null>(null);
   const [removal, setRemoval] = useState<{
     client: DirectClient;
@@ -611,7 +614,7 @@ function DesktopClientSetupDialog({
       const outcome = await applyClientConfig({ ...target, replace });
       if (!active.current) return;
       if (outcome.status === "needs_confirmation") {
-        setConflict({ target, keys: outcome.keys });
+        setConflict({ target, keys: outcome.keys, gateway: outcome.gateway });
         return;
       }
       notify.success(
@@ -876,6 +879,10 @@ function DesktopClientSetupDialog({
                 <FormMessage tone="notice">
                   {t("clientSetup.ccSwitchManagedHint", { client: label })}
                 </FormMessage>
+              ) : status?.state === "elsewhere" ? (
+                <FormMessage tone="notice">
+                  {t("clientSetup.elsewhereHint", { client: label })}
+                </FormMessage>
               ) : status?.token_id != null && status.token_id !== token.id ? (
                 <FormMessage tone="notice">
                   {otherToken
@@ -1066,26 +1073,46 @@ function DesktopClientSetupDialog({
       </DialogContent>
       <ConfirmDialog
         open={conflict !== null}
-        title={t("clientSetup.replaceTitle")}
+        title={t(
+          conflict?.gateway
+            ? "clientSetup.switchTitle"
+            : "clientSetup.replaceTitle",
+        )}
         description={
           conflict ? (
             <>
-              <p>
-                {t("clientSetup.replaceBody", {
-                  client: clientLabel(conflict.target.client),
-                })}
-              </p>
-              <ul className="grid gap-1">
-                {conflict.keys.map((key) => (
-                  <li key={key}>
-                    <code className="break-all text-xs">{key}</code>
-                  </li>
-                ))}
-              </ul>
+              {conflict.gateway ? (
+                <p>
+                  {t("clientSetup.switchBody", {
+                    client: clientLabel(conflict.target.client),
+                    url: conflict.gateway,
+                  })}
+                </p>
+              ) : null}
+              {conflict.keys.length > 0 ? (
+                <>
+                  <p>
+                    {t("clientSetup.replaceBody", {
+                      client: clientLabel(conflict.target.client),
+                    })}
+                  </p>
+                  <ul className="grid gap-1">
+                    {conflict.keys.map((key) => (
+                      <li key={key}>
+                        <code className="break-all text-xs">{key}</code>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
             </>
           ) : null
         }
-        confirmLabel={t("clientSetup.replaceConfirm")}
+        confirmLabel={t(
+          conflict?.gateway
+            ? "clientSetup.switchConfirm"
+            : "clientSetup.replaceConfirm",
+        )}
         onCancel={() => setConflict(null)}
         onConfirm={() => {
           if (!conflict) return;

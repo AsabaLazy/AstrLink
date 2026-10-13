@@ -279,35 +279,46 @@ async fn home_task<T: Send + 'static>(
         .map_err(|error| format!("home task failed: {error}"))?
 }
 
-/// Keeps client configs AstrLink wrote pointed at the gateway's current
-/// address, including a fallback port picked at startup.
-fn start_client_config_sync(manager: &CoreManager, preferences: Arc<PreferencesStore>) {
+/// Keeps client configs this gateway wrote pointed at its current address,
+/// including a fallback port picked at startup. Reading its tokens, which
+/// tell its configs from another AstrLink's, needs a ready Core.
+fn start_client_config_sync(manager: Arc<CoreManager>, preferences: Arc<PreferencesStore>) {
     let mut changes = manager.subscribe();
     tauri::async_runtime::spawn(async move {
         let mut synced: Option<String> = None;
         while changes.changed().await.is_ok() {
-            let inference_url = changes.borrow_and_update().inference_url.clone();
+            let inference_url = {
+                let view = changes.borrow_and_update();
+                view.inference_url
+                    .clone()
+                    .filter(|_| view.phase == sidecar::CorePhase::Ready)
+            };
             let Some(inference_url) = inference_url.filter(|url| synced.as_ref() != Some(url))
             else {
                 continue;
             };
             synced = Some(inference_url.clone());
-            let result = tauri::async_runtime::spawn_blocking(move || {
-                let homes =
-                    agent_home::Homes::find(control_session::user_home()?, wsl::Reach::Running)?;
-                let errors = homes
-                    .iter()
-                    .filter_map(|home| client_config::sync(home, &inference_url).err())
-                    .collect::<Vec<_>>();
-                if errors.is_empty() {
-                    Ok(())
-                } else {
-                    Err(errors.join("; "))
-                }
-            })
-            .await
-            .map_err(|error| error.to_string())
-            .and_then(|result| result);
+            let result = match client_config::Tokens::of(&manager).await {
+                Ok(tokens) => tauri::async_runtime::spawn_blocking(move || {
+                    let homes = agent_home::Homes::find(
+                        control_session::user_home()?,
+                        wsl::Reach::Running,
+                    )?;
+                    let errors = homes
+                        .iter()
+                        .filter_map(|home| client_config::sync(home, &inference_url, &tokens).err())
+                        .collect::<Vec<_>>();
+                    if errors.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(errors.join("; "))
+                    }
+                })
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result),
+                Err(error) => Err(error),
+            };
             if let Err(error) = result {
                 eprintln!("failed to update client configs for the gateway address: {error}");
                 preferences.report_warning(i18n::t(
@@ -1948,15 +1959,20 @@ async fn check_client_proxy(inference_url: String) -> Result<proxy_check::ProxyC
 #[tauri::command]
 async fn client_config_status(
     inference_url: Option<String>,
+    manager: State<'_, Arc<CoreManager>>,
 ) -> Result<client_config::ClientOverview, String> {
     let home = control_session::user_home()?;
+    let tokens = match inference_url {
+        Some(_) => client_config::Tokens::of(&manager).await.ok(),
+        None => None,
+    };
     home_task(move || {
         let homes = agent_home::Homes::find(home, wsl::Reach::Running)?;
         let mut clients = Vec::new();
         let mut wsl_unchecked = homes.unchecked.clone();
         for home in homes.iter() {
             match (
-                client_config::status(home, inference_url.as_deref()),
+                client_config::status(home, inference_url.as_deref(), tokens.as_ref()),
                 home.distribution(),
             ) {
                 (Ok(statuses), _) => clients.extend(statuses),
@@ -2440,7 +2456,7 @@ pub fn run() {
                     &[("error", &error)],
                 ));
             }
-            start_client_config_sync(&setup_manager, Arc::clone(&preferences));
+            start_client_config_sync(Arc::clone(&setup_manager), Arc::clone(&preferences));
             app.manage(preferences);
             let updates =
                 Arc::new(updates::UpdateManager::new(app.handle()).map_err(std::io::Error::other)?);
@@ -2469,13 +2485,13 @@ pub fn run() {
             #[cfg(debug_assertions)]
             dev_reload::start(app.handle());
 
-            if let Err(error) =
-                control_session::account_home().and_then(|home| instance::prepare_home(&home))
-            {
-                eprintln!("unable to prepare the isolated home: {error}");
-            }
-            if let Ok(home) = control_session::user_home() {
-                sync_agent_installs(home, data_directory.clone(), raw_key_pin_file.clone());
+            // The development instance shares the user's agent tools with the
+            // other AstrLink, whose guards name that one's data directory.
+            // Only installing from its settings points them at its own.
+            if !instance::is_isolated() {
+                if let Ok(home) = control_session::user_home() {
+                    sync_agent_installs(home, data_directory.clone(), raw_key_pin_file.clone());
+                }
             }
 
             if values.core_auto_start {

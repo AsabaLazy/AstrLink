@@ -192,12 +192,8 @@ async fn set_cc_switch(home: PathBuf, client: Client, handed_over: bool) -> Resu
 
 /// The home whose config CC Switch writes for `client`: the WSL home its
 /// directory setting points into, or else the desktop user's. `None` when
-/// that distribution is no longer registered, and for the isolated instance:
-/// CC Switch writes the user's own homes, which it leaves alone.
+/// that distribution is no longer registered.
 fn managed_home(home: PathBuf, client: Client) -> Result<Option<OwnedHome>, String> {
-    if crate::instance::is_isolated() {
-        return Ok(None);
-    }
     let distribution = managed_distribution(config_dirs(&home), client);
     let names = distribution.iter().cloned().collect::<Vec<_>>();
     Ok(Homes::find(home, Reach::Named(&names))?.take(distribution.as_deref()))

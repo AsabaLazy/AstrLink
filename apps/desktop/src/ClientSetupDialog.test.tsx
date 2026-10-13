@@ -671,6 +671,51 @@ describe("ClientSetupDialog", () => {
     expect(onChanged).not.toHaveBeenCalled();
   });
 
+  it("asks before taking over a client another AstrLink set up", async () => {
+    bridgeMocks.getClientConfigStatus.mockResolvedValue(
+      statuses(
+        {},
+        { ...configured("elsewhere", "token_09"), models: { model: "gpt-5" } },
+      ),
+    );
+    bridgeMocks.applyClientConfig
+      .mockResolvedValueOnce({
+        status: "needs_confirmation",
+        keys: [],
+        gateway: "http://localhost:18318/v1",
+      })
+      .mockResolvedValueOnce({ status: "applied" });
+    await renderDialog();
+
+    expect(cardText("Codex")).toContain("连接其他实例");
+    await act(async () => card("Codex").click());
+    expect(dialog().textContent).toContain(
+      "Codex 现在连接的是这台电脑上的另一个 AstrLink。更新配置后改为连接这里。",
+    );
+    expect(dialog().textContent).not.toContain("当前使用其他令牌");
+    await act(async () => button("更新配置").click());
+    expect(bridgeMocks.applyClientConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({ client: "codex", replace: false }),
+    );
+    const text = confirmation().textContent;
+    expect(text).toContain("改为连接这个 AstrLink？");
+    expect(text).toContain(
+      "Codex 现在连接的是另一个 AstrLink（http://localhost:18318/v1）。",
+    );
+    expect(text).not.toContain("不是 AstrLink 写入的");
+    expect(onChanged).not.toHaveBeenCalled();
+
+    await act(async () => button("改连并写入", confirmation()).click());
+    expect(bridgeMocks.applyClientConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        client: "codex",
+        models: { model: "gpt-5" },
+        replace: true,
+      }),
+    );
+    expect(onChanged).toHaveBeenCalledOnce();
+  });
+
   it("shows why a write failed without closing", async () => {
     bridgeMocks.applyClientConfig.mockRejectedValue(
       new Error("unable to parse /Users/me/.claude/settings.json"),

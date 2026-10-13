@@ -45,6 +45,8 @@ export type ClientConfigState =
   | "configured"
   /** Still ours, pointing at a port the gateway no longer uses. */
   | "outdated"
+  /** Another AstrLink on this computer wrote it for its own address. */
+  | "elsewhere"
   /** A connection setting changed since AstrLink wrote it. */
   | "modified"
   /** Moved to CC Switch, which now holds the connection. */
@@ -83,8 +85,11 @@ export interface ClientConfigOverview {
 
 export type ClientConfigApplyOutcome =
   | { status: "applied" }
-  /** Nothing was written: these keys hold values AstrLink did not write. */
-  | { status: "needs_confirmation"; keys: string[] };
+  /**
+   * Nothing was written: `keys` hold values AstrLink did not write, or the
+   * config connects to another AstrLink at the `gateway` base URL.
+   */
+  | { status: "needs_confirmation"; keys: string[]; gateway: string | null };
 
 /** How Codex, which honours the system proxy, reaches one gateway address. */
 export type ClientProxyRoute =
@@ -107,6 +112,7 @@ const states: readonly ClientConfigState[] = [
   "not_configured",
   "configured",
   "outdated",
+  "elsewhere",
   "modified",
   "cc_switch",
   "invalid",
@@ -294,12 +300,16 @@ export function parseClientConfigApplyOutcome(
   if (outcome.status !== "needs_confirmation") {
     return invalid("$.status", "unknown status");
   }
-  exactKeys(outcome, ["status", "keys"], "$");
+  exactKeys(outcome, ["status", "keys", "gateway"], "$");
   const keys = arrayAt(outcome.keys, "$.keys").map((key, index) =>
     lineAt(key, `$.keys[${index}]`, 512),
   );
-  if (keys.length === 0) invalid("$.keys", "expected at least one key");
-  return { status: "needs_confirmation", keys };
+  const gateway =
+    outcome.gateway === null ? null : lineAt(outcome.gateway, "$.gateway", 512);
+  if (keys.length === 0 && gateway === null) {
+    invalid("$.keys", "expected a key or another gateway");
+  }
+  return { status: "needs_confirmation", keys, gateway };
 }
 
 /** Parses `preview_client_config_snippet`, which must hold no token. */

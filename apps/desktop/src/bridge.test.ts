@@ -928,12 +928,14 @@ describe("desktop bridge contract", () => {
     invokeMock.mockResolvedValueOnce({
       status: "needs_confirmation",
       keys: ["model_provider"],
+      gateway: "http://localhost:8317/v1",
     });
     await expect(
       applyClientConfig({ ...target, replace: false, wsl: null }),
     ).resolves.toEqual({
       status: "needs_confirmation",
       keys: ["model_provider"],
+      gateway: "http://localhost:8317/v1",
     });
     expect(invokeMock).toHaveBeenLastCalledWith("apply_client_config", {
       ...target,

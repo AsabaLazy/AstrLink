@@ -1,28 +1,18 @@
 //! `make dev` runs an isolated AstrLink beside the one started with
 //! `make start` or installed. Its identifier, set by `tauri.dev.conf.json`,
 //! gives it separate data and config directories and its own single-instance
-//! lock. This module picks the rest: the home its clients and agent tools
-//! are set up in, the default inference port, the link scheme and the name
-//! of its login item.
+//! lock. This module picks the rest: the default inference port, the link
+//! scheme and the name of its login item. Client configs, agent tools and
+//! the agent locator stay in the user's home, shared with the other
+//! AstrLink.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
-};
-
-use crate::{
-    agent_home::{Home, Homes},
-    agent_install, wsl,
-};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub const ISOLATED_IDENTIFIER: &str = "com.astrlink.desktop.isolated";
 pub const ISOLATED_NAME: &str = "AstrLink Dev";
 pub const ISOLATED_LINK_SCHEME: &str = "astrlink-isolated";
 pub const LINK_SCHEME: &str = "astrlink";
 const ISOLATED_INFERENCE_PORT: u16 = 18318;
-/// The isolated instance's own home, inside the user's.
-const ISOLATED_HOME: &str = ".astrlink-isolated";
 
 static ISOLATED: AtomicBool = AtomicBool::new(false);
 
@@ -61,41 +51,6 @@ pub fn product_name() -> &'static str {
     } else {
         "AstrLink"
     }
-}
-
-/// The home whose client configs, agent tools and agent locator this
-/// instance manages. The isolated instance sets them up in its own home,
-/// laid out like the user's, so trying them never repoints the clients the
-/// other AstrLink serves. A client started with HOME set to it reaches the
-/// isolated gateway.
-pub fn agent_home(user_home: PathBuf) -> PathBuf {
-    if is_isolated() {
-        user_home.join(ISOLATED_HOME)
-    } else {
-        user_home
-    }
-}
-
-/// Gives the isolated home a directory for each agent tool installed for
-/// the user, so the tools are detected there and can be set up. Nothing in
-/// the user's tool directories is copied.
-pub fn prepare_home(user_home: &Path) -> Result<(), String> {
-    if !is_isolated() {
-        return Ok(());
-    }
-    let home = user_home.join(ISOLATED_HOME);
-    fs::create_dir_all(&home)
-        .map_err(|error| format!("unable to create {}: {error}", home.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&home, fs::Permissions::from_mode(0o700));
-    }
-    let user = Homes::find(user_home.to_path_buf(), wsl::Reach::Named(&[]))?
-        .take(None)
-        .ok_or_else(|| "the user's home is unavailable".to_string())?;
-    agent_install::mirror_tools(user.home(), Home::local(&home))
-        .map_err(|error| format!("unable to prepare {}: {error}", home.display()))
 }
 
 pub fn default_inference_port() -> u16 {

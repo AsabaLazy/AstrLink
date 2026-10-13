@@ -58,14 +58,9 @@ pub struct Homes {
 impl Homes {
     /// Finds the WSL homes `reach` selects. Tool directories follow CC
     /// Switch's settings, which also locate a WSL home without asking WSL.
-    /// The isolated instance keeps to its own home: WSL homes are the user's.
     pub fn find(host: PathBuf, reach: Reach) -> Result<Self, String> {
         let (dirs, wsl_dirs) = wsl::split_dirs(cc_switch::config_dirs(&host));
-        let (wsl, unchecked) = if crate::instance::is_isolated() {
-            Default::default()
-        } else {
-            wsl::homes(&wsl_dirs, reach)?
-        };
+        let (wsl, unchecked) = wsl::homes(&wsl_dirs, reach)?;
         Ok(Self {
             host,
             dirs,
