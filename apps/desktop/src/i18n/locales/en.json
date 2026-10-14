@@ -810,6 +810,11 @@
     "responsesWebSocket": "Responses WebSocket",
     "responsesWebSocketHint": "Allow clients to use this API provider’s native Responses API over WebSocket. Enabled by default for Codex; enable for other API providers only when supported upstream. HTTP remains available when disabled.",
     "webSocketOn": "WebSocket enabled",
+    "privacyTrusted": "Trust this provider",
+    "privacyTrustedHint": "Requests to this provider skip privacy protection: nothing is checked or redacted, and the provider receives the original text. Turn this on only for a provider you trust with that data.",
+    "privacyTrustedOn": "Privacy protection will leave requests to this provider as written.",
+    "privacyTrustedBadge": "Trusted",
+    "privacyTrustedBadgeHint": "Requests to this provider skip privacy protection",
     "claudeOauth": "Claude Code authorization",
     "claudeOauthHint": "Claude Pro / Max account; enter the code from the Claude authorization callback page.",
     "authorizationCode": "Authorization code",
@@ -1492,6 +1497,7 @@
     "outcome": {
       "off": "Not applied",
       "clean": "No hits",
+      "trusted": "Trusted provider",
       "warned": "Warned",
       "redacted": "Redacted",
       "blocked": "Blocked",
@@ -1503,6 +1509,7 @@
     "headline": {
       "off": "Privacy protection did not touch these requests; the model received the original text.",
       "clean": "Nothing needed replacing.",
+      "trusted": "Requests to a trusted provider skipped the privacy check; that provider received the original text.",
       "warned": "Private content matched, and the request went upstream as written.",
       "redacted": "{{count}} private values were replaced before the request went upstream.",
       "blocked": "Private content matched, so this request never reached the model.",
@@ -2026,12 +2033,16 @@
     "ignoredBoth": "{{total}} more matches were ignored and reached the model as written: {{allowlisted}} on the allowlist, {{lowConfidence}} below the confidence threshold.",
     "unprotected_one": "{{count}} more request went out while privacy protection was off. The model received it as written.",
     "unprotected_other": "{{count}} more requests went out while privacy protection was off. The model received them as written.",
+    "trusted_one": "{{count}} more request went to a trusted provider without a privacy check. The provider received it as written.",
+    "trusted_other": "{{count}} more requests went to trusted providers without a privacy check. The providers received them as written.",
     "emptyOffTitle": "Privacy protection is off",
     "emptyOffBody": "Turn it on to see how much private data gets replaced, restored and blocked.",
     "emptyTitle": "No requests went through the privacy check in this range",
     "emptyBody": "Statistics appear here once requests pass through the gateway.",
     "emptyUnprotected_one": "{{count}} request in this range went out while privacy protection was off. The model received it as written.",
-    "emptyUnprotected_other": "{{count}} requests in this range went out while privacy protection was off. The model received them as written."
+    "emptyUnprotected_other": "{{count}} requests in this range went out while privacy protection was off. The model received them as written.",
+    "emptyTrusted_one": "{{count}} request in this range went to a trusted provider without a privacy check. The provider received it as written.",
+    "emptyTrusted_other": "{{count}} requests in this range went to trusted providers without a privacy check. The providers received them as written."
   },
   "records": {
     "clientType": "Client: {{client}}",
@@ -2497,6 +2508,7 @@
       "warn": "Warned",
       "block": "Blocked",
       "allow": "Miss",
+      "trusted": "Trusted provider",
       "inspecting": "Inspecting",
       "unfinished": "Unfinished"
     },
@@ -2515,6 +2527,7 @@
       "kind_disabled": "Type off"
     },
     "policyAllowHint": "The policy left the request unchanged; the body is under Client.",
+    "policyTrustedHint": "This provider is trusted, so the policy did not check the request and it went upstream as written. The body is under Client.",
     "policyWarnHint": "The model received the matched content as is. The body is under Client. With “Redact and continue”, privacy protection replaces this content before sending.",
     "policyBlockHint": "The policy blocked this request before it reached the upstream.",
     "restoreCounts": "Visible text {{visible}} · tool arguments {{tools}}",

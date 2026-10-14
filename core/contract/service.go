@@ -198,6 +198,9 @@ type Service struct {
 	Proxy *ServiceProxy `json:"proxy,omitempty"`
 	// Nil preserves the provider default for existing documents; explicit false is retained.
 	ResponsesWebSocketEnabled *bool `json:"responses_websocket_enabled,omitempty"`
+	// PrivacyTrusted forwards requests to this provider as the client wrote
+	// them: the privacy policy neither inspects nor rewrites them.
+	PrivacyTrusted bool `json:"privacy_trusted,omitempty"`
 	// ModelRedirects belong to this provider alone: a requested model is
 	// served as the rule's target when the provider lists it. Routing keeps
 	// the requested model, so other providers that list it can still serve it.

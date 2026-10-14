@@ -42,6 +42,7 @@ import {
   Plus,
   RefreshCw,
   Route,
+  ShieldCheck,
   SlidersHorizontal,
 } from "@/components/icons";
 
@@ -252,6 +253,7 @@ type Draft = {
   name: string;
   enabled: boolean;
   responsesWebSocket: boolean;
+  privacyTrusted: boolean;
   baseURL: string;
   authScheme: ServiceAuthScheme;
   headerName: string;
@@ -574,6 +576,7 @@ function draftForKind(
       name: subscriptionDefaultName(kind),
       enabled: true,
       responsesWebSocket: kind === "codex_subscription",
+      privacyTrusted: false,
       baseURL: "",
       authScheme: "none",
       headerName: "",
@@ -599,6 +602,7 @@ function draftForKind(
     name: preset.defaultName,
     enabled: true,
     responsesWebSocket: false,
+    privacyTrusted: false,
     baseURL: preset.baseURL,
     authScheme: preset.authScheme,
     headerName: preset.headerName,
@@ -623,6 +627,7 @@ function draftFromRecord(record: ServiceRecord): Draft {
       failurePolicy: service.failure_policy,
       enabled: service.enabled,
       responsesWebSocket: responsesWebSocketEnabled(service),
+      privacyTrusted: service.privacy_trusted === true,
       models: [...service.models],
       modelRedirects: (service.model_redirects ?? []).map((redirect) => ({
         ...redirect,
@@ -640,6 +645,7 @@ function draftFromRecord(record: ServiceRecord): Draft {
     failurePolicy: service.failure_policy,
     enabled: service.enabled,
     responsesWebSocket: responsesWebSocketEnabled(service),
+    privacyTrusted: service.privacy_trusted === true,
     baseURL: service.http.base_url,
     authScheme: service.http.auth.scheme,
     headerName: service.http.auth.header_name ?? "",
@@ -1724,6 +1730,7 @@ export function ServiceManager({
           name: draft.name.trim(),
           enabled: draft.enabled,
           responses_websocket_enabled: draft.responsesWebSocket,
+          privacy_trusted: draft.privacyTrusted,
           models: draft.models,
           ...redirectPatchFields(draft, editing.service),
           failure_policy: draft.failurePolicy ?? null,
@@ -1758,6 +1765,7 @@ export function ServiceManager({
             kind: draft.kind,
             enabled: draft.enabled,
             responses_websocket_enabled: draft.responsesWebSocket,
+            ...(draft.privacyTrusted ? { privacy_trusted: true } : {}),
             models: draft.models,
             ...redirectCreateFields(draft),
             ...(draft.failurePolicy
@@ -1781,6 +1789,7 @@ export function ServiceManager({
             kind: draft.kind as HTTPServiceKind,
             enabled: draft.enabled,
             responses_websocket_enabled: draft.responsesWebSocket,
+            ...(draft.privacyTrusted ? { privacy_trusted: true } : {}),
             models: draft.models,
             ...redirectCreateFields(draft),
             ...(draft.failurePolicy
@@ -2398,6 +2407,18 @@ export function ServiceManager({
                                     variant="accent"
                                   >
                                     {plan}
+                                  </Badge>
+                                ) : null}
+                                {service.privacy_trusted ? (
+                                  <Badge
+                                    data-testid="privacy-trusted-badge"
+                                    title={t(
+                                      "services.privacyTrustedBadgeHint",
+                                    )}
+                                    variant="outline"
+                                  >
+                                    <ShieldCheck aria-hidden="true" />
+                                    {t("services.privacyTrustedBadge")}
                                   </Badge>
                                 ) : null}
                                 {risk ? (
@@ -3387,6 +3408,24 @@ export function ServiceManager({
               />
             </div>
           ) : null}
+          <div className="border-t pt-4">
+            <CapabilityToggle
+              label={t("services.privacyTrusted")}
+              description={t("services.privacyTrustedHint")}
+              status={
+                draft.privacyTrusted
+                  ? t("services.privacyTrustedOn")
+                  : undefined
+              }
+              checked={draft.privacyTrusted}
+              onCheckedChange={(checked) =>
+                setDraft((current) => ({
+                  ...current,
+                  privacyTrusted: checked,
+                }))
+              }
+            />
+          </div>
         </div>
       </Panel>
       <Panel>

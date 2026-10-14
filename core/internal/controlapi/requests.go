@@ -634,8 +634,14 @@ func privacyWithheldReason(record contract.RequestRecord, blob storage.AuditBlob
 				return contract.AuditWithheldPrivacyBlocked
 			case contract.PrivacyDecisionFailOpen:
 				return contract.AuditWithheldPrivacyFailOpen
+			case contract.PrivacyDecisionTrusted:
+				return contract.AuditWithheldPrivacyTrusted
 			}
 		}
+	case storage.AuditDirectionUpstreamRequest:
+		// Only a request sent to a trusted provider withholds its upstream
+		// copy.
+		return contract.AuditWithheldPrivacyTrusted
 	}
 	return contract.AuditWithheldPrivacyUnknown
 }

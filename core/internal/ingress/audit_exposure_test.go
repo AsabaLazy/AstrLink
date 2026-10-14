@@ -110,6 +110,7 @@ func TestIngressAuditExposureFollowsPrivacyDecision(t *testing.T) {
 	cases := []struct {
 		name         string
 		policy       *privacy.Policy
+		trusted      bool
 		body         string
 		wantStatus   int
 		wantDecision contract.PrivacyDecision
@@ -213,6 +214,29 @@ func TestIngressAuditExposureFollowsPrivacyDecision(t *testing.T) {
 			},
 			wantFindings: []contract.PrivacyFinding{{Kind: contract.CanonicalKindEmail, JSONPath: "/messages/0/content", Count: 1}},
 		},
+		{
+			name:    "trusted provider withholds both request copies",
+			policy:  &privacy.Policy{Enabled: true, Mode: privacy.ModeRegex, Action: privacy.ActionRedact, ResponseRestore: true},
+			trusted: true,
+			body:    withEmail, wantStatus: http.StatusOK,
+			wantDecision: contract.PrivacyDecisionTrusted,
+			want: map[storage.AuditDirection]storage.AuditExposure{
+				storage.AuditDirectionRequest:         storage.AuditExposureRaw,
+				storage.AuditDirectionResponse:        storage.AuditExposureShareable,
+				storage.AuditDirectionUpstreamRequest: storage.AuditExposureRaw,
+			},
+		},
+		{
+			name:    "trusted provider with protection off",
+			policy:  &privacy.Policy{Enabled: false},
+			trusted: true,
+			body:    withEmail, wantStatus: http.StatusOK,
+			wantDecision: contract.PrivacyDecisionNone,
+			want: map[storage.AuditDirection]storage.AuditExposure{
+				storage.AuditDirectionRequest:         storage.AuditExposureShareable,
+				storage.AuditDirectionUpstreamRequest: storage.AuditExposureShareable,
+			},
+		},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -222,10 +246,13 @@ func TestIngressAuditExposureFollowsPrivacyDecision(t *testing.T) {
 			if testCase.policy != nil {
 				filter = testPrivacyEngine(t, *testCase.policy, nil)
 			}
+			candidate := endpoint.Resolved{Endpoint: validEndpoint(contract.ProtocolOpenAIChat, false)}
+			if testCase.trusted {
+				candidate.Service = contract.ServiceFromEndpoint(candidate.Endpoint)
+				candidate.Service.PrivacyTrusted = true
+			}
 			handler := NewWithDependencies(Dependencies{
-				Resolver: candidateResolver{candidates: []endpoint.Resolved{{
-					Endpoint: validEndpoint(contract.ProtocolOpenAIChat, false),
-				}}},
+				Resolver:       candidateResolver{candidates: []endpoint.Resolved{candidate}},
 				PrivacyFilter:  filter,
 				RequestRecords: records,
 				AuditSettings:  exposureCaptureSettings(),

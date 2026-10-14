@@ -810,6 +810,11 @@
     "responsesWebSocket": "Responses WebSocket",
     "responsesWebSocketHint": "允许客户端通过 WebSocket 调用此 API 提供商的原生 Responses 接口。Codex 默认开启；其他 API 提供商请确认上游支持后开启。关闭后仍可使用 HTTP。",
     "webSocketOn": "WebSocket 已开启",
+    "privacyTrusted": "信任此提供商",
+    "privacyTrustedHint": "发往此提供商的请求不经过隐私保护：不检查、不脱敏，提供商收到的是原文。只对你放心交出这些数据的提供商开启。",
+    "privacyTrustedOn": "隐私保护不会改动发往此提供商的请求。",
+    "privacyTrustedBadge": "已信任",
+    "privacyTrustedBadgeHint": "发往此提供商的请求不经过隐私保护",
     "claudeOauth": "Claude Code 授权",
     "claudeOauthHint": "Claude Pro / Max 账号；在 Claude 授权后填写回调页的授权码。",
     "authorizationCode": "授权码",
@@ -1492,6 +1497,7 @@
     "outcome": {
       "off": "未开启",
       "clean": "未命中",
+      "trusted": "信任的提供商",
       "warned": "已警告",
       "redacted": "已脱敏",
       "blocked": "已阻止",
@@ -1503,6 +1509,7 @@
     "headline": {
       "off": "隐私保护没有处理这些请求，内容按原文发给了模型。",
       "clean": "没有发现需要替换的隐私内容。",
+      "trusted": "发往信任提供商的请求跳过了隐私检查，该提供商收到的是原文。",
       "warned": "命中了隐私内容，请求按原文发给了模型。",
       "redacted": "发送给模型前替换了 {{count}} 项隐私内容。",
       "blocked": "命中隐私内容，这次请求没有发往模型。",
@@ -2026,12 +2033,16 @@
     "ignoredBoth": "另有 {{total}} 处已忽略，模型收到的是原文：{{allowlisted}} 处命中免脱敏名单，{{lowConfidence}} 处低于置信度门槛。",
     "unprotected_one": "另有 {{count}} 次请求发出时隐私保护已关闭，模型收到的是原文。",
     "unprotected_other": "另有 {{count}} 次请求发出时隐私保护已关闭，模型收到的是原文。",
+    "trusted_one": "另有 {{count}} 次请求发往信任的提供商，未经隐私检查，提供商收到的是原文。",
+    "trusted_other": "另有 {{count}} 次请求发往信任的提供商，未经隐私检查，提供商收到的是原文。",
     "emptyOffTitle": "隐私保护已关闭",
     "emptyOffBody": "开启后，这里会显示替换、还原和阻止了多少隐私内容。",
     "emptyTitle": "这段时间没有请求经过隐私检查",
     "emptyBody": "有请求经过网关后，这里会显示统计。",
     "emptyUnprotected_one": "这段时间有 {{count}} 次请求发出时隐私保护已关闭，模型收到的是原文。",
-    "emptyUnprotected_other": "这段时间有 {{count}} 次请求发出时隐私保护已关闭，模型收到的是原文。"
+    "emptyUnprotected_other": "这段时间有 {{count}} 次请求发出时隐私保护已关闭，模型收到的是原文。",
+    "emptyTrusted_one": "这段时间有 {{count}} 次请求发往信任的提供商，未经隐私检查，提供商收到的是原文。",
+    "emptyTrusted_other": "这段时间有 {{count}} 次请求发往信任的提供商，未经隐私检查，提供商收到的是原文。"
   },
   "records": {
     "clientType": "客户端：{{client}}",
@@ -2497,6 +2508,7 @@
       "warn": "已警告",
       "block": "已阻止",
       "allow": "未命中",
+      "trusted": "信任的提供商",
       "inspecting": "检测中",
       "unfinished": "未完成"
     },
@@ -2515,6 +2527,7 @@
       "kind_disabled": "类型已关闭"
     },
     "policyAllowHint": "策略没有改动请求内容，请求体见「客户端」。",
+    "policyTrustedHint": "此提供商已被信任，策略没有检查这次请求，按原文发往上游。请求体见「客户端」。",
     "policyWarnHint": "命中的内容已按原文发给模型，请求体见「客户端」。隐私保护设为「脱敏后继续」时，会在发送前替换这些内容。",
     "policyBlockHint": "策略阻止了这次请求，没有发往上游。",
     "restoreCounts": "可见文本 {{visible}} · 工具参数 {{tools}}",

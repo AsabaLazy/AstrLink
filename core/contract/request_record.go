@@ -295,7 +295,10 @@ type PrivacyDecision string
 
 const (
 	// PrivacyDecisionNone means no privacy policy applied to the request.
-	PrivacyDecisionNone     PrivacyDecision = "none"
+	PrivacyDecisionNone PrivacyDecision = "none"
+	// PrivacyDecisionTrusted means the policy applied, but the request went
+	// uninspected to a provider the user trusts with the original text.
+	PrivacyDecisionTrusted  PrivacyDecision = "trusted"
 	PrivacyDecisionAllow    PrivacyDecision = "allow"
 	PrivacyDecisionWarn     PrivacyDecision = "warn"
 	PrivacyDecisionRedact   PrivacyDecision = "redact"
@@ -318,16 +321,18 @@ func (decision PrivacyDecision) Severity() int {
 	switch decision {
 	case PrivacyDecisionNone:
 		return 1
-	case PrivacyDecisionAllow:
+	case PrivacyDecisionTrusted:
 		return 2
-	case PrivacyDecisionWarn:
+	case PrivacyDecisionAllow:
 		return 3
-	case PrivacyDecisionFailOpen:
+	case PrivacyDecisionWarn:
 		return 4
-	case PrivacyDecisionRedact:
+	case PrivacyDecisionFailOpen:
 		return 5
-	case PrivacyDecisionBlock:
+	case PrivacyDecisionRedact:
 		return 6
+	case PrivacyDecisionBlock:
+		return 7
 	default:
 		return 0
 	}

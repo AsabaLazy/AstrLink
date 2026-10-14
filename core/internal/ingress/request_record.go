@@ -217,6 +217,9 @@ type recordSession struct {
 	// privacyGated is set when a privacy filter is configured, so the client
 	// body may not be shared before a decision (plan §5.11.3).
 	privacyGated bool
+	// privacyTrusted is set while the current attempt goes uninspected to a
+	// trusted provider, so its upstream body holds the client's own values.
+	privacyTrusted bool
 	// privacyDecision is the most severe decision any attempt reached; empty
 	// until one inspection decides.
 	privacyDecision contract.PrivacyDecision
@@ -1018,6 +1021,14 @@ func (session *recordSession) beginPrivacyAttempt() {
 	}
 	session.privacyRestore = nil
 	session.privacyBatch = ""
+	session.privacyTrusted = false
+}
+
+func (session *recordSession) notePrivacyTrusted() {
+	if session == nil {
+		return
+	}
+	session.privacyTrusted = true
 }
 
 // beginPrivacyInspection opens the privacy phase before the detector runs. A
@@ -1524,7 +1535,9 @@ func (session *recordSession) sealCapture(
 // auditExposure labels a part at capture time with who may read it without
 // proof (plan §5.11.3). Upstream parts already left the machine and meta is
 // redacted before storage; the client body follows the privacy decision and
-// the client response is withheld once real values were restored into it.
+// the client response is withheld once real values were restored into it. A
+// request sent to a trusted provider skipped the policy, so it is withheld
+// like the client body it copies.
 func (session *recordSession) auditExposure(direction storage.AuditDirection) storage.AuditExposure {
 	switch direction {
 	case storage.AuditDirectionRequest:
@@ -1545,6 +1558,11 @@ func (session *recordSession) auditExposure(direction storage.AuditDirection) st
 	case storage.AuditDirectionResponse:
 		if restore := session.privacyRestore; restore != nil &&
 			(restore.RestoredCount > 0 || restore.ToolArgumentRestoredCount > 0) {
+			return storage.AuditExposureRaw
+		}
+		return storage.AuditExposureShareable
+	case storage.AuditDirectionUpstreamRequest:
+		if session.privacyTrusted {
 			return storage.AuditExposureRaw
 		}
 		return storage.AuditExposureShareable

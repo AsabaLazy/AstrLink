@@ -51,6 +51,7 @@ func TestPrivacySummaryCountsDecisionsValuesAndKinds(t *testing.T) {
 		{id: "ignored", status: contract.RequestStatusSucceeded, at: from, decision: decision(contract.PrivacyDecisionAllow), ignored: allowlisted},
 		{id: "fail_open", status: contract.RequestStatusSucceeded, at: from, decision: decision(contract.PrivacyDecisionFailOpen)},
 		{id: "off", status: contract.RequestStatusSucceeded, at: from, decision: decision(contract.PrivacyDecisionNone)},
+		{id: "trusted", status: contract.RequestStatusSucceeded, at: from, decision: decision(contract.PrivacyDecisionTrusted)},
 		// Rows from before decisions were recorded keep their own evidence.
 		{id: "legacy_blocked", status: contract.RequestStatusBlocked, at: from},
 		{id: "legacy_redacted", status: contract.RequestStatusSucceeded, at: from, restore: &contract.PrivacyRestoreSummary{Enabled: true, MappingCount: 1, RestoredCount: 1}},
@@ -81,7 +82,7 @@ func TestPrivacySummaryCountsDecisionsValuesAndKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := storage.PrivacyTotals{Requests: 12, Allowed: 2, Ignored: 1, Warned: 1, Redacted: 3, Blocked: 2, FailOpen: 1,
+	want := storage.PrivacyTotals{Requests: 13, Allowed: 2, Ignored: 1, Warned: 1, Redacted: 3, Blocked: 2, FailOpen: 1, Trusted: 1,
 		Replaced: 7, Restored: 9, RestoredVisible: 6, RestoredToolArguments: 2, Unrestored: 2,
 		IgnoredAllowlisted: 2, IgnoredLowConfidence: 3}
 	if summary.Totals != want {

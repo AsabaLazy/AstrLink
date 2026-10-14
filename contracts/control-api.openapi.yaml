@@ -3891,8 +3891,8 @@ components:
       type: object
       description: >-
         Each request lands in at most one outcome count (allowed, ignored,
-        warned, redacted, blocked, fail_open); a request no policy applied to
-        is counted in requests alone.
+        warned, redacted, blocked, fail_open, trusted); a request no policy
+        applied to is counted in requests alone.
       required:
         [
           requests,
@@ -3902,6 +3902,7 @@ components:
           redacted,
           blocked,
           fail_open,
+          trusted,
           replaced,
           restored,
           restored_visible,
@@ -3927,6 +3928,10 @@ components:
           type: integer
           minimum: 0
           description: Requests forwarded unchecked because the check failed.
+        trusted:
+          type: integer
+          minimum: 0
+          description: Requests forwarded uninspected to a service with privacy_trusted.
         replaced:
           type: integer
           minimum: 0
@@ -4826,6 +4831,9 @@ components:
           $ref: "#/components/schemas/ServiceKind"
         enabled:
           type: boolean
+        privacy_trusted:
+          type: boolean
+          description: Requests routed to this service skip the privacy policy and go upstream as the client wrote them, without inspection, redaction, warning or blocking. Their request bodies are withheld from the shareable audit view. Omitted when false.
         models:
           $ref: "#/components/schemas/ServiceModels"
         capabilities:
@@ -4909,6 +4917,10 @@ components:
         enabled:
           type: boolean
           default: true
+        privacy_trusted:
+          type: boolean
+          default: false
+          description: Requests routed to this service skip the privacy policy and go upstream as the client wrote them.
         models:
           $ref: "#/components/schemas/ServiceModels"
         http:
@@ -4984,6 +4996,9 @@ components:
           maxLength: 128
         enabled:
           type: boolean
+        privacy_trusted:
+          type: boolean
+          description: Requests routed to this service skip the privacy policy and go upstream as the client wrote them.
         models:
           $ref: "#/components/schemas/ServiceModels"
         http:
@@ -6496,11 +6511,12 @@ components:
       additionalProperties: false
     PrivacyDecision:
       type: string
-      enum: [none, allow, warn, redact, block, fail_open]
+      enum: [none, trusted, allow, warn, redact, block, fail_open]
       description: |
         Request-time privacy outcome. Retries combine to the most severe decision
-        any attempt reached. Omitted on records captured before decisions were
-        recorded.
+        any attempt reached. `trusted` means the policy applied but the request
+        went uninspected to a service with `privacy_trusted`. Omitted on records
+        captured before decisions were recorded.
     ConversionDiagnostic:
       type: object
       required: [phase, severity, code, message]
@@ -7213,11 +7229,14 @@ components:
         - privacy_restored
         - privacy_fail_open
         - privacy_pending
+        - privacy_trusted
         - privacy_unknown
         - raw_locked
         - raw_not_kept
       description: |
-        Why a part was withheld. `privacy_unknown` covers parts captured before
+        Why a part was withheld. `privacy_trusted` covers the client and
+        upstream request bodies of a request sent uninspected to a trusted
+        provider. `privacy_unknown` covers parts captured before
         decisions were recorded; `raw_locked` is returned to the operator until
         raw reading is unlocked. `raw_not_kept` marks raw parts captured before
         a raw password protected the raw key, whose content was never stored.

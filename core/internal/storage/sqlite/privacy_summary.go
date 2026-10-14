@@ -199,6 +199,8 @@ func addPrivacyCall(
 		target.Blocked++
 	case contract.PrivacyDecisionFailOpen:
 		target.FailOpen++
+	case contract.PrivacyDecisionTrusted:
+		target.Trusted++
 	}
 	if restore == nil {
 		return

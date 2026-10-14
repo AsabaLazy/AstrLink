@@ -15,6 +15,7 @@ import {
 export type PrivacyOutcome =
   | "off"
   | "clean"
+  | "trusted"
   | "warned"
   | "redacted"
   | "blocked"
@@ -89,6 +90,8 @@ export interface PrivacyAuditSummary extends PrivacyTally {
   uncheckedCalls: number;
   /** Calls no policy applied to, so the body went upstream untouched. */
   offCalls: number;
+  /** Calls that went uninspected to a provider the user trusts. */
+  trustedCalls: number;
   warnedCalls: number;
   redactedCalls: number;
   /**
@@ -100,11 +103,16 @@ export interface PrivacyAuditSummary extends PrivacyTally {
 
 /**
  * A call whose privacy result is worth a row of its own: it changed, stopped,
- * or could not be inspected. Calls with nothing to report are counted in the
- * header instead, so a 40-call agent loop does not bury the one that mattered.
+ * or could not be inspected. Calls with nothing to report, including those a
+ * trusted provider received by the user's choice, are counted in the header
+ * instead, so a 40-call agent loop does not bury the one that mattered.
  */
 export function notableCall(audit: PrivacyCallAudit): boolean {
-  return audit.outcome !== "clean" && audit.outcome !== "off";
+  return (
+    audit.outcome !== "clean" &&
+    audit.outcome !== "off" &&
+    audit.outcome !== "trusted"
+  );
 }
 
 export function requestPrivacyAudit(
@@ -144,6 +152,7 @@ export function requestPrivacyAudit(
     blockedCalls: count("blocked"),
     uncheckedCalls: count("unchecked"),
     offCalls: count("off"),
+    trustedCalls: count("trusted"),
     warnedCalls: count("warned"),
     redactedCalls: count("redacted"),
     explainedBy:
@@ -291,22 +300,26 @@ export function privacyListItemKey(item: PrivacyListItem): string {
 /**
  * Orders outcomes by how much the operator has to look at: a blocked call
  * first, then a call that went out uninspected, then one that was redacted.
+ * A trusted call outranks a clean one, so a session that mixes them does not
+ * read as if every call was checked.
  */
 export function outcomeSeverity(outcome: PrivacyOutcome): number {
   switch (outcome) {
     case "blocked":
-      return 9;
+      return 10;
     case "unchecked":
-      return 8;
+      return 9;
     case "failed":
-      return 7;
+      return 8;
     case "redacted":
-      return 6;
+      return 7;
     case "warned":
-      return 5;
+      return 6;
     case "inspecting":
-      return 4;
+      return 5;
     case "unknown":
+      return 4;
+    case "trusted":
       return 3;
     case "clean":
       return 2;
@@ -359,6 +372,8 @@ export function callOutcome(record: RequestRecord): PrivacyOutcome {
   switch (record.privacy_decision) {
     case "none":
       return "off";
+    case "trusted":
+      return "trusted";
     case "allow":
       return "clean";
     case "warn":
@@ -376,7 +391,9 @@ export function callOutcome(record: RequestRecord): PrivacyOutcome {
   const summary = privacyEventSummary(record);
   if (summary === null) return "unknown";
   const action = summary.split(" · ")[0];
-  if (action === "allow") return "clean";
+  if (action === "allow") {
+    return parsePolicySummary(summary)?.trusted ? "trusted" : "clean";
+  }
   if (action === "warn") return "warned";
   if (action === "block") return "blocked";
   if (action === "redact") return "redacted";
@@ -463,6 +480,7 @@ export function privacyKindCountLabel({
 export const PRIVACY_OUTCOMES: readonly PrivacyOutcome[] = [
   "off",
   "clean",
+  "trusted",
   "warned",
   "redacted",
   "blocked",

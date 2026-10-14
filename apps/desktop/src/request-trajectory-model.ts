@@ -318,7 +318,8 @@ function widenConfidence(
 }
 
 /**
- * What the privacy policy did to the request. `unfinished` covers an
+ * What the privacy policy did to the request. `trusted` covers a request the
+ * policy let through uninspected to a trusted provider; `unfinished` covers an
  * inspection that failed or was cut off before it decided.
  */
 export type PolicyDecision =
@@ -326,6 +327,7 @@ export type PolicyDecision =
   | "warn"
   | "block"
   | "allow"
+  | "trusted"
   | "inspecting"
   | "unfinished";
 
@@ -344,14 +346,16 @@ export interface PolicySummary {
    * listed the placeholder skill, so no notice was added.
    */
   explainedBy: PlaceholderExplanation | null;
+  /** The request went uninspected to a provider the user trusts. */
+  trusted: boolean;
 }
 
 const policyActions = new Set<string>(["allow", "warn", "block", "redact"]);
 
 /**
- * Core writes "allow", "warn", "block", or "redact · 3" with an optional
- * "notice" or "skill" segment. Anything else is an inspection still running
- * or a failure code, which stays in Core's own words.
+ * Core writes "allow", "allow · trusted", "warn", "block", or "redact · 3"
+ * with an optional "notice" or "skill" segment. Anything else is an inspection
+ * still running or a failure code, which stays in Core's own words.
  */
 export function parsePolicySummary(summary: string): PolicySummary | null {
   const [action, ...rest] = summary.split(" · ");
@@ -365,6 +369,7 @@ export function parsePolicySummary(summary: string): PolicySummary | null {
       : rest.includes("skill")
         ? "skill"
         : null,
+    trusted: action === "allow" && rest.includes("trusted"),
   };
 }
 
@@ -381,7 +386,11 @@ export function placeholderExplanationText(
 // How placeholders were explained is the same on nearly every call, so the
 // chain row leaves it to the policy inspector.
 function policySummaryText(policy: PolicySummary): string {
-  const parts = [i18n.t(`trajectory.policyDecisions.${policy.action}`)];
+  const parts = [
+    i18n.t(
+      `trajectory.policyDecisions.${policy.trusted ? "trusted" : policy.action}`,
+    ),
+  ];
   if (policy.replaced !== null) {
     parts.push(i18n.t("trajectory.policyReplaced", { count: policy.replaced }));
   }
@@ -417,6 +426,7 @@ export function policyDecision(
     return "redact";
   }
   if (action === "warn") return "warn";
+  if (row.policy?.trusted) return "trusted";
   if (action === "block" || row.status === "blocked") return "block";
   if (row.status === "pending") return "inspecting";
   if (row.status === "failed" || row.status === "cancelled") {

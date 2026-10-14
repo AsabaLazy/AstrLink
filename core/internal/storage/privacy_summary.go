@@ -21,6 +21,8 @@ type PrivacyTotals struct {
 	Blocked  int64 `json:"blocked"`
 	// FailOpen calls went upstream unchecked because the check failed.
 	FailOpen int64 `json:"fail_open"`
+	// Trusted calls went uninspected to a provider the user trusts.
+	Trusted int64 `json:"trusted"`
 	// Replaced sums the distinct values each call replaced before it went
 	// upstream; a value repeated across calls counts once per call.
 	Replaced              int64 `json:"replaced"`

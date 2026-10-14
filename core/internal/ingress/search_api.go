@@ -151,7 +151,7 @@ func (handler *Handler) serveSearch(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	replaceRecoveryRequestBody(request, stripped)
-	finishPrivacy, _, err := handler.applyPrivacy(writer, request, classified, config.ServiceID)
+	finishPrivacy, _, err := handler.applyPrivacy(writer, request, classified, handler.builtinToolService(request.Context(), config))
 	defer finishPrivacy()
 	if err != nil {
 		handler.searchPrivacyFailure(request, err, reply)
@@ -266,7 +266,7 @@ func (handler *Handler) forwardCodexSearch(
 ) {
 	session := recordSessionFromContext(request.Context())
 	service := candidate.CanonicalService()
-	finishPrivacy, _, err := handler.applyPrivacy(writer, request, classified, service.ID)
+	finishPrivacy, _, err := handler.applyPrivacy(writer, request, classified, service)
 	defer finishPrivacy()
 	if err != nil {
 		handler.searchPrivacyFailure(request, err, reply)

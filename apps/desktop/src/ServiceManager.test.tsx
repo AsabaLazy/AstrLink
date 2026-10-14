@@ -571,6 +571,75 @@ describe("ServiceManager", () => {
     expect(onServiceSaved).toHaveBeenCalledWith(saved);
   });
 
+  it("trusts a provider with privacy and badges it in the list", async () => {
+    const trusted = { ...gatewayService, privacy_trusted: true };
+    bridgeMocks.getService.mockResolvedValue({ service: gatewayService, etag });
+    bridgeMocks.updateService.mockResolvedValue({ service: trusted, etag });
+    const onServiceSaved = vi.fn();
+    const props = {
+      isReady: true,
+      protocols: [],
+      catalogStatus: "ready" as const,
+      catalogError: null,
+      onRefresh: vi.fn(),
+      onViewChange: vi.fn(),
+      onServiceSaved,
+      onServiceRemoved: vi.fn(),
+      onDirtyChange: vi.fn(),
+    };
+    await act(async () =>
+      root.render(
+        <ServiceManager
+          {...props}
+          services={[codexService, gatewayService]}
+          view={{ kind: "edit", serviceId: gatewayService.id }}
+        />,
+      ),
+    );
+    const toggle = container.querySelector<HTMLButtonElement>(
+      '[role="switch"][aria-label="信任此提供商"]',
+    )!;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(container.textContent).toContain(
+      "隐私保护不会改动发往此提供商的请求。",
+    );
+    await act(async () =>
+      container
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(bridgeMocks.updateService).toHaveBeenCalledWith(
+      gatewayService.id,
+      etag,
+      expect.objectContaining({ privacy_trusted: true }),
+    );
+    expect(onServiceSaved).toHaveBeenCalledWith(trusted);
+
+    await act(async () =>
+      root.render(
+        <ServiceManager
+          {...props}
+          services={[codexService, trusted]}
+          view={{ kind: "list" }}
+        />,
+      ),
+    );
+    const badges = container.querySelectorAll(
+      '[data-testid="privacy-trusted-badge"]',
+    );
+    expect(badges).toHaveLength(1);
+    expect(
+      badges[0]
+        ?.closest('[data-testid="service-card"]')
+        ?.getAttribute("aria-label"),
+    ).toBe(trusted.name);
+    expect(badges[0]?.textContent).toBe("已信任");
+  });
+
   it("waits for saved priority before showing rows on every page entry", async () => {
     for (let entry = 0; entry < 2; entry++) {
       let resolveOrder!: (value: unknown) => void;
@@ -4187,6 +4256,7 @@ describe("ServiceManager", () => {
         name: customService.name,
         enabled: true,
         responses_websocket_enabled: false,
+        privacy_trusted: false,
         failure_policy: null,
         models: ["gpt-5"],
         http: {

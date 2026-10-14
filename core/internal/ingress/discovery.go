@@ -253,7 +253,7 @@ func (handler *Handler) fetchModelDiscovery(
 		recorder,
 		fetchRequest,
 		classified,
-		candidate.Service.ID,
+		candidate.Service,
 	)
 	finishPrivacy()
 	if request.Context().Err() != nil {

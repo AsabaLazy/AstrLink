@@ -303,7 +303,7 @@ func (handler *Handler) executeCandidatesWithTest(
 			downstream,
 			attemptRequest,
 			classified,
-			candidate.Service.ID,
+			candidate.Service,
 		)
 		redactions := privacyResult.redactions
 		if request.Context().Err() != nil {

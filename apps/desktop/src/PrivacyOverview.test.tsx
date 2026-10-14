@@ -182,7 +182,35 @@ describe("PrivacyOverview", () => {
     expect(
       outcomes.querySelector('[data-slot="privacy-unprotected"]')?.textContent,
     ).toBe("另有 1 次请求发出时隐私保护已关闭，模型收到的是原文。");
+    expect(outcomes.querySelector('[data-slot="privacy-trusted"]')).toBeNull();
     expect(container.querySelector('[data-slot="privacy-ignored"]')).toBeNull();
+  });
+
+  it("counts calls to trusted providers apart from protection being off", async () => {
+    bridge.getPrivacySummary.mockImplementation(async (window: UsageWindow) =>
+      summaryFor(window, { ...busy, requests: 23, trusted: 3 }),
+    );
+    await render();
+    const outcomes = container.querySelector('[data-slot="privacy-outcomes"]')!;
+    expect(outcomes.textContent).toContain("共 19 次");
+    expect(
+      outcomes.querySelector('[data-slot="privacy-unprotected"]')?.textContent,
+    ).toBe("另有 1 次请求发出时隐私保护已关闭，模型收到的是原文。");
+    expect(
+      outcomes.querySelector('[data-slot="privacy-trusted"]')?.textContent,
+    ).toBe("另有 3 次请求发往信任的提供商，未经隐私检查，提供商收到的是原文。");
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    bridge.getPrivacySummary.mockImplementation(async (window: UsageWindow) =>
+      summaryFor(window, { ...emptyPrivacyTotals(), requests: 2, trusted: 2 }),
+    );
+    await render();
+    expect(container.textContent).toContain("这段时间没有请求经过隐私检查");
+    expect(container.textContent).toContain(
+      "这段时间有 2 次请求发往信任的提供商，未经隐私检查，提供商收到的是原文。",
+    );
+    expect(container.textContent).not.toContain("隐私保护已关闭");
   });
 
   it("counts ignored calls apart and names the matches left in place", async () => {

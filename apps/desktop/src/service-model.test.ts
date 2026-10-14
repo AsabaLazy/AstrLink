@@ -318,6 +318,39 @@ describe("service model", () => {
     ).toThrow(/credential_hint/);
   });
 
+  it("reads a provider's privacy trust as a boolean Core omits when false", () => {
+    const service = (extra: Record<string, unknown>) => ({
+      id: "service_gateway",
+      name: "new-api",
+      kind: "newapi",
+      enabled: true,
+      models: [],
+      capabilities: [],
+      http: {
+        base_url: "https://gateway.example/v1",
+        auth: { scheme: "bearer" },
+      },
+      created_at: createdAt,
+      updated_at: createdAt,
+      ...extra,
+    });
+    expect(
+      parseService(service({ privacy_trusted: true })).privacy_trusted,
+    ).toBe(true);
+    expect(
+      Object.hasOwn(
+        parseService(service({ privacy_trusted: false })),
+        "privacy_trusted",
+      ),
+    ).toBe(false);
+    expect(Object.hasOwn(parseService(service({})), "privacy_trusted")).toBe(
+      false,
+    );
+    expect(() => parseService(service({ privacy_trusted: "yes" }))).toThrow(
+      /privacy_trusted/,
+    );
+  });
+
   it("requires the connection variant selected by kind", () => {
     expect(() =>
       parseService({

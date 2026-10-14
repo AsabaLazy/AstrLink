@@ -99,6 +99,8 @@ describe("privacy summary IPC contract", () => {
       // Ignored calls are an outcome of their own, not part of allowed.
       { ...valid, totals: { ...busyDay, ignored: 5 } },
       { ...valid, totals: { ...busyDay, ignored_allowlisted: -1 } },
+      // Trusted calls are counted in requests like every other outcome.
+      { ...valid, totals: { ...busyDay, trusted: 2 } },
       { ...valid, totals: { ...busyDay, restored: 1 } },
       { ...valid, by_day: [{ date: "2020-01-01", ...busyDay }] },
       {
@@ -130,6 +132,8 @@ describe("privacy summary figures", () => {
     expect(flaggedCalls(busyDay)).toBe(8);
     // 20 calls: 18 checked, 1 failed check, 1 with no policy at all.
     expect(unprotectedCalls(busyDay)).toBe(1);
+    // Calls to a trusted provider are not counted as protection being off.
+    expect(unprotectedCalls({ ...busyDay, requests: 22, trusted: 2 })).toBe(1);
     expect(sharePercent(8, 18)).toBe(44);
     expect(sharePercent(1, 0)).toBe(0);
   });

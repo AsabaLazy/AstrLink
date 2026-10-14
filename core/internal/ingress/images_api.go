@@ -76,6 +76,7 @@ func (handler *Handler) serveImages(writer http.ResponseWriter, request *http.Re
 	if settings.BuiltinTools != nil {
 		config = settings.BuiltinTools.ImageGeneration
 	}
+	var service contract.Service
 	if !config.Enabled || config.Validate("image_generation") != nil {
 		ref := codexTurnRef{turnID: codexTurnID(request.Header.Get(codexImageTurnHeader))}
 		candidate, binding, ok := handler.codexToolProvider(request.Context(), ref, "image_generation")
@@ -84,7 +85,7 @@ func (handler *Handler) serveImages(writer http.ResponseWriter, request *http.Re
 			fail(http.StatusUnprocessableEntity, "image_generation_disabled", "image generation is turned off, and this conversation's provider has no Images API; it can be turned on under Routing → Redirects → Responses tool mapping")
 			return
 		}
-		service := candidate.CanonicalService()
+		service = candidate.CanonicalService()
 		model := codexToolModel(settings, service, classified.Model)
 		if service.Kind == contract.ServiceKindCodexSubscription {
 			handler.forwardCodexImages(writer, request, classified, settings, candidate, binding, model)
@@ -104,8 +105,10 @@ func (handler *Handler) serveImages(writer http.ResponseWriter, request *http.Re
 			fail(http.StatusBadRequest, "invalid_request", "image model is required")
 			return
 		}
+	} else {
+		service = handler.builtinToolService(request.Context(), config)
 	}
-	finishPrivacy, _, err := handler.applyPrivacy(writer, request, classified, config.ServiceID)
+	finishPrivacy, _, err := handler.applyPrivacy(writer, request, classified, service)
 	defer finishPrivacy()
 	if err != nil {
 		handler.writePrivacyError(writer, request, err)
@@ -187,7 +190,7 @@ func (handler *Handler) forwardCodexImages(
 		writeInferenceError(writer, status, code, message, false, nil)
 		session.noteFailed(errorSummaryFromInference(code, message, false))
 	}
-	finishPrivacy, _, err := handler.applyPrivacy(writer, request, classified, service.ID)
+	finishPrivacy, _, err := handler.applyPrivacy(writer, request, classified, service)
 	defer finishPrivacy()
 	if err != nil {
 		handler.writePrivacyError(writer, request, err)

@@ -88,11 +88,14 @@ export interface PrivacyHitCount {
 
 /**
  * What the privacy policy did to this request. `none` means no policy applied,
- * so the body went upstream untouched; `allow` means a policy inspected it and
- * found nothing to act on. Absent on records written before decisions existed.
+ * so the body went upstream untouched; `trusted` means a policy applied but the
+ * body went uninspected to a provider the user trusts; `allow` means a policy
+ * inspected it and found nothing to act on. Absent on records written before
+ * decisions existed.
  */
 export type PrivacyDecision =
   | "none"
+  | "trusted"
   | "allow"
   | "warn"
   | "redact"
@@ -409,6 +412,8 @@ export type AuditWithheldReason =
   | "privacy_blocked"
   | "privacy_restored"
   | "privacy_fail_open"
+  /** Sent uninspected to a trusted provider, so it holds the original values. */
+  | "privacy_trusted"
   | "privacy_pending"
   | "privacy_unknown"
   | "raw_locked"
@@ -758,6 +763,7 @@ function optionalPrivacyFindings(
 
 const privacyDecisions = new Set<PrivacyDecision>([
   "none",
+  "trusted",
   "allow",
   "warn",
   "redact",
@@ -1385,6 +1391,7 @@ const auditWithheldReasons = new Set<AuditWithheldReason>([
   "privacy_blocked",
   "privacy_restored",
   "privacy_fail_open",
+  "privacy_trusted",
   "privacy_pending",
   "privacy_unknown",
   "raw_locked",

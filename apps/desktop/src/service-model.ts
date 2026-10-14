@@ -263,6 +263,8 @@ export interface SubscriptionRiskEvent {
 export interface Service {
   proxy?: ServiceProxy;
   responses_websocket_enabled?: boolean;
+  /** Requests to this provider skip the privacy policy; omitted when false. */
+  privacy_trusted?: boolean;
   /** This provider's own redirects; routing keeps the requested model. */
   model_redirects?: ModelRedirect[];
   failure_policy?: FailurePolicy;
@@ -302,6 +304,7 @@ export interface ServiceRecord {
 export type SubscriptionServiceCreateInput = {
   proxy?: ServiceProxyInput | null;
   responses_websocket_enabled?: boolean;
+  privacy_trusted?: boolean;
   model_redirects?: ModelRedirect[];
   claude_model_aliases_enabled?: boolean;
   failure_policy?: FailurePolicy;
@@ -315,6 +318,7 @@ export type SubscriptionServiceCreateInput = {
 export type HTTPServiceCreateInput = {
   proxy?: ServiceProxyInput | null;
   responses_websocket_enabled?: boolean;
+  privacy_trusted?: boolean;
   model_redirects?: ModelRedirect[];
   claude_model_aliases_enabled?: boolean;
   failure_policy?: FailurePolicy;
@@ -338,6 +342,7 @@ export type ServiceCreateInput =
 export type ServicePatchInput = {
   proxy?: ServiceProxyInput | null;
   responses_websocket_enabled?: boolean;
+  privacy_trusted?: boolean;
   model_redirects?: ModelRedirect[];
   failure_policy?: FailurePolicy | null;
   name?: string;
@@ -904,6 +909,7 @@ export function parseService(value: unknown, path = "$"): Service {
       "subscription",
       "failure_policy",
       "responses_websocket_enabled",
+      "privacy_trusted",
       "model_redirects",
       "proxy",
     ],
@@ -933,6 +939,14 @@ export function parseService(value: unknown, path = "$"): Service {
           service.responses_websocket_enabled as boolean,
       }
     : {};
+  if (
+    Object.hasOwn(service, "privacy_trusted") &&
+    typeof service.privacy_trusted !== "boolean"
+  ) {
+    invalid(`${path}.privacy_trusted`, "expected a boolean");
+  }
+  const trustSetting =
+    service.privacy_trusted === true ? { privacy_trusted: true } : {};
   let modelRedirects: ModelRedirect[] = [];
   try {
     modelRedirects = parseModelRedirects(service.model_redirects);
@@ -977,6 +991,7 @@ export function parseService(value: unknown, path = "$"): Service {
       kind: service.kind,
       enabled: service.enabled,
       ...websocketSetting,
+      ...trustSetting,
       ...redirectSettings,
       ...(service.proxy !== undefined
         ? { proxy: parseServiceProxy(service.proxy, id) }
@@ -1008,6 +1023,7 @@ export function parseService(value: unknown, path = "$"): Service {
     kind: service.kind as HTTPServiceKind,
     enabled: service.enabled,
     ...websocketSetting,
+    ...trustSetting,
     ...redirectSettings,
     ...(service.proxy !== undefined
       ? { proxy: parseServiceProxy(service.proxy, id) }

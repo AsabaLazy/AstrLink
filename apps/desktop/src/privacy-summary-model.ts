@@ -22,6 +22,8 @@ export interface PrivacyTotals {
   blocked: number;
   /** Calls that went to the model unchecked because the check failed. */
   fail_open: number;
+  /** Calls that went uninspected to a provider the user trusts. */
+  trusted: number;
   /** Distinct values each call replaced, summed over calls. */
   replaced: number;
   restored: number;
@@ -70,6 +72,7 @@ const totalKeys = [
   "redacted",
   "blocked",
   "fail_open",
+  "trusted",
   "replaced",
   "restored",
   "restored_visible",
@@ -150,7 +153,8 @@ function totalsAt(object: Record<string, unknown>): PrivacyTotals {
       totals.warned +
       totals.redacted +
       totals.blocked +
-      totals.fail_open >
+      totals.fail_open +
+      totals.trusted >
       totals.requests ||
     totals.restored_visible + totals.restored_tool_arguments > totals.restored
   ) {
@@ -252,10 +256,14 @@ export function hasPrivacyActivity(totals: PrivacyTotals): boolean {
 
 /**
  * Calls that reached the model without any check because no policy applied:
- * protection was off, or the record predates stored decisions.
+ * protection was off, or the record predates stored decisions. Calls to a
+ * trusted provider are counted apart, in `trusted`.
  */
 export function unprotectedCalls(totals: PrivacyTotals): number {
-  return Math.max(0, totals.requests - checkedCalls(totals) - totals.fail_open);
+  return Math.max(
+    0,
+    totals.requests - checkedCalls(totals) - totals.fail_open - totals.trusted,
+  );
 }
 
 /** Whole percent of `part` in `whole`; 0 without a whole. */

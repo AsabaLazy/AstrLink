@@ -892,6 +892,7 @@ function policyTone(
     case "block":
       return "blocked";
     case "allow":
+    case "trusted":
       return "neutral";
     case "unfinished":
       return status === "failed" ? "negative" : "neutral";
@@ -902,6 +903,8 @@ function policyHint(decision: PolicyDecision): string | null {
   switch (decision) {
     case "allow":
       return i18n.t("trajectory.policyAllowHint");
+    case "trusted":
+      return i18n.t("trajectory.policyTrustedHint");
     case "warn":
       return i18n.t("trajectory.policyWarnHint");
     case "block":

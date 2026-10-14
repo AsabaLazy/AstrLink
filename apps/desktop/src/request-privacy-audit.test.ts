@@ -77,6 +77,7 @@ describe("request privacy audit", () => {
   it("reads the recorded decision first", () => {
     const decisions: Array<[PrivacyDecision, string]> = [
       ["none", "off"],
+      ["trusted", "trusted"],
       ["allow", "clean"],
       ["warn", "warned"],
       ["redact", "redacted"],
@@ -90,6 +91,32 @@ describe("request privacy audit", () => {
       expect(summary.outcome).toBe(outcome);
       expect(summary.calls[0].outcome).toBe(outcome);
     }
+  });
+
+  it("states trusted calls above clean ones without giving them rows", () => {
+    const summary = requestPrivacyAudit([
+      record({ id: "req_clean", privacy_decision: "allow" }),
+      record({ id: "req_trusted", privacy_decision: "trusted" }),
+    ]);
+    expect(summary.outcome).toBe("trusted");
+    expect(summary.trustedCalls).toBe(1);
+    expect(summary.turns[0]).toMatchObject({ calls: [], quietCalls: 2 });
+    // Without a decision, Core's summary still names the trusted provider.
+    const undecided = requestPrivacyAudit([
+      record({
+        events: [
+          {
+            kind: "privacy",
+            started_at: base.started_at,
+            ended_at: base.completed_at,
+            status: "succeeded",
+            summary: "allow · trusted",
+            attempt_index: 1,
+          },
+        ],
+      }),
+    ]);
+    expect(undecided.outcome).toBe("trusted");
   });
 
   it("falls back to the record's evidence for rows without a decision", () => {

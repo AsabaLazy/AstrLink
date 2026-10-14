@@ -326,6 +326,9 @@ describe("request trajectory model", () => {
     expect(
       summaries(event("privacy", "warn"), event("privacy", "block", "blocked")),
     ).toEqual(["已警告", "已阻止"]);
+    expect(summaries(event("privacy", "allow · trusted"))).toEqual([
+      "信任的提供商",
+    ]);
     // Progress and failure codes have no decision and stay as Core wrote them.
     expect(
       summaries(event("privacy", "privacy_policy_unavailable", "failed")),
@@ -335,7 +338,18 @@ describe("request trajectory model", () => {
         ...record,
         events: [event("privacy", "redact · 2 · skill")],
       })[0]?.policy,
-    ).toEqual({ action: "redact", replaced: 2, explainedBy: "skill" });
+    ).toEqual({
+      action: "redact",
+      replaced: 2,
+      explainedBy: "skill",
+      trusted: false,
+    });
+    expect(parsePolicySummary("allow · trusted")).toEqual({
+      action: "allow",
+      replaced: null,
+      explainedBy: null,
+      trusted: true,
+    });
   });
 
   it("keeps persisted events when present", () => {
@@ -1671,6 +1685,7 @@ describe("request trajectory model", () => {
         null,
       );
     expect(decide("allow")).toBe("allow");
+    expect(decide("allow · trusted")).toBe("trusted");
     expect(decide("warn")).toBe("warn");
     expect(decide("block", "blocked")).toBe("block");
     expect(decide("redact · 3")).toBe("redact");

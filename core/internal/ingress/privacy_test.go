@@ -772,6 +772,143 @@ func TestFallbackReevaluatesEndpointScopedPrivacyAgainstOriginalBody(t *testing.
 	}
 }
 
+func trustedTestService(id contract.ServiceID, baseURL string, trusted bool) contract.Service {
+	upstream := validEndpoint(contract.ProtocolOpenAIResponses, false)
+	upstream.ID = id
+	upstream.BaseURL = baseURL
+	service := contract.ServiceFromEndpoint(upstream)
+	service.PrivacyTrusted = trusted
+	return service
+}
+
+func TestTrustedProviderSkipsPrivacyInspection(t *testing.T) {
+	const original = " {\n \"model\":\"gpt-5\", \"input\":\"alice@example.com\"\n} "
+	for _, action := range []privacy.Action{privacy.ActionRedact, privacy.ActionWarn, privacy.ActionBlock} {
+		t.Run(string(action), func(t *testing.T) {
+			filter := &heldFilter{inner: testPrivacyEngine(t, privacy.Policy{
+				Enabled: true, Mode: privacy.ModeRegex, Action: action, ResponseRestore: true,
+			}, nil)}
+			records := &memoryRequestRecordStore{}
+			handler := NewWithDependencies(Dependencies{
+				Resolver: candidateResolver{candidates: []endpoint.Resolved{{
+					Service: trustedTestService("endpoint_trusted", "https://trusted.example", true),
+				}}},
+				PrivacyFilter:  filter,
+				RequestRecords: records,
+				Forwarder: forwarderFunc(func(writer http.ResponseWriter, request *http.Request, _ transport.Target) error {
+					if _, rewritten := request.Body.(*metadataPermitBody); rewritten {
+						t.Fatalf("trusted provider body replaced with %T", request.Body)
+					}
+					body, err := io.ReadAll(request.Body)
+					if err != nil || string(body) != original {
+						t.Fatalf("forwarded body = %q, %v", body, err)
+					}
+					writer.Header().Set("Content-Type", "application/json")
+					writer.WriteHeader(http.StatusOK)
+					_, err = writer.Write([]byte(`{"ok":true}`))
+					return err
+				}),
+			})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(original)))
+
+			if response.Code != http.StatusOK || response.Body.String() != `{"ok":true}` {
+				t.Fatalf("response=%d %s", response.Code, response.Body.String())
+			}
+			if header := response.Header().Get(PolicyWarningHeader); header != "" {
+				t.Fatalf("warning header = %q", header)
+			}
+			if filter.inspects != 0 {
+				t.Fatalf("inspections=%d, want 0", filter.inspects)
+			}
+			if len(records.records) != 1 {
+				t.Fatalf("records=%d", len(records.records))
+			}
+			record := records.records[0]
+			if record.PrivacyDecision == nil || *record.PrivacyDecision != contract.PrivacyDecisionTrusted {
+				t.Fatalf("decision=%v", record.PrivacyDecision)
+			}
+			events := privacyEvents(record.Events)
+			if len(events) != 1 || events[0].Summary != "allow · trusted" || events[0].Status != contract.RequestStatusSucceeded {
+				t.Fatalf("privacy events=%#v", events)
+			}
+			if err := record.Validate(); err != nil {
+				t.Fatalf("record invalid: %v", err)
+			}
+		})
+	}
+}
+
+func TestFailoverAppliesEachProviderTrustToOriginalBody(t *testing.T) {
+	const original = `{"model":"gpt-5","input":"alice@example.com"}`
+	for _, test := range []struct {
+		name         string
+		trustedFirst bool
+		wantRedacted []bool
+	}{
+		{name: "trusted then untrusted", trustedFirst: true, wantRedacted: []bool{false, true}},
+		{name: "untrusted then trusted", trustedFirst: false, wantRedacted: []bool{true, false}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			filter := testPrivacyEngine(t, privacy.Policy{
+				Enabled: true, Mode: privacy.ModeRegex, Action: privacy.ActionRedact, ResponseRestore: true,
+			}, nil)
+			records := &memoryRequestRecordStore{}
+			var redacted []bool
+			handler := NewWithDependencies(Dependencies{
+				Resolver: candidateResolver{candidates: []endpoint.Resolved{
+					{Service: trustedTestService("endpoint_first", "https://first.example", test.trustedFirst)},
+					{Service: trustedTestService("endpoint_second", "https://second.example", !test.trustedFirst)},
+				}},
+				PrivacyFilter:  filter,
+				RequestRecords: records,
+				Forwarder: transport.New(roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					body, err := io.ReadAll(request.Body)
+					if err != nil {
+						t.Fatal(err)
+					}
+					switch {
+					case string(body) == original:
+						redacted = append(redacted, false)
+					case emailPlaceholderPattern.Match(body) && !strings.Contains(string(body), "alice@example.com"):
+						redacted = append(redacted, true)
+					default:
+						t.Fatalf("forwarded body = %s", body)
+					}
+					if request.URL.Host == "first.example" {
+						return nil, errors.New("dial failed")
+					}
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": {"application/json"}},
+						Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+					}, nil
+				})),
+			})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(original)))
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("response=%d %s", response.Code, response.Body.String())
+			}
+			if !slices.Equal(redacted, test.wantRedacted) {
+				t.Fatalf("redacted per attempt = %v, want %v", redacted, test.wantRedacted)
+			}
+			// Both attempts forwarded the same client body, so the root keeps
+			// the redaction whichever attempt made it.
+			var root *contract.RequestRecord
+			for index := range records.records {
+				if records.records[index].ParentRequestID == nil {
+					root = &records.records[index]
+				}
+			}
+			if root == nil || root.PrivacyDecision == nil || *root.PrivacyDecision != contract.PrivacyDecisionRedact {
+				t.Fatalf("root decision=%v", root)
+			}
+		})
+	}
+}
+
 func TestPrivacyRetryDoesNotAccumulateNotice(t *testing.T) {
 	const original = ` { "model":"gpt-5", "messages":[{"content":"be brief","role":"system"},{"role":"user","content":"alice@example.com"}] } `
 	filter := testPrivacyEngine(t, privacy.Policy{

@@ -135,7 +135,7 @@ func (handler *Handler) builtinExecutor(request *http.Request, classified Reques
 		inspect.GetBody = nil
 		inspect.ContentLength = int64(len(body))
 		capture := &builtinCapture{header: make(http.Header)}
-		finish, _, err := handler.applyPrivacy(capture, inspect, classified, "")
+		finish, _, err := handler.applyPrivacy(capture, inspect, classified, contract.Service{})
 		defer finish()
 		if err != nil {
 			return nil, fmt.Errorf("tool arguments blocked by privacy policy")
@@ -276,6 +276,25 @@ func (handler *Handler) builtinServiceImages(ctx context.Context, config contrac
 		return nil, fmt.Errorf("invalid image provider response")
 	}
 	return response, nil
+}
+
+// builtinToolService is the provider a configured built-in tool backend sends
+// to, whose privacy trust then applies. An external backend is no provider,
+// and a provider that cannot be resolved is not trusted.
+func (handler *Handler) builtinToolService(ctx context.Context, config contract.BuiltinTool) contract.Service {
+	service := contract.Service{ID: config.ServiceID}
+	if config.ServiceID == "" || config.Backend == "external" {
+		return service
+	}
+	resolver, ok := handler.resolver.(endpoint.ServiceResolver)
+	if !ok {
+		return service
+	}
+	candidate, err := resolver.ResolveService(ctx, config.ServiceID)
+	if err != nil {
+		return service
+	}
+	return candidate.CanonicalService()
 }
 
 // searchService resolves a provider configured to answer web searches with

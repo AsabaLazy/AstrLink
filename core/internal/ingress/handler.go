@@ -459,11 +459,14 @@ type privacyOutcome struct {
 	toolArguments bool
 }
 
+// applyPrivacy runs the privacy policy on a request bound for service. A
+// backend that is not a configured provider passes an empty service, which is
+// never trusted.
 func (handler *Handler) applyPrivacy(
 	writer http.ResponseWriter,
 	request *http.Request,
 	classified Request,
-	endpointID contract.ServiceID,
+	service contract.Service,
 ) (func(), privacyOutcome, error) {
 	session := recordSessionFromContext(request.Context())
 	session.beginPrivacyAttempt()
@@ -476,7 +479,7 @@ func (handler *Handler) applyPrivacy(
 	policy, err := handler.privacyFilter.ResolvePolicy(request.Context(), privacy.Scope{
 		Protocol:      classified.Protocol,
 		Model:         classified.Model,
-		ServiceID:     endpointID,
+		ServiceID:     service.ID,
 		AccessTokenID: accessTokenID,
 	})
 	if err != nil {
@@ -487,6 +490,14 @@ func (handler *Handler) applyPrivacy(
 		// request.Body. Disabled policy preserves the original byte path.
 		session.notePrivacyDecision("allow", contract.RequestStatusSucceeded)
 		session.notePrivacyOutcome(contract.PrivacyDecisionNone, nil, nil, nil)
+		return func() {}, privacyOutcome{}, nil
+	}
+	if service.PrivacyTrusted {
+		// A trusted provider gets the original byte path, as with a
+		// disabled policy, and its attempt keeps no restore mapping.
+		session.notePrivacyTrusted()
+		session.notePrivacyDecision("allow · trusted", contract.RequestStatusSucceeded)
+		session.notePrivacyOutcome(contract.PrivacyDecisionTrusted, nil, nil, nil)
 		return func() {}, privacyOutcome{}, nil
 	}
 	encoding := strings.ToLower(strings.TrimSpace(request.Header.Get("Content-Encoding")))
@@ -542,7 +553,7 @@ func (handler *Handler) applyPrivacy(
 				RequestID:    session.requestID(),
 				ClientType:   session.inboundClientType(),
 				Protocol:     classified.Protocol,
-				ServiceID:    endpointID,
+				ServiceID:    service.ID,
 				Findings:     result.Findings,
 				Notified:     result.Notified,
 				Fingerprints: result.Fingerprints,

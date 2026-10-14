@@ -229,12 +229,22 @@ function PrivacyOverviewBody({
   // The tab exists because the last year has checked calls; a narrower range
   // can still hold none.
   if (!hasPrivacyActivity(totals)) {
+    const unprotected = unprotectedCalls(totals);
     return (
       <EmptyState
         className="py-14"
         description={
           totals.requests > 0
-            ? t("privacyStats.emptyUnprotected", { count: totals.requests })
+            ? [
+                unprotected > 0
+                  ? t("privacyStats.emptyUnprotected", { count: unprotected })
+                  : "",
+                totals.trusted > 0
+                  ? t("privacyStats.emptyTrusted", { count: totals.trusted })
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" ")
             : t(
                 enabled
                   ? "privacyStats.emptyBody"
@@ -686,6 +696,14 @@ function PrivacyOutcomesPanel({ totals }: { totals: PrivacyTotals }) {
             data-slot="privacy-unprotected"
           >
             {t("privacyStats.unprotected", { count: unprotected })}
+          </p>
+        ) : null}
+        {totals.trusted > 0 ? (
+          <p
+            className="border-t pt-2.5 text-xs text-muted-foreground"
+            data-slot="privacy-trusted"
+          >
+            {t("privacyStats.trusted", { count: totals.trusted })}
           </p>
         ) : null}
       </div>
