@@ -853,28 +853,39 @@ fn refuses_to_update_when_the_selected_installation_changes() {
 
 #[cfg(unix)]
 #[test]
-fn npm_update_targets_the_detected_prefix_and_pins_the_version() {
+fn npm_update_targets_the_detected_prefix_and_allows_the_package_scripts() {
     let fixture = Fixture::new();
     fixture.script("node/bin/node", "#!/bin/sh\nexit 0\n");
-    fixture.write("node/lib/node_modules/npm/bin/npm-cli.js", "");
-    let install = Installation {
-        executable: fixture.0.join("node/bin/codex"),
-        resolved: PathBuf::new(),
-        method: InstallMethod::Npm {
-            prefix: fixture.0.join("node"),
-        },
-        others: vec![],
-    };
-    let command = update_command(
-        &fixture.environment(),
-        ClientId::Codex,
-        &install,
-        &version(ClientId::Codex, "0.158.0"),
-    )
-    .unwrap();
-    assert_eq!(command.program, fixture.0.join("node/bin/node"));
-    assert_eq!(command.args[4], fixture.0.join("node").as_os_str());
-    assert_eq!(command.args[5], "@openai/codex@0.158.0");
+    let npm = fixture.write("node/lib/node_modules/npm/bin/npm-cli.js", "");
+    let prefix = fixture.0.join("node");
+    for (id, latest, package) in [
+        (ClientId::Codex, "0.158.0", "@openai/codex"),
+        (ClientId::Claude, "2.1.299", "@anthropic-ai/claude-code"),
+    ] {
+        let install = Installation {
+            executable: prefix.join("bin").join(id.name()),
+            resolved: PathBuf::new(),
+            method: InstallMethod::Npm {
+                prefix: prefix.clone(),
+            },
+            others: vec![],
+        };
+        let command =
+            update_command(&fixture.environment(), id, &install, &version(id, latest)).unwrap();
+        assert_eq!(command.program, prefix.join("bin/node"));
+        assert_eq!(
+            command.args,
+            [
+                npm.clone().into_os_string(),
+                "install".into(),
+                "--global".into(),
+                "--prefix".into(),
+                prefix.clone().into_os_string(),
+                format!("--allow-scripts={package}").into(),
+                format!("{package}@{latest}").into(),
+            ]
+        );
+    }
 }
 
 #[cfg(unix)]

@@ -747,6 +747,7 @@ fn update_command(
             };
             let node = node_program(environment, prefix)
                 .ok_or_else(|| ClientError::new("unsupported", "Node.js is unavailable"))?;
+            let package = id.packages()[0];
             Ok(CommandSpec {
                 program: node.path,
                 args: vec![
@@ -755,7 +756,11 @@ fn update_command(
                     "--global".into(),
                     "--prefix".into(),
                     environment.path_arg(prefix),
-                    format!("{}@{latest}", id.packages()[0]).into(),
+                    // npm 12 skips install scripts missing from allowScripts
+                    // and still exits 0. Claude Code's postinstall replaces
+                    // the bin/claude.exe stub with its native binary.
+                    format!("--allow-scripts={package}").into(),
+                    format!("{package}@{latest}").into(),
                 ],
             })
         }
