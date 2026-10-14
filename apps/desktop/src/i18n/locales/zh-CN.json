@@ -813,7 +813,7 @@
     "privacyTrusted": "信任此提供商",
     "privacyTrustedHint": "发往此提供商的请求不经过隐私保护：不检查、不脱敏，提供商收到的是原文。只对你放心交出这些数据的提供商开启。",
     "privacyTrustedOn": "隐私保护不会改动发往此提供商的请求。",
-    "privacyTrustedBadge": "已信任",
+    "privacyTrustedBadge": "信任",
     "privacyTrustedBadgeHint": "发往此提供商的请求不经过隐私保护",
     "claudeOauth": "Claude Code 授权",
     "claudeOauthHint": "Claude Pro / Max 账号；在 Claude 授权后填写回调页的授权码。",

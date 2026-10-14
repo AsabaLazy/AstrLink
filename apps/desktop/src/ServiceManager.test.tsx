@@ -637,7 +637,7 @@ describe("ServiceManager", () => {
         ?.closest('[data-testid="service-card"]')
         ?.getAttribute("aria-label"),
     ).toBe(trusted.name);
-    expect(badges[0]?.textContent).toBe("已信任");
+    expect(badges[0]?.textContent).toBe("信任");
   });
 
   it("waits for saved priority before showing rows on every page entry", async () => {

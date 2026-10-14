@@ -2409,18 +2409,6 @@ export function ServiceManager({
                                     {plan}
                                   </Badge>
                                 ) : null}
-                                {service.privacy_trusted ? (
-                                  <Badge
-                                    data-testid="privacy-trusted-badge"
-                                    title={t(
-                                      "services.privacyTrustedBadgeHint",
-                                    )}
-                                    variant="outline"
-                                  >
-                                    <ShieldCheck aria-hidden="true" />
-                                    {t("services.privacyTrustedBadge")}
-                                  </Badge>
-                                ) : null}
                                 {risk ? (
                                   <ServiceRiskBadge
                                     disabled={!isReady || acting}
@@ -2437,13 +2425,32 @@ export function ServiceManager({
                                   />
                                 ) : null}
                               </div>
-                              {detail ? (
-                                <span
-                                  className="block truncate text-xs text-text-secondary"
-                                  title={detail}
-                                >
-                                  {detail}
-                                </span>
+                              {service.privacy_trusted || detail ? (
+                                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                  {service.privacy_trusted ? (
+                                    <Badge
+                                      className="min-w-0 shrink [&>svg]:shrink-0"
+                                      data-testid="privacy-trusted-badge"
+                                      title={t(
+                                        "services.privacyTrustedBadgeHint",
+                                      )}
+                                      variant="outline"
+                                    >
+                                      <ShieldCheck aria-hidden="true" />
+                                      <span className="truncate">
+                                        {t("services.privacyTrustedBadge")}
+                                      </span>
+                                    </Badge>
+                                  ) : null}
+                                  {detail ? (
+                                    <span
+                                      className="block min-w-0 grow basis-10 truncate text-xs text-text-secondary"
+                                      title={detail}
+                                    >
+                                      {detail}
+                                    </span>
+                                  ) : null}
+                                </div>
                               ) : null}
                             </div>
                           </div>
