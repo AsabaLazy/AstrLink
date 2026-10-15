@@ -2281,8 +2281,6 @@
     "retried": "重试 {{count}} 次后成功",
     "upstreamStatus": "上游 HTTP {{status}}",
     "toolFailed": "工具失败",
-    "toolDone": "有结果",
-    "toolNoResult": "客户端未返回结果",
     "toolArgs": "参数",
     "toolOutput": "结果",
     "toolTextClipped": "只保留了开头 {{limit}}，完整内容见检查面板。",

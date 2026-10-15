@@ -2281,8 +2281,6 @@
     "retried": "{{count}} 回の再試行後に成功",
     "upstreamStatus": "アップストリーム HTTP {{status}}",
     "toolFailed": "ツール失敗",
-    "toolDone": "結果あり",
-    "toolNoResult": "クライアントから結果なし",
     "toolArgs": "引数",
     "toolOutput": "結果",
     "toolTextClipped": "ここでは先頭 {{limit}} だけを残しています。残りはインスペクターにあります。",

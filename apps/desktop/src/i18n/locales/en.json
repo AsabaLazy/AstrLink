@@ -2281,8 +2281,6 @@
     "retried": "Succeeded after {{count}} retries",
     "upstreamStatus": "Upstream HTTP {{status}}",
     "toolFailed": "Tool failed",
-    "toolDone": "Result returned",
-    "toolNoResult": "No result from the client",
     "toolArgs": "Arguments",
     "toolOutput": "Result",
     "toolTextClipped": "Only the first {{limit}} is kept here; the inspector has the rest.",
