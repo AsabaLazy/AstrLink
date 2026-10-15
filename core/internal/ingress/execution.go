@@ -194,10 +194,11 @@ func (handler *Handler) executeCandidatesWithTest(
 		if upstreamModel == "" {
 			upstreamModel = classified.routingModel()
 		}
-		if native := candidate.Service.Kind.ModelNativeProtocol(upstreamModel); native != "" {
+		if format := candidate.Service.ModelProtocol(upstreamModel); format != "" && classified.Protocol.IsModelFormat() {
+			// The model's format replaces the entry row's own conversion.
 			convertTo = ""
-			if native != classified.Protocol {
-				convertTo = native
+			if format != classified.Protocol {
+				convertTo = format
 			}
 		}
 		if test != nil {
@@ -216,7 +217,7 @@ func (handler *Handler) executeCandidatesWithTest(
 			}
 			plan, planErr = planner.BuildRelayKit(planner.RelayKitInput{
 				Service: candidate.Service, InputProtocol: classified.Protocol,
-				UpstreamProtocol: upstreamProtocol, Streaming: classified.Streaming,
+				UpstreamProtocol: upstreamProtocol, UpstreamModel: upstreamModel, Streaming: classified.Streaming,
 				Edges: handler.conversionEngine.Edges(),
 			})
 		} else {

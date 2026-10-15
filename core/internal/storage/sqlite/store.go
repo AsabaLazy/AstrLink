@@ -564,6 +564,7 @@ func (store *Store) UpdateEndpoint(ctx context.Context, endpoint contract.Endpoi
 	service.Proxy = current.Service.Proxy
 	service.ResponsesWebSocketEnabled = current.Service.ResponsesWebSocketEnabled
 	service.PrivacyTrusted = current.Service.PrivacyTrusted
+	service.ModelProtocols = current.Service.ModelProtocols
 	service.FailurePolicy = current.Service.FailurePolicy
 	service.CreatedAt = current.Service.CreatedAt
 	updated, err := store.UpdateService(ctx, service, credential, expectedETag)

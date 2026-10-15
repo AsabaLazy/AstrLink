@@ -4217,6 +4217,26 @@ components:
           description: Model used for routing and sent upstream. Must differ from from, must not be astrlink/auto, and must not be the source of any rule.
         enabled:
           type: boolean
+    ModelProtocol:
+      type: object
+      additionalProperties: false
+      required: [model, protocol]
+      description: Pins the format a service is called in for one of its models.
+      properties:
+        model:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Model the service serves, after its redirects. Unique in the table.
+        protocol:
+          type: string
+          enum:
+            [
+              openai.responses,
+              anthropic.messages,
+              openai.chat,
+              google.generate_content,
+            ]
     ChannelBindingScope:
       type: object
       required: [session_id, local_access_token_id, protocol, model]
@@ -4819,6 +4839,12 @@ components:
           description: This service's own exact-match, single-hop model redirects, applied after the routing-settings redirects. A rule applies only when this service lists its target; routing keeps the requested model, so other services that list it can still serve it. A dated Claude id that no rule or model names exactly (claude-haiku-4-5-20251001) follows the rule for its undated id (claude-haiku-4-5). copilot_subscription also applies built-in rules from Claude Code ids to Copilot's dotted ids (claude-sonnet-4-6 to claude-sonnet-4.6); a stored rule with the same from, enabled or not, replaces the built-in one. Same rule constraints as the routing-settings table. An empty array clears the table.
           items:
             $ref: "#/components/schemas/ModelRedirect"
+        model_protocols:
+          type: array
+          maxItems: 2000
+          description: The format this service is called in for each listed model, sorted by model. A request entering on openai.responses, anthropic.messages, openai.chat or google.generate_content for that model is converted to the format, or passes through when it already uses it; the format needs no capability of its own, and capabilities only decide which clients may enter. Other entry protocols keep their capability. A model is looked up after this service's redirects. A model without an entry follows its capability's own pass-through or convert_to, except that opencode_go, opencode_zen, copilot_subscription and droid_subscription give every model a built-in format, which an entry here replaces. Subscriptions accept only their conversion targets. An empty array clears the table.
+          items:
+            $ref: "#/components/schemas/ModelProtocol"
         failure_policy:
           $ref: "#/components/schemas/FailurePolicy"
         id:
@@ -4906,6 +4932,12 @@ components:
           description: This service's own exact-match, single-hop model redirects, applied after the routing-settings redirects. A rule applies only when this service lists its target; routing keeps the requested model, so other services that list it can still serve it. A dated Claude id that no rule or model names exactly (claude-haiku-4-5-20251001) follows the rule for its undated id (claude-haiku-4-5). copilot_subscription also applies built-in rules from Claude Code ids to Copilot's dotted ids (claude-sonnet-4-6 to claude-sonnet-4.6); a stored rule with the same from, enabled or not, replaces the built-in one. Same rule constraints as the routing-settings table. An empty array clears the table.
           items:
             $ref: "#/components/schemas/ModelRedirect"
+        model_protocols:
+          type: array
+          maxItems: 2000
+          description: The format this service is called in for each listed model, sorted by model. A request entering on openai.responses, anthropic.messages, openai.chat or google.generate_content for that model is converted to the format, or passes through when it already uses it; the format needs no capability of its own, and capabilities only decide which clients may enter. Other entry protocols keep their capability. A model is looked up after this service's redirects. A model without an entry follows its capability's own pass-through or convert_to, except that opencode_go, opencode_zen, copilot_subscription and droid_subscription give every model a built-in format, which an entry here replaces. Subscriptions accept only their conversion targets. An empty array clears the table.
+          items:
+            $ref: "#/components/schemas/ModelProtocol"
         failure_policy:
           $ref: "#/components/schemas/FailurePolicy"
         name:
@@ -4986,6 +5018,12 @@ components:
           description: This service's own exact-match, single-hop model redirects, applied after the routing-settings redirects. A rule applies only when this service lists its target; routing keeps the requested model, so other services that list it can still serve it. A dated Claude id that no rule or model names exactly (claude-haiku-4-5-20251001) follows the rule for its undated id (claude-haiku-4-5). copilot_subscription also applies built-in rules from Claude Code ids to Copilot's dotted ids (claude-sonnet-4-6 to claude-sonnet-4.6); a stored rule with the same from, enabled or not, replaces the built-in one. Same rule constraints as the routing-settings table. An empty array clears the table.
           items:
             $ref: "#/components/schemas/ModelRedirect"
+        model_protocols:
+          type: array
+          maxItems: 2000
+          description: The format this service is called in for each listed model, sorted by model. A request entering on openai.responses, anthropic.messages, openai.chat or google.generate_content for that model is converted to the format, or passes through when it already uses it; the format needs no capability of its own, and capabilities only decide which clients may enter. Other entry protocols keep their capability. A model is looked up after this service's redirects. A model without an entry follows its capability's own pass-through or convert_to, except that opencode_go, opencode_zen, copilot_subscription and droid_subscription give every model a built-in format, which an entry here replaces. Subscriptions accept only their conversion targets. An empty array clears the table.
+          items:
+            $ref: "#/components/schemas/ModelProtocol"
         failure_policy:
           oneOf:
             - $ref: "#/components/schemas/FailurePolicy"
@@ -7989,6 +8027,12 @@ components:
             type: string
             minLength: 1
             maxLength: 256
+        model_protocols:
+          type: array
+          maxItems: 10000
+          description: Formats the upstream list names for models it serves in exactly one, sorted by model; omitted when there are none. New API lists supported_endpoint_types per model. A model listed as Chat alone gets no entry, since New API takes Responses requests to an OpenAI channel as sent. Clients may store these as the service's model_protocols for newly added models.
+          items:
+            $ref: "#/components/schemas/ModelProtocol"
       additionalProperties: false
     ServiceTestProtocol:
       type: string

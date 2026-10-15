@@ -172,10 +172,17 @@ import {
   responsesWebSocketEnabled,
   serviceBuiltinRedirects,
   withClaudeCodeRedirects,
+  pruneModelProtocols,
+  sameModelProtocols,
+  serviceBuiltinModelProtocol,
+  serviceModelFormats,
+  withDiscoveredModelProtocols,
+  withModelProtocols,
   supportsResponsesWebSocket,
   serviceKindLabel,
   hasPlanUsage,
   bestConversionTarget,
+  isModelFormat,
   isSubscriptionKind,
   serviceStatusLabel,
   subscriptionConversionTargets,
@@ -184,6 +191,7 @@ import {
   subscriptionNativeCapabilities,
   type HTTPServiceKind,
   type ModelDiscoveryProtocol,
+  type ModelProtocol,
   type Service,
   type ServiceAuthScheme,
   type ServiceCapability,
@@ -263,6 +271,8 @@ type Draft = {
   models: string[];
   /** This provider's own redirect rules. */
   modelRedirects: ModelRedirect[];
+  /** Models pinned to an upstream format. Other models stay automatic. */
+  modelProtocols: ModelProtocol[];
   capabilities: ServiceCapability[];
   authorizationFlow: AuthorizationFlow | null;
   modelListPath: string;
@@ -546,6 +556,8 @@ type ModelPreview = {
   /** Current allowlist entries the upstream did not return. */
   missing: string[];
   warnings: string[];
+  /** Upstream formats the fetched lists named, for models that name one. */
+  protocols?: ModelProtocol[];
 };
 
 function modelDiscoveryProtocols(draft: Draft): ModelDiscoveryProtocol[] {
@@ -586,6 +598,7 @@ function draftForKind(
       proxy: proxyDraft(),
       models: [],
       modelRedirects: [],
+      modelProtocols: [],
       capabilities: subscriptionNativeCapabilities[kind].map((capability) => ({
         ...capability,
       })),
@@ -612,6 +625,7 @@ function draftForKind(
     proxy: proxyDraft(),
     models: [...(preset.models ?? [])],
     modelRedirects: [],
+    modelProtocols: [],
     capabilities: preset.capabilities.map((capability) => ({ ...capability })),
     authorizationFlow: null,
     modelListPath: "",
@@ -632,6 +646,9 @@ function draftFromRecord(record: ServiceRecord): Draft {
       models: [...service.models],
       modelRedirects: (service.model_redirects ?? []).map((redirect) => ({
         ...redirect,
+      })),
+      modelProtocols: (service.model_protocols ?? []).map((entry) => ({
+        ...entry,
       })),
       capabilities: service.capabilities.map((capability) => ({
         ...capability,
@@ -655,6 +672,9 @@ function draftFromRecord(record: ServiceRecord): Draft {
     models: [...service.models],
     modelRedirects: (service.model_redirects ?? []).map((redirect) => ({
       ...redirect,
+    })),
+    modelProtocols: (service.model_protocols ?? []).map((entry) => ({
+      ...entry,
     })),
     authorizationFlow: null,
     capabilities: service.capabilities.map((capability) =>
@@ -691,6 +711,25 @@ function redirectCreateFields(
   return draft.modelRedirects.length > 0
     ? { model_redirects: draft.modelRedirects }
     : {};
+}
+
+/** An edit sends the model formats when they changed. `[]` clears them. */
+function modelProtocolPatchFields(
+  draft: Draft,
+  saved: Service,
+): Pick<ServicePatchInput, "model_protocols"> {
+  const listed = pruneModelProtocols(draft.modelProtocols, draft.models);
+  return sameModelProtocols(listed, saved.model_protocols ?? [])
+    ? {}
+    : { model_protocols: listed };
+}
+
+/** A new service sends the formats of the models it lists, if any. */
+function modelProtocolCreateFields(
+  draft: Draft,
+): Pick<ServiceCreateInput, "model_protocols"> {
+  const listed = pruneModelProtocols(draft.modelProtocols, draft.models);
+  return listed.length > 0 ? { model_protocols: listed } : {};
 }
 
 function draftSignature(draft: Draft): string {
@@ -1628,10 +1667,12 @@ export function ServiceManager({
         }),
       );
       const discovered: string[] = [];
+      const discoveredProtocols: ModelProtocol[] = [];
       const warnings: string[] = [];
       attempts.forEach((attempt, index) => {
         if (attempt.status === "fulfilled") {
           discovered.push(...attempt.value.model_ids);
+          discoveredProtocols.push(...(attempt.value.model_protocols ?? []));
         } else {
           warnings.push(
             `${protocolLabel(discoveryProtocols[index] ?? "models")}：${errorMessage(attempt.reason, t("services.fetchFailed"))}`,
@@ -1660,6 +1701,7 @@ export function ServiceManager({
         selected: initialModelPreviewSelection(draft.models, models),
         missing: draft.models.filter((model) => !upstream.has(model)).sort(),
         warnings,
+        protocols: discoveredProtocols,
       });
     } finally {
       setProbingModels(false);
@@ -1669,10 +1711,14 @@ export function ServiceManager({
   const removeDraftModels = (removals: string[]) => {
     if (removals.length === 0) return;
     const drop = new Set(removals);
-    setDraft((current) => ({
-      ...current,
-      models: current.models.filter((model) => !drop.has(model)),
-    }));
+    setDraft((current) => {
+      const models = current.models.filter((model) => !drop.has(model));
+      return {
+        ...current,
+        models,
+        modelProtocols: pruneModelProtocols(current.modelProtocols, models),
+      };
+    });
   };
 
   const presentAuthorization = (
@@ -1735,6 +1781,7 @@ export function ServiceManager({
           privacy_trusted: draft.privacyTrusted,
           models: draft.models,
           ...redirectPatchFields(draft, editing.service),
+          ...modelProtocolPatchFields(draft, editing.service),
           failure_policy: draft.failurePolicy ?? null,
         };
         if (!isSubscriptionKind(draft.kind)) {
@@ -1770,6 +1817,7 @@ export function ServiceManager({
             ...(draft.privacyTrusted ? { privacy_trusted: true } : {}),
             models: draft.models,
             ...redirectCreateFields(draft),
+            ...modelProtocolCreateFields(draft),
             ...(draft.failurePolicy
               ? { failure_policy: draft.failurePolicy }
               : {}),
@@ -1794,6 +1842,7 @@ export function ServiceManager({
             ...(draft.privacyTrusted ? { privacy_trusted: true } : {}),
             models: draft.models,
             ...redirectCreateFields(draft),
+            ...modelProtocolCreateFields(draft),
             ...(draft.failurePolicy
               ? { failure_policy: draft.failurePolicy }
               : {}),
@@ -3090,7 +3139,12 @@ export function ServiceManager({
   const modelsEditor = (
     <ServiceModelsEditor
       key={editingServiceID ?? "create"}
+      builtinProtocol={(model) =>
+        serviceBuiltinModelProtocol(draft.kind, model)
+      }
+      formats={serviceModelFormats(draft.kind)}
       modelEditor={modelEditor}
+      modelProtocols={draft.modelProtocols}
       models={draft.models}
       probingModels={probingModels}
       onAddModels={addModels}
@@ -3098,6 +3152,7 @@ export function ServiceManager({
         setDraft((current) => ({
           ...current,
           models: [],
+          modelProtocols: [],
         }))
       }
       onDiscoverModels={
@@ -3107,6 +3162,16 @@ export function ServiceManager({
           : undefined
       }
       onModelEditorChange={setModelEditor}
+      onModelProtocolsChange={(models, protocol) =>
+        setDraft((current) => ({
+          ...current,
+          modelProtocols: withModelProtocols(
+            current.modelProtocols,
+            models,
+            protocol,
+          ),
+        }))
+      }
       onRemoveModels={removeDraftModels}
       upstream={
         upstreamModels?.key === modelDiscoveryKey(draft)
@@ -3128,6 +3193,10 @@ export function ServiceManager({
   const egressTargets = subscriptionKind
     ? subscriptionConversionTargets[subscriptionKind]
     : null;
+  // Every OpenCode model has an upstream format. Its chat entry rows decide
+  // which clients get in, and the model's format decides what OpenCode gets.
+  const formatRoutedKind =
+    draft.kind === "opencode_go" || draft.kind === "opencode_zen";
   // Re-enabling a protocol the preset's upstream serves natively passes it through.
   const presetUpstreamProtocols = new Set(
     selectedPreset?.capabilities
@@ -3160,7 +3229,9 @@ export function ServiceManager({
                     })
                   : t("services.capabilityHintSubscriptionUnavailable")
                 : conversionEngine?.available
-                  ? t("services.capabilityHintConvert")
+                  ? formatRoutedKind
+                    ? t("services.capabilityHintPerModel")
+                    : t("services.capabilityHintConvert")
                   : t("services.capabilityHintPassthrough")}
             </p>
           </div>
@@ -3172,8 +3243,12 @@ export function ServiceManager({
               (item) => item.protocol === descriptor.id,
             );
             const native = nativeProtocols.has(descriptor.id);
+            const followsModelFormat =
+              formatRoutedKind && isModelFormat(descriptor.id);
             const convertible =
-              !native && supportsLocalConversion(descriptor.id);
+              !native &&
+              !followsModelFormat &&
+              supportsLocalConversion(descriptor.id);
             const targets = convertible
               ? localConversionTargets(descriptor.id, conversionEngine).filter(
                   (target) =>
@@ -3185,7 +3260,7 @@ export function ServiceManager({
             );
             const defaultTarget = egressTargets
               ? targets.find((target) => target.enabled)?.id
-              : presetUpstreamProtocols.has(descriptor.id)
+              : followsModelFormat || presetUpstreamProtocols.has(descriptor.id)
                 ? undefined
                 : bestConversionTarget(
                     descriptor.id,
@@ -3292,7 +3367,9 @@ export function ServiceManager({
                     {capability
                       ? native
                         ? t("services.subscriptionNative")
-                        : t("services.passthrough")
+                        : followsModelFormat
+                          ? t("services.perModelFormat")
+                          : t("services.passthrough")
                       : ""}
                   </span>
                 )}
@@ -4021,6 +4098,14 @@ export function ServiceManager({
                 current.modelRedirects,
                 current.models,
                 models,
+              ),
+              // Newly listed models take the format the fetched list names.
+              modelProtocols: withDiscoveredModelProtocols(
+                current.kind,
+                pruneModelProtocols(current.modelProtocols, models),
+                current.models,
+                models,
+                modelPreview.protocols ?? [],
               ),
             }));
             setModelPreview(null);
