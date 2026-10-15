@@ -3413,9 +3413,21 @@
     "help": "About request image compression",
     "enable": "Enable request image compression",
     "hint": "Converts request images to WebP before forwarding to save upload bandwidth.",
-    "description": "Re-encodes base64 images inlined in requests as WebP before forwarding, reducing upload bandwidth. Applies to OpenAI Chat, Responses, Anthropic Messages, and Gemini requests; an image is replaced only when its WebP is smaller. In lossy mode, a PNG or GIF is sent lossless when that is smaller.",
-    "keptHelp": "Image URLs, file IDs, WebP images, and animated GIFs are sent as they are. The same image always encodes to the same bytes, so multi-turn conversations still hit the upstream prompt cache. The first compression of a high-resolution screenshot usually takes a few tenths of a second.",
-    "recordHelp": "A COMPRESS row in a request record's trace shows how many images each request re-encoded and how much their size changed. Models count image tokens by pixel size, so compression does not lower token usage.",
+    "demo": {
+      "client": "Client",
+      "model": "Model",
+      "files": {
+        "screenshot": "screenshot",
+        "photo": "photo",
+        "animation": "animation",
+        "link": "Image link"
+      },
+      "text": {
+        "lossless": "Screenshots become WebP with every pixel intact, at a smaller size. A photo grows as lossless WebP, so it is sent as is.",
+        "lossy": "Photos become WebP too, at a smaller size, and fine text may blur. A screenshot goes lossless when that comes out smaller."
+      },
+      "notes": "The same image always compresses to the same bytes, so the prompt cache still hits. The first compression of a large screenshot takes a few tenths of a second. Models count image tokens by pixel size, so token usage stays the same."
+    },
     "mode": "Mode",
     "modes": {
       "lossless": "Lossless",
