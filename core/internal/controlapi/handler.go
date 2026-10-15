@@ -240,6 +240,7 @@ func newHandler(version contract.VersionResponse, dependencies Dependencies) (*H
 		handler.mux.HandleFunc(PrivacyWarningsPath, handler.authenticated(handler.getPrivacyWarnings, RoleObserver))
 	}
 	handler.mux.HandleFunc(PricingPath+"/", handler.authenticated(handler.pricingResource, RoleObserver))
+	handler.mux.HandleFunc(ModelMetadataPath, handler.authenticated(handler.getOnly(handler.getModelMetadata), RoleObserver))
 	handler.mux.HandleFunc(BuiltinToolsPath, handler.authenticated(handler.builtinToolResource, RoleOperator))
 	handler.mux.HandleFunc(RoutingSettingsPath, handler.authenticated(handler.routingSettingsResource, RoleObserver))
 	// Sync configuration names the remote and its credentials, and the

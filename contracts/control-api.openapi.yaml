@@ -329,6 +329,33 @@ paths:
           {
             description: Price synchronization failed; last valid catalog retained.,
           }
+  /control/v1/model-metadata:
+    get:
+      x-astrlink-role: observer
+      x-astrlink-implementation-status: implemented
+      tags: [Services]
+      operationId: getModelMetadata
+      summary: Read what LLM Metadata says about the official model a gateway model reaches.
+      description: >-
+        Follows the routing redirect, then the price binding of each enabled
+        service that serves the model, as billing does, and last the model's
+        own name. Data comes from the official price sync.
+      parameters:
+        - {
+            name: model,
+            in: query,
+            required: true,
+            schema: { type: string, minLength: 1, maxLength: 256 },
+          }
+      responses:
+        "200":
+          description: The official model.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelMetadata" }
+        "400": { description: Invalid input. }
+        "401": { description: Local control authentication required. }
+        "404": { description: LLM Metadata lists no official model for it. }
   /control/v1/health:
     get:
       x-astrlink-role: public
@@ -3606,9 +3633,53 @@ components:
             description: Restricted tiered expression with USD per million token coefficients.,
           }
       additionalProperties: false
+    ModelMetadata:
+      type: object
+      required:
+        [
+          provider,
+          model,
+          name,
+          reasoning,
+          reasoning_levels,
+          context_tokens,
+          output_tokens,
+          input,
+          tool_call,
+        ]
+      properties:
+        provider:
+          {
+            type: string,
+            description: Canonical first-party supplier ID; plan and regional catalogs are excluded.,
+          }
+        model: { type: string }
+        name: { type: string }
+        reasoning: { type: boolean }
+        reasoning_levels:
+          type: array
+          description: >-
+            Reasoning efforts the model takes, weakest first; none means it
+            can also answer without reasoning. Empty when it reasons with no
+            strength to choose.
+          items:
+            {
+              type: string,
+              enum: [none, minimal, low, medium, high, xhigh, max],
+            }
+        context_tokens:
+          { type: integer, minimum: 0, description: 0 when unknown. }
+        output_tokens:
+          { type: integer, minimum: 0, description: 0 when unknown. }
+        input:
+          type: array
+          items: { type: string, enum: [text, image, audio, video, pdf] }
+        tool_call: { type: boolean }
+      additionalProperties: false
     PriceCatalog:
       type: object
-      required: [version, generated_at, activated_at, etag, prices, warnings]
+      required:
+        [version, generated_at, activated_at, etag, prices, models, warnings]
       properties:
         version: { type: string }
         generated_at: { type: string, format: date-time }
@@ -3616,6 +3687,10 @@ components:
         etag: { type: string }
         prices:
           { type: array, items: { $ref: "#/components/schemas/OfficialPrice" } }
+        models:
+          type: [array, "null"]
+          description: Null until a sync keeps model metadata.
+          items: { $ref: "#/components/schemas/ModelMetadata" }
         warnings: { type: array, items: { type: string } }
       additionalProperties: false
     PricingConfig:

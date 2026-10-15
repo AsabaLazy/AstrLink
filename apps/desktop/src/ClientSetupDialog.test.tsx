@@ -19,6 +19,12 @@ const bridgeMocks = vi.hoisted(() => ({
 
 vi.mock("./bridge", () => bridgeMocks);
 
+const pricingMocks = vi.hoisted(() => ({
+  getOfficialModelLimits: vi.fn(),
+}));
+
+vi.mock("./pricing-bridge", () => pricingMocks);
+
 import type { ConversionEngineCapability } from "./core-model";
 import type { Service } from "./service-model";
 import { ClientSetupDialog } from "./ClientSetupDialog";
@@ -217,6 +223,7 @@ describe("ClientSetupDialog", () => {
     bridgeMocks.isCCSwitchInstalled.mockResolvedValue(false);
     bridgeMocks.listServices.mockResolvedValue({ items: [] });
     bridgeMocks.getRoutingSettings.mockResolvedValue({ model_redirects: [] });
+    pricingMocks.getOfficialModelLimits.mockResolvedValue(null);
     bridgeMocks.checkClientProxy.mockResolvedValue({
       client: { route: "direct" },
       numeric: null,
@@ -1018,6 +1025,45 @@ describe("ClientSetupDialog", () => {
     await renderDialog();
     expect(card("Pi").disabled).toBe(true);
     expect(cardText("Pi")).toContain("未安装");
+  });
+
+  it("fills Pi's limits from the official model and writes what the user keeps", async () => {
+    bridgeMocks.applyClientConfig.mockResolvedValue({ status: "applied" });
+    pricingMocks.getOfficialModelLimits.mockImplementation(async (model) =>
+      model === "gpt-5.6"
+        ? { contextTokens: 1050000, outputTokens: 128000 }
+        : null,
+    );
+    await renderDialog();
+    await act(async () => card("Pi").click());
+    const field = (key: string) =>
+      document.querySelector<HTMLInputElement>(`#client-setup-${key}`)!;
+    expect(field("contextWindow").placeholder).toContain("128000");
+
+    await setInput("#client-setup-model", "gpt-5.6");
+    expect(field("contextWindow").value).toBe("1050000");
+    expect(field("maxTokens").value).toBe("128000");
+
+    // The subscription allows less; the user's numbers are written.
+    await setInput("#client-setup-contextWindow", "400000");
+    await setInput("#client-setup-maxTokens", "");
+    await act(async () => button("写入配置").click());
+    expect(bridgeMocks.applyClientConfig).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        models: { model: "gpt-5.6", contextWindow: 400000 },
+      }),
+    );
+
+    // A number Pi cannot take blocks the write.
+    await setInput("#client-setup-maxTokens", "12k");
+    expect(dialog().textContent).toContain("1 到 100000000");
+    expect(button("写入配置").disabled).toBe(true);
+
+    // Another model starts from its own limits; an unknown one from Pi's.
+    await setInput("#client-setup-model", "house-model");
+    expect(field("contextWindow").value).toBe("");
+    expect(field("maxTokens").value).toBe("");
+    expect(button("写入配置").disabled).toBe(false);
   });
 
   it("suggests only compatible enabled models for each client", async () => {

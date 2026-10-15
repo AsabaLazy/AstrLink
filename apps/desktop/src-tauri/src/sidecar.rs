@@ -2137,6 +2137,29 @@ impl CoreManager {
         let base = "/control/v1/pricing";
         let (method, path, body) = match operation {
             "status" | "catalog" => (Method::GET, format!("{base}/{operation}"), None),
+            // The official model behind a gateway model; null when unknown.
+            "model" => {
+                let model = input
+                    .as_ref()
+                    .and_then(|value| value.get("model"))
+                    .and_then(|value| value.as_str())
+                    .ok_or("model is required")?;
+                let path = format!(
+                    "/control/v1/model-metadata?model={}",
+                    percent_encode_query(model)
+                );
+                let (status, body) = self
+                    .authenticated_control_status(Method::GET, &path, None, None)
+                    .await?;
+                if status == reqwest::StatusCode::NOT_FOUND {
+                    return Ok(serde_json::Value::Null);
+                }
+                if !status.is_success() {
+                    return Err(control_status_error(&Method::GET, &path, status, &body));
+                }
+                return serde_json::from_slice(&body)
+                    .map_err(|_| "model metadata returned invalid JSON".into());
+            }
             "sync" => (Method::POST, format!("{base}/sync"), None),
             "report" | "configure" | "backfill" => {
                 let id = service_id.ok_or("service ID is required")?;
@@ -2178,6 +2201,32 @@ impl CoreManager {
             .authenticated_control(method, &path, body, None)
             .await?;
         serde_json::from_slice(&body).map_err(|_| "pricing returned invalid JSON".into())
+    }
+
+    /// The reasoning levels of the official model a gateway model reaches,
+    /// or `None` when LLM Metadata does not list it as reasoning.
+    pub async fn official_reasoning(&self, model: &str) -> Result<Option<Vec<String>>, String> {
+        #[derive(Deserialize)]
+        struct ModelMetadata {
+            reasoning: bool,
+            reasoning_levels: Vec<String>,
+        }
+        let path = format!(
+            "/control/v1/model-metadata?model={}",
+            percent_encode_query(model)
+        );
+        let (status, body) = self
+            .authenticated_control_status(Method::GET, &path, None, None)
+            .await?;
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            return Err(control_status_error(&Method::GET, &path, status, &body));
+        }
+        serde_json::from_slice::<ModelMetadata>(&body)
+            .map(|model| model.reasoning.then_some(model.reasoning_levels))
+            .map_err(|_| "model metadata returned invalid JSON".into())
     }
 
     /// Configuration sync. `configure` stores the settings, `passphrase` sets
