@@ -33,6 +33,8 @@ import {
   getUsageSummary,
   listServices,
   restartCore,
+  setMainWindowUnsaved,
+  takeTrayNavigation,
 } from "./bridge";
 import {
   AccessTokenManager,
@@ -160,6 +162,44 @@ function messageOf(error: unknown, fallback: string): string {
 }
 
 /** The pages the tray popover may open; anything else is ignored. */
+/**
+ * Opens the pages the tray leaves for this window. The host keeps a page until
+ * the window takes it, so one asked for while the window was being built again
+ * is taken once the window listens.
+ */
+export function followTrayNavigation(
+  open: (target: WorkspacePage) => void,
+): () => void {
+  let cancelled = false;
+  let stop: UnlistenFn | null = null;
+  const follow = () => {
+    takeTrayNavigation()
+      .then((kind) => {
+        const target = trayNavigationTarget(kind);
+        if (!cancelled && target) open(target);
+      })
+      .catch((error) =>
+        console.error("Unable to read AstrLink tray navigation", error),
+      );
+  };
+  listen(TRAY_NAVIGATE_EVENT, follow)
+    .then((unlisten) => {
+      if (cancelled) {
+        unlisten();
+        return;
+      }
+      stop = unlisten;
+      follow();
+    })
+    .catch((error) =>
+      console.error("Unable to observe AstrLink tray navigation", error),
+    );
+  return () => {
+    cancelled = true;
+    stop?.();
+  };
+}
+
 export function trayNavigationTarget(
   kind: unknown,
   now = new Date(),
@@ -292,7 +332,18 @@ export default function App() {
   requestGateRef.current ??= new RequestGate();
   const requestGate = requestGateRef.current;
   const handleEditorDirtyChange = useCallback((dirty: boolean) => {
+    if (editorDirtyRef.current !== dirty) {
+      setMainWindowUnsaved(dirty).catch((error) =>
+        console.error("Unable to keep unsaved AstrLink edits", error),
+      );
+    }
     editorDirtyRef.current = dirty;
+  }, []);
+  // A reload drops the edits an earlier page asked the host to keep.
+  useEffect(() => {
+    setMainWindowUnsaved(false).catch((error) =>
+      console.error("Unable to keep unsaved AstrLink edits", error),
+    );
   }, []);
 
   const refreshCore = useCallback(async () => {
@@ -659,23 +710,7 @@ export default function App() {
   navigateRef.current = navigate;
   useEffect(() => {
     if (!isTauri()) return;
-    let cancelled = false;
-    let stop: UnlistenFn | null = null;
-    listen<unknown>(TRAY_NAVIGATE_EVENT, ({ payload }) => {
-      const target = trayNavigationTarget(payload);
-      if (target) navigateRef.current(target);
-    })
-      .then((unlisten) => {
-        if (cancelled) unlisten();
-        else stop = unlisten;
-      })
-      .catch((error) =>
-        console.error("Unable to observe AstrLink tray navigation", error),
-      );
-    return () => {
-      cancelled = true;
-      stop?.();
-    };
+    return followTrayNavigation((target) => navigateRef.current(target));
   }, []);
 
   const updateNoticeKind = updateNotice(updates.snapshot);

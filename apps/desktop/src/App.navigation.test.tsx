@@ -87,6 +87,8 @@ const bridgeMocks = vi.hoisted(() => ({
   lockRaw: vi.fn(),
   setRawPassword: vi.fn(),
   unlockRaw: vi.fn(),
+  setMainWindowUnsaved: vi.fn().mockResolvedValue(undefined),
+  takeTrayNavigation: vi.fn().mockResolvedValue(null),
 }));
 
 const updateMocks = vi.hoisted(() => ({
@@ -109,6 +111,9 @@ vi.mock("sonner", async (importOriginal) => {
 
 vi.mock("./bridge", () => bridgeMocks);
 
+const eventMocks = vi.hoisted(() => ({ listen: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: eventMocks.listen }));
+
 const modelUpdate = vi.hoisted(() => ({
   current: null as
     | import("./use-privacy-model-update").PrivacyModelUpdate
@@ -118,7 +123,7 @@ vi.mock("./use-privacy-model-update", () => ({
   usePrivacyModelUpdate: () => modelUpdate.current,
 }));
 
-import App, { trayNavigationTarget } from "./App";
+import App, { followTrayNavigation, trayNavigationTarget } from "./App";
 import type { AppSnapshot } from "./core-model";
 import { defaultTrayPreferences } from "./preferences-model";
 import { defaultFailurePolicy } from "./failure-policy-model";
@@ -328,6 +333,37 @@ describe("tray navigation targets", () => {
     ]) {
       expect(trayNavigationTarget(payload)).toBeNull();
     }
+  });
+
+  it("takes the page left before the window listened, then each one announced", async () => {
+    let announce = () => {};
+    eventMocks.listen.mockImplementationOnce(
+      async (_event: string, handler: () => void) => {
+        announce = handler;
+        return () => {};
+      },
+    );
+    bridgeMocks.takeTrayNavigation
+      .mockResolvedValueOnce("records")
+      .mockResolvedValueOnce("settings")
+      .mockResolvedValueOnce(null);
+    const open = vi.fn();
+    const stop = followTrayNavigation(open);
+
+    await vi.waitFor(() =>
+      expect(open).toHaveBeenCalledWith({ kind: "records" }),
+    );
+    announce();
+    await vi.waitFor(() =>
+      expect(open).toHaveBeenLastCalledWith({ kind: "settings" }),
+    );
+    // Another take already answered this announcement.
+    announce();
+    await vi.waitFor(() =>
+      expect(bridgeMocks.takeTrayNavigation).toHaveBeenCalledTimes(3),
+    );
+    expect(open).toHaveBeenCalledTimes(2);
+    stop();
   });
 });
 
@@ -1805,6 +1841,8 @@ describe("App workspace navigation", () => {
     });
     await chooseKindCard("Codex 订阅");
     await setInput("#service-name", "Unfinished service");
+    // Unsaved edits keep the window when it is hidden to the tray.
+    expect(bridgeMocks.setMainWindowUnsaved).toHaveBeenLastCalledWith(true);
 
     const back = container.querySelector<HTMLButtonElement>(
       'button[aria-label="返回 API 提供商列表"]',
@@ -1833,6 +1871,7 @@ describe("App workspace navigation", () => {
     });
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(workspaceHeading().textContent).toBe("路由");
+    expect(bridgeMocks.setMainWindowUnsaved).toHaveBeenLastCalledWith(false);
   });
   it("protects default-policy drafts when leaving routing", async () => {
     // The routing panel autosaves 500 ms after an edit. The draft must stay

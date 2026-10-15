@@ -28,6 +28,7 @@ mod sidecar;
 mod startup_window;
 mod tray;
 mod updates;
+mod window_reclaim;
 mod wsl;
 
 use std::sync::{
@@ -570,14 +571,17 @@ fn apply_native_theme(app: &tauri::AppHandle, preference: ThemePreference) {
     app.set_theme(preference.native_theme());
     for window in app.webview_windows().values() {
         // The tray popover paints its own panel on a transparent window.
-        if window.label() == tray::POPOVER_LABEL {
-            continue;
+        if window.label() != tray::POPOVER_LABEL {
+            apply_window_background(window, preference);
         }
-        let theme = preference.native_theme().or_else(|| window.theme().ok());
-        if let Some(theme) = theme {
-            if let Err(error) = window.set_background_color(Some(theme_background(theme))) {
-                eprintln!("unable to update AstrLink window background: {error}");
-            }
+    }
+}
+
+fn apply_window_background(window: &tauri::WebviewWindow, preference: ThemePreference) {
+    let theme = preference.native_theme().or_else(|| window.theme().ok());
+    if let Some(theme) = theme {
+        if let Err(error) = window.set_background_color(Some(theme_background(theme))) {
+            eprintln!("unable to update AstrLink window background: {error}");
         }
     }
 }
@@ -619,6 +623,18 @@ fn tray_popover_hide(app: tauri::AppHandle) {
     tray::dismiss_popover(&app);
 }
 
+/// The page the tray last asked the main window to open, handed over once.
+#[tauri::command]
+fn take_tray_navigation(app: tauri::AppHandle) -> Option<String> {
+    tray::take_navigation(&app)
+}
+
+/// Unsaved edits keep the hidden main window from being released.
+#[tauri::command]
+fn set_main_window_unsaved(app: tauri::AppHandle, unsaved: bool) {
+    window_reclaim::hold(&app, "main", unsaved);
+}
+
 fn receive_deep_links(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
     // One confirmation at a time: only the last AstrLink link is kept.
     if let Some(url) = urls
@@ -631,26 +647,73 @@ fn receive_deep_links(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
 }
 
 pub(crate) fn show_main_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        // Restore the foreground app before showing/focusing its window.
-        #[cfg(target_os = "macos")]
-        if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
-            eprintln!("unable to restore AstrLink in the Dock: {error}");
-        }
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+    // Restore the foreground app before showing/focusing its window.
+    #[cfg(target_os = "macos")]
+    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+        eprintln!("unable to restore AstrLink in the Dock: {error}");
     }
+    match window_reclaim::show(app, "main") {
+        window_reclaim::Show::Existing => {
+            if let Some(window) = app.get_webview_window("main") {
+                bring_to_front(&window);
+            }
+        }
+        window_reclaim::Show::Build => rebuild_main_window(app),
+        window_reclaim::Show::Pending => {}
+    }
+}
+
+fn bring_to_front(window: &tauri::WebviewWindow) {
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
+/// Builds the main window again after the hidden one was released. Native
+/// window creation stays off the event loop (WebView2 deadlocks when a
+/// callback creates a webview) and off the async workers.
+fn rebuild_main_window(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let built = build_main_window(&app);
+        window_reclaim::built(&app, "main");
+        match built {
+            Ok(window) => bring_to_front(&window),
+            Err(error) => eprintln!("unable to open the AstrLink window again: {error}"),
+        }
+    });
+}
+
+fn build_main_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == "main")
+        .ok_or("main window configuration is missing")?;
+    // Hidden, as configured, until it is placed.
+    let window = WebviewWindowBuilder::from_config(app, config)
+        .and_then(|builder| builder.build())
+        .map_err(|error| error.to_string())?;
+    let preference = app.state::<Arc<PreferencesStore>>().snapshot().values.theme;
+    apply_window_background(&window, preference);
+    if let Err(error) = startup_window::restore(&window) {
+        eprintln!("failed to place AstrLink on the current display: {error}");
+    }
+    Ok(window)
 }
 
 fn hide_main_window_to_tray(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
+    startup_window::remember(&window);
     if let Err(error) = window.hide() {
         eprintln!("unable to hide AstrLink to the tray: {error}");
         return;
     }
+    window_reclaim::hidden(app, "main");
     // Hiding a window does not remove a regular macOS app from the Dock.
     // Accessory mode keeps the tray and pinned inspector windows available.
     // Use the activation policy directly: Tao's set_dock_visibility(false)
@@ -2329,6 +2392,7 @@ pub fn run() {
         .manage(explicit_quit)
         .manage(Mutex::new(InspectorRegistry::default()))
         .manage(tray::TrayState::default())
+        .manage(window_reclaim::WindowReclaim::default())
         .manage(Arc::new(client_updates::ClientUpdateManager::default()))
         .manage(Arc::new(model_updates::PrivacyModelUpdates::default()))
         .manage(provider_import::ProviderImports::default())
@@ -2353,6 +2417,8 @@ pub fn run() {
             tray_action,
             tray_popover_resize,
             tray_popover_hide,
+            take_tray_navigation,
+            set_main_window_unsaved,
             start_core,
             stop_core,
             restart_core,
@@ -2604,6 +2670,15 @@ pub fn run() {
                     Err(_) => eprintln!("inspector window registry is poisoned; {label} leaked"),
                 }
             }
+            // A show that raced a release builds the window now that its
+            // label is free.
+            if window_reclaim::destroyed(app_handle, label) {
+                if label == "main" {
+                    show_main_window(app_handle);
+                } else if label == tray::POPOVER_LABEL {
+                    tray::reopen_popover(app_handle);
+                }
+            }
         }
         if let RunEvent::WindowEvent {
             label,
@@ -2624,6 +2699,9 @@ pub fn run() {
                     app_handle
                         .state::<Arc<AtomicBool>>()
                         .store(true, Ordering::SeqCst);
+                    // Closing this window alone ends nothing while a hidden
+                    // tray popover or a pinned inspector is still open.
+                    app_handle.exit(0);
                 }
             }
         }
@@ -2631,6 +2709,17 @@ pub fn run() {
         if let RunEvent::Reopen { .. } = &event {
             if !app_handle.state::<Arc<AtomicBool>>().load(Ordering::SeqCst) {
                 show_main_window(app_handle);
+            }
+        }
+        // Releasing hidden windows can close the last one. AstrLink stays in
+        // the tray until it is told to quit.
+        if let RunEvent::ExitRequested {
+            code: None, api, ..
+        } = &event
+        {
+            if !app_handle.state::<Arc<AtomicBool>>().load(Ordering::SeqCst) {
+                api.prevent_exit();
+                return;
             }
         }
         if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {

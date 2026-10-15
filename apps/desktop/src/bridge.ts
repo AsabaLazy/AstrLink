@@ -301,6 +301,21 @@ export async function trayPopoverHide(): Promise<void> {
   await invoke<void>("tray_popover_hide");
 }
 
+/** The page the tray left for the main window, handed over once. */
+export async function takeTrayNavigation(): Promise<string | null> {
+  if (!hasNativeBridge()) return null;
+  return invoke<string | null>("take_tray_navigation");
+}
+
+/**
+ * Unsaved edits keep the hidden main window alive; otherwise the host
+ * releases it after a while in the tray and builds a fresh one on return.
+ */
+export async function setMainWindowUnsaved(unsaved: boolean): Promise<void> {
+  if (!hasNativeBridge()) return;
+  await invoke<void>("set_main_window_unsaved", { unsaved });
+}
+
 function requireNativeBridge(): void {
   if (!isWebEdition && !hasNativeBridge()) {
     throw new Error(i18n.t("bridge.desktopOnly"));
