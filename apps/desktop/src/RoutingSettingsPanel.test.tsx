@@ -5,6 +5,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 const bridge = vi.hoisted(() => ({
   builtinToolAction: vi.fn().mockResolvedValue({ configured: false }),
   getClientIdentities: vi.fn(),
+  getPreferences: vi.fn(),
   getRoutingSettings: vi.fn(),
   updateRoutingSettings: vi.fn(),
 }));
@@ -49,6 +50,9 @@ describe("shared global recovery settings", () => {
     bridge.getClientIdentities
       .mockReset()
       .mockRejectedValue(new Error("unavailable"));
+    bridge.getPreferences
+      .mockReset()
+      .mockRejectedValue(new Error("desktop only"));
     bridge.updateRoutingSettings
       .mockReset()
       .mockImplementation(async (value) => ({ ...settings(), ...value }));
@@ -1426,6 +1430,82 @@ describe("shared global recovery settings", () => {
     expect(container.textContent).not.toContain(
       "openai_function_output_repair",
     );
+  });
+
+  function inheritTimeoutSwitch() {
+    return [...container.querySelectorAll("label")]
+      .find((label) => label.textContent === "沿用网关基础响应超时（设置）")!
+      .querySelector<HTMLButtonElement>('[role="switch"]')!;
+  }
+
+  const unlimitedHint = "设置中当前为 0（不限时）";
+  const inactiveRule = "未设等待时限，此规则不会触发";
+
+  it("flags the response timeout rule an unlimited gateway timeout disables", async () => {
+    bridge.getPreferences.mockResolvedValue({
+      values: { response_start_timeout_seconds: 0 },
+    });
+    await act(async () =>
+      root.render(
+        <RoutingSettingsPanel services={[]} ready onDirtyChange={vi.fn()} />,
+      ),
+    );
+    await selectTab("恢复与重试");
+    expect(container.textContent).toContain(unlimitedHint);
+    await selectTab("错误规则");
+    expect(container.textContent).toContain(inactiveRule);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[role="switch"][aria-label="等待响应超时 · 允许重试"]',
+        )!
+        .click(),
+    );
+    expect(container.textContent).not.toContain(inactiveRule);
+  });
+
+  it("states a finite gateway timeout and lets an own timeout replace it", async () => {
+    bridge.getPreferences.mockResolvedValue({
+      values: { response_start_timeout_seconds: 90 },
+    });
+    await act(async () =>
+      root.render(
+        <RoutingSettingsPanel services={[]} ready onDirtyChange={vi.fn()} />,
+      ),
+    );
+    await selectTab("恢复与重试");
+    expect(container.textContent).toContain("设置中当前为 90 秒。");
+    await act(async () => inheritTimeoutSwitch().click());
+    expect(container.textContent).not.toContain("设置中当前为");
+    const input = [...container.querySelectorAll("label")]
+      .find(
+        (label) =>
+          label.querySelector(":scope > span")?.textContent ===
+          "等待响应超时（秒）",
+      )!
+      .querySelector<HTMLInputElement>("input")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "0");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await selectTab("错误规则");
+    expect(container.textContent).toContain(inactiveRule);
+  });
+
+  it("omits the inherited timeout when preferences are unavailable", async () => {
+    await act(async () =>
+      root.render(
+        <RoutingSettingsPanel services={[]} ready onDirtyChange={vi.fn()} />,
+      ),
+    );
+    await selectTab("恢复与重试");
+    expect(inheritTimeoutSwitch().getAttribute("aria-checked")).toBe("true");
+    expect(container.textContent).not.toContain("设置中当前为");
+    await selectTab("错误规则");
+    expect(container.textContent).not.toContain(inactiveRule);
   });
 
   it("keeps drafts across tabs, scopes reset to the current group, and saves all edits together", async () => {

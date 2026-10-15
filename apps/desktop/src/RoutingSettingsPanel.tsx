@@ -37,6 +37,7 @@ import { PageHeader } from "./PageHeader";
 import type { RoutableService } from "./service-model";
 import { ThinkingPromptSettings } from "./ThinkingPromptSettings";
 import { UpstreamIdentitySettings } from "./UpstreamIdentitySettings";
+import { useGatewayResponseTimeout } from "./use-gateway-response-timeout";
 
 export const routingAutosaveDelay = 500;
 
@@ -174,6 +175,7 @@ export function RoutingSettingsPanel({
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const t = useT();
+  const gatewayTimeout = useGatewayResponseTimeout();
   const [tab, setTab] = useState("rewrite");
   const [settings, setSettings] = useWorkspaceSnapshot<RoutingSettings | null>(
     "routing-settings",
@@ -483,6 +485,7 @@ export function RoutingSettingsPanel({
                     }
                     headingLevel={2}
                     value={draft.default_failure_policy}
+                    gatewayTimeoutSeconds={gatewayTimeout}
                     onChange={(default_failure_policy) =>
                       changeDraft({ ...draft, default_failure_policy })
                     }
@@ -505,6 +508,7 @@ export function RoutingSettingsPanel({
                   hint={t("routing.rulesHint")}
                   headingLevel={2}
                   value={draft.default_failure_policy}
+                  gatewayTimeoutSeconds={gatewayTimeout}
                   onChange={(default_failure_policy) =>
                     changeDraft({ ...draft, default_failure_policy })
                   }

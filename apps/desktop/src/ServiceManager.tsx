@@ -20,6 +20,7 @@ import { ProtocolModeHelp } from "./ProtocolModeHelp";
 import { ServiceEditorTour } from "./ServiceEditorTour";
 import { OrderedList } from "./components/OrderedList";
 import { ClientTypeIcons } from "./components/ClientTypeIcon";
+import { useGatewayResponseTimeout } from "./use-gateway-response-timeout";
 import { useRoutingDefaults } from "./use-routing-defaults";
 import { FailurePolicyEditor } from "./components/FailurePolicyEditor";
 import {
@@ -998,6 +999,7 @@ export function ServiceManager({
   onDirtyChange,
 }: ServiceManagerProps) {
   const routingDefaults = useRoutingDefaults(isReady);
+  const gatewayTimeout = useGatewayResponseTimeout();
   const serviceOrder = useServiceOrder(
     services,
     isReady && view.kind === "list" && catalogStatus === "ready",
@@ -3949,6 +3951,7 @@ export function ServiceManager({
                 {draft.failurePolicy ? (
                   <FailurePolicyEditor
                     value={draft.failurePolicy}
+                    gatewayTimeoutSeconds={gatewayTimeout}
                     onChange={(failurePolicy) =>
                       setDraft((current) => ({ ...current, failurePolicy }))
                     }
