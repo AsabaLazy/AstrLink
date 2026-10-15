@@ -240,8 +240,7 @@ fn get_preferences(
 /// settings. Also returns the distributions left unchecked.
 fn agent_install_context(
     home: std::path::PathBuf,
-    data_directory: Option<std::path::PathBuf>,
-    raw_key_pins: Option<std::path::PathBuf>,
+    guarded: GuardedPaths,
     reach: wsl::Reach,
 ) -> Result<(agent_install::InstallContext, Vec<String>), String> {
     let homes = agent_home::Homes::find(home, reach)?;
@@ -249,22 +248,53 @@ fn agent_install_context(
         home: homes.host,
         // Install reports a missing sidecar itself; status and uninstall do not need it.
         cli_source: agent_install::resolve_sidecar_binary("astrlink-cli").unwrap_or_default(),
-        data_directory,
-        raw_key_pins,
+        data_directories: guarded.data_directories,
+        raw_key_pins: guarded.raw_key_pins,
         dirs: homes.dirs,
         wsl: homes.wsl,
     };
     Ok((context, homes.unchecked))
 }
 
+/// What agent guards keep agents out of: the data directory and raw key pin
+/// file of every AstrLink instance, so either one writes and checks the
+/// same rules in the agent tools they share.
+struct GuardedPaths {
+    data_directories: Vec<std::path::PathBuf>,
+    raw_key_pins: Vec<std::path::PathBuf>,
+}
+
+impl GuardedPaths {
+    fn of(
+        data_directory: Option<&std::path::Path>,
+        config_directory: Option<&std::path::Path>,
+    ) -> Self {
+        let every = |directory: Option<&std::path::Path>| {
+            directory
+                .map(instance::every_instance_directory)
+                .unwrap_or_default()
+        };
+        Self {
+            data_directories: every(data_directory),
+            raw_key_pins: every(config_directory)
+                .iter()
+                .map(|directory| raw_key_pin::pin_file(directory))
+                .collect(),
+        }
+    }
+}
+
 fn app_agent_install_context(
     app: &tauri::AppHandle,
     reach: wsl::Reach,
 ) -> Result<(agent_install::InstallContext, Vec<String>), String> {
+    let path = app.path();
     agent_install_context(
         control_session::user_home()?,
-        app.path().app_data_dir().ok(),
-        raw_key_pin_file(app),
+        GuardedPaths::of(
+            path.app_data_dir().ok().as_deref(),
+            path.app_config_dir().ok().as_deref(),
+        ),
         reach,
     )
 }
@@ -334,11 +364,7 @@ fn start_client_config_sync(manager: Arc<CoreManager>, preferences: Arc<Preferen
 /// Keeps installed agent skills, guards, and the CLI current. Recorded WSL
 /// distributions sync off the main thread, and only while running; starting
 /// AstrLink never starts a distribution.
-fn sync_agent_installs(
-    home: std::path::PathBuf,
-    data_directory: std::path::PathBuf,
-    raw_key_pins: Option<std::path::PathBuf>,
-) {
+fn sync_agent_installs(home: std::path::PathBuf, guarded: GuardedPaths) {
     let distributions = agent_install::recorded_wsl(&home);
     let sync_homes = |context: &agent_install::InstallContext, wsl_only: bool| {
         for target in context
@@ -354,20 +380,15 @@ fn sync_agent_installs(
             }
             if let Err(error) = agent_install::sync_installed_host_guards(
                 target,
-                context.data_directory.as_deref(),
-                context.raw_key_pins.as_deref(),
+                &context.data_directories,
+                &context.raw_key_pins,
             ) {
                 eprintln!("failed to sync AstrLink agent host guards{place}: {error}");
             }
         }
     };
     // The desktop user's home first; WSL distributions follow below.
-    match agent_install_context(
-        home,
-        Some(data_directory),
-        raw_key_pins,
-        wsl::Reach::Named(&[]),
-    ) {
+    match agent_install_context(home, guarded, wsl::Reach::Named(&[])) {
         Ok((context, _)) => {
             sync_homes(&context, false);
             // Runs without a sidecar too, so the MCP migration still happens.
@@ -380,8 +401,10 @@ fn sync_agent_installs(
             std::thread::spawn(move || {
                 match agent_install_context(
                     context.home,
-                    context.data_directory,
-                    context.raw_key_pins,
+                    GuardedPaths {
+                        data_directories: context.data_directories,
+                        raw_key_pins: context.raw_key_pins,
+                    },
                     wsl::Reach::RunningAmong(&distributions),
                 ) {
                     // The desktop user's home synced above.
@@ -394,13 +417,6 @@ fn sync_agent_installs(
         }
         Err(error) => eprintln!("failed to sync AstrLink agent installs: {error}"),
     }
-}
-
-/// The raw key pin file agent guards deny, where the pins live in one.
-fn raw_key_pin_file(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
-    app.try_state::<Arc<raw_key_pin::RawKeyPins>>()?
-        .file()
-        .map(std::path::Path::to_path_buf)
 }
 
 #[tauri::command]
@@ -2443,7 +2459,6 @@ pub fn run() {
                 .map_err(|error| format!("unable to resolve AstrLink data directory: {error}"))?;
             let preferences = Arc::new(PreferencesStore::load(&config_directory, &data_directory));
             let raw_key_pins = Arc::new(raw_key_pin::RawKeyPins::system(&config_directory));
-            let raw_key_pin_file = raw_key_pins.file().map(std::path::Path::to_path_buf);
             app.manage(raw_key_pins);
             let values = preferences.snapshot().values;
             apply_native_theme(app.handle(), values.theme);
@@ -2505,11 +2520,14 @@ pub fn run() {
             dev_reload::start(app.handle());
 
             // The development instance shares the user's agent tools with the
-            // other AstrLink, whose guards name that one's data directory.
-            // Only installing from its settings points them at its own.
+            // other AstrLink. Only that one refreshes them at startup, so a
+            // development build's skills and CLI do not replace its copies.
             if !instance::is_isolated() {
                 if let Ok(home) = control_session::user_home() {
-                    sync_agent_installs(home, data_directory.clone(), raw_key_pin_file.clone());
+                    sync_agent_installs(
+                        home,
+                        GuardedPaths::of(Some(&data_directory), Some(&config_directory)),
+                    );
                 }
             }
 
