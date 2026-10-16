@@ -24,6 +24,7 @@ mod raw_approval;
 mod raw_key_pin;
 mod recovery_path;
 mod service_proxy;
+mod service_terminal;
 mod sidecar;
 mod startup_window;
 mod tray;
@@ -2443,6 +2444,9 @@ pub fn run() {
             open_authorization_url,
             open_external_url,
             save_text_file,
+            service_terminal::list_terminal_apps,
+            service_terminal::pick_terminal_directory,
+            service_terminal::open_service_terminal,
             get_service_authorization,
             cancel_service_authorization,
             logout_service,

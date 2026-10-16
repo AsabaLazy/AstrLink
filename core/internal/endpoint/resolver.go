@@ -50,6 +50,21 @@ func (err *CapabilityUnavailableError) Unwrap() error {
 	return ErrNoEndpoint
 }
 
+// PinnedServiceError says why the API provider a request named cannot serve
+// it. Name is empty when no provider has the ID.
+type PinnedServiceError struct {
+	Service contract.ServiceID
+	Name    string
+	Reason  contract.RoutingSkipReason
+}
+
+func (err *PinnedServiceError) Error() string {
+	if err.Name == "" {
+		return fmt.Sprintf("API provider %q does not exist", err.Service)
+	}
+	return fmt.Sprintf("API provider %q cannot serve the request: %s", err.Name, err.Reason)
+}
+
 // RateLimitedCandidatesError lists the cooldowns that left no candidate to
 // attempt. It unwraps to ErrNoHealthyEndpoint.
 type RateLimitedCandidatesError struct {
@@ -92,6 +107,9 @@ type ResolveRequest struct {
 	// Continuation keeps eligible targets available for exact affinity binding.
 	// Ingress must bind the response ID before attempting any target.
 	Continuation bool
+	// Service limits routing to the one API provider the client named. No
+	// other provider serves the request or takes over when it fails.
+	Service contract.ServiceID
 }
 
 type Resolved struct {

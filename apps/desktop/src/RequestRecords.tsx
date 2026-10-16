@@ -17,7 +17,7 @@ import {
   ChevronUp,
   Copy,
   SlidersHorizontal as ListFilter,
-  Menu as Ellipsis,
+  Ellipsis,
   MessageSquare,
   RefreshCw,
   SlidersHorizontal as Settings2,

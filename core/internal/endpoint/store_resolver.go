@@ -3,6 +3,7 @@ package endpoint
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -126,6 +127,9 @@ func (resolver *StoreResolver) ResolveRankedCandidates(ctx context.Context, requ
 	if err != nil {
 		return nil, nil, err
 	}
+	if request.Service != "" {
+		endpoints, ranking = onlyService(endpoints, ranking, request.Service)
+	}
 	settings := contract.DefaultRoutingSettings()
 	if resolver.routingSettings != nil && !request.Protocol.IsModelDiscovery() {
 		settings, err = resolver.routingSettings.GetRoutingSettings(ctx)
@@ -150,6 +154,9 @@ func (resolver *StoreResolver) ResolveRankedCandidates(ctx context.Context, requ
 		}
 	}
 	if len(candidates) == 0 {
+		if request.Service != "" {
+			return nil, ranking, resolver.pinnedServiceError(ctx, request.Service, ranking)
+		}
 		return nil, ranking, &CapabilityUnavailableError{
 			Protocol: request.Protocol,
 			Model:    request.Model,
@@ -217,43 +224,27 @@ func (resolver *StoreResolver) availableCandidates(candidates []Resolved, rankin
 // An unschedulable service that does not list model is ranked as such: it
 // could not have served the request in any state.
 func (resolver *StoreResolver) readServices(ctx context.Context, model string) ([]contract.Service, []RankedService, error) {
-	options := storage.ServiceListOptions{Limit: 200}
 	byID := make(map[contract.ServiceID]contract.Service)
 	excluded := make(map[contract.ServiceID]contract.RoutingSkipReason)
-	seenCursors := make(map[string]struct{})
-	for {
-		page, err := resolver.reader.ListServices(ctx, options)
-		if err != nil {
-			return nil, nil, fmt.Errorf("read persisted endpoints: %w", err)
+	err := resolver.eachService(ctx, func(candidate contract.Service) error {
+		if err := candidate.Validate(); err != nil {
+			return fmt.Errorf("persisted endpoint failed validation: %w", err)
 		}
-		for _, record := range page.Items {
-			candidate := record.Service
-			if err := candidate.Validate(); err != nil {
-				return nil, nil, fmt.Errorf("persisted endpoint failed validation: %w", err)
+		if reason := resolver.unschedulableReason(candidate); reason != "" {
+			if _, served := candidate.UpstreamModelFor(model); model != "" && !served {
+				reason = contract.RoutingSkipModelNotListed
 			}
-			if reason := resolver.unschedulableReason(candidate); reason != "" {
-				if _, served := candidate.UpstreamModelFor(model); model != "" && !served {
-					reason = contract.RoutingSkipModelNotListed
-				}
-				excluded[candidate.ID] = reason
-				continue
-			}
-			if _, duplicate := byID[candidate.ID]; duplicate {
-				return nil, nil, fmt.Errorf("persisted endpoint %q is duplicated", candidate.ID)
-			}
-			byID[candidate.ID] = candidate
+			excluded[candidate.ID] = reason
+			return nil
 		}
-		if page.NextCursor == "" {
-			break
+		if _, duplicate := byID[candidate.ID]; duplicate {
+			return fmt.Errorf("persisted endpoint %q is duplicated", candidate.ID)
 		}
-		if page.NextCursor == options.Cursor {
-			return nil, nil, fmt.Errorf("persisted endpoint pagination did not advance")
-		}
-		if _, duplicate := seenCursors[page.NextCursor]; duplicate {
-			return nil, nil, fmt.Errorf("persisted endpoint pagination repeated a cursor")
-		}
-		seenCursors[page.NextCursor] = struct{}{}
-		options.Cursor = page.NextCursor
+		byID[candidate.ID] = candidate
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
 	}
 
 	endpoints := make([]contract.Service, 0, len(byID))
@@ -297,6 +288,63 @@ func (resolver *StoreResolver) readServices(ctx context.Context, model string) (
 		return before(ranking[left].ServiceID, ranking[right].ServiceID)
 	})
 	return endpoints, ranking, nil
+}
+
+// eachService visits every persisted service, page by page.
+func (resolver *StoreResolver) eachService(ctx context.Context, visit func(contract.Service) error) error {
+	options := storage.ServiceListOptions{Limit: 200}
+	seenCursors := make(map[string]struct{})
+	for {
+		page, err := resolver.reader.ListServices(ctx, options)
+		if err != nil {
+			return fmt.Errorf("read persisted endpoints: %w", err)
+		}
+		for _, record := range page.Items {
+			if err := visit(record.Service); err != nil {
+				return err
+			}
+		}
+		if page.NextCursor == "" {
+			return nil
+		}
+		if page.NextCursor == options.Cursor {
+			return fmt.Errorf("persisted endpoint pagination did not advance")
+		}
+		if _, duplicate := seenCursors[page.NextCursor]; duplicate {
+			return fmt.Errorf("persisted endpoint pagination repeated a cursor")
+		}
+		seenCursors[page.NextCursor] = struct{}{}
+		options.Cursor = page.NextCursor
+	}
+}
+
+// onlyService keeps the provider a request named, so routing neither picks
+// nor reports any other.
+func onlyService(services []contract.Service, ranking []RankedService, id contract.ServiceID) ([]contract.Service, []RankedService) {
+	services = slices.DeleteFunc(services, func(service contract.Service) bool { return service.ID != id })
+	ranking = slices.DeleteFunc(ranking, func(ranked RankedService) bool { return ranked.ServiceID != id })
+	return services, ranking
+}
+
+// pinnedServiceError explains why the provider a request named left no
+// candidate. The ranking holds that provider only, or nothing when no
+// provider has the ID.
+func (resolver *StoreResolver) pinnedServiceError(ctx context.Context, id contract.ServiceID, ranking []RankedService) error {
+	pinned := &PinnedServiceError{Service: id}
+	if len(ranking) == 0 {
+		return pinned
+	}
+	pinned.Reason = ranking[0].Skip
+	err := resolver.eachService(ctx, func(service contract.Service) error {
+		if service.ID == id {
+			pinned.Name = service.Name
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return pinned
 }
 
 // unschedulableReason says why candidate is left out of scheduling whatever

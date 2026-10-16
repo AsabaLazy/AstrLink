@@ -878,6 +878,7 @@
     "configuredAria": "設定済みのAPIプロバイダー",
     "enableNamed": "{{name}} を有効にする",
     "moreNamed": "{{name}} のその他の操作",
+    "openInTerminal": "ターミナルで開く…",
     "openaiAccount": "OpenAI アカウント {{hint}}",
     "modelCount": "モデル {{count}} 件",
     "openModels": "{{name}} のモデル一覧を開く",
@@ -2774,6 +2775,11 @@
       "exited": "ゲートウェイが予期せず終了",
       "recoveryStopped": "{{message}}。自動復旧は {{attempts}} 回の試行後に停止しました。",
       "recoveryFailed": "ゲートウェイの自動復旧に失敗しました：{{error}}"
+    },
+    "terminal": {
+      "banner": "AstrLink：このウィンドウの {{client}} は「{{service}}」だけを使います。",
+      "exited": "{{client}} を終了しました。ここで再び起動すると、普段の設定で動きます。",
+      "automationDenied": "ウィンドウを開くには、AstrLink が {{terminal}} を操作する許可が必要です。「システム設定 › プライバシーとセキュリティ › オートメーション」で AstrLink の下にある {{terminal}} をオンにして、もう一度試してください。"
     }
   },
   "failure": {
@@ -2895,14 +2901,16 @@
       "session_binding": "会話の継続: セッションアフィニティ",
       "response_affinity": "Responses の継続: 直前のレスポンスはこの APIプロバイダーから",
       "websocket_connection": "WebSocket 接続: 接続を開いた APIプロバイダー",
-      "failover": "フェイルオーバー: 先に試した APIプロバイダーが失敗または拒否"
+      "failover": "フェイルオーバー: 先に試した APIプロバイダーが失敗または拒否",
+      "client_pin": "クライアント指定：リクエストがこの APIプロバイダーを指名"
     },
     "selectionsShort": {
       "priority": "優先度順",
       "session_binding": "セッションアフィニティ",
       "response_affinity": "直前のレスポンスを継続",
       "websocket_connection": "同じ WebSocket 接続",
-      "failover": "フェイルオーバー"
+      "failover": "フェイルオーバー",
+      "client_pin": "クライアント指定"
     },
     "plans": {
       "native": "そのまま転送",
@@ -3809,5 +3817,26 @@
     "configHint": "この設定をクライアントにコピーしてください。YOUR_ACCESS_TOKEN を、このコンソールのアクセストークンに置き換えてください。YOUR_MODEL を、APIプロバイダーのモデルに置き換えてください。",
     "copy": "設定をコピー",
     "clipboard": "クリップボードを利用できません。下のテキストを選択してコピーしてください。"
+  },
+  "serviceTerminal": {
+    "title": "「{{name}}」をターミナルで開く",
+    "description": "このターミナルのクライアントは、この APIプロバイダーだけを使います。プロバイダーでエラーが起きると、リクエストはそのまま失敗します。普段のクライアント設定はそのままです。",
+    "client": "クライアント",
+    "noClient": "先に Claude Code か Codex をインストールしてください。",
+    "directory": "起動フォルダー",
+    "directoryHint": "クライアントはこのフォルダーで起動します。",
+    "chooseDirectory": "フォルダーを選択…",
+    "model": "モデル",
+    "claudeModelPlaceholder": "Claude Code 標準のモデル",
+    "codexModelPlaceholder": "Codex の設定にあるモデル",
+    "claudeModelHint": "選んだモデルは Claude Code のバックグラウンド処理にも使われます。",
+    "terminal": "ターミナル",
+    "noTerminal": "このコンピューターで AstrLink が開けるターミナルアプリが見つかりません。",
+    "open": "ターミナルを開く",
+    "opening": "開いています…",
+    "opened": "{{terminal}} で {{client}} を開きました",
+    "failed": "ターミナルを開けませんでした：{{error}}",
+    "disabled": "この APIプロバイダーはオフです。オンにするまで、ターミナルからのリクエストは失敗します。",
+    "signedOut": "このアカウントはサインインしていません。サインインするまで、ターミナルからのリクエストは失敗します。"
   }
 }

@@ -190,6 +190,26 @@ const ReachabilityPath = "/astrlink/reachability"
 // gateway rather than from an intercepting proxy.
 const ReachabilityHeader = "X-AstrLink-Reachable"
 
+// ServiceHeader names the one API provider a client wants, such as a terminal
+// the desktop opened for that provider. Routing then uses no other provider,
+// so the request fails rather than moves on. The forwarder strips it with
+// the rest of the X-AstrLink-* namespace.
+const ServiceHeader = "X-AstrLink-Service"
+
+// requestedService reads ServiceHeader. A blank value names no provider;
+// ok is false when the value is not a provider ID or the header repeats.
+func requestedService(request *http.Request) (contract.ServiceID, bool) {
+	values := request.Header.Values(ServiceHeader)
+	if len(values) > 1 {
+		return "", false
+	}
+	if len(values) == 0 || strings.TrimSpace(values[0]) == "" {
+		return "", true
+	}
+	id := contract.ServiceID(strings.TrimSpace(values[0]))
+	return id, id.Validate() == nil
+}
+
 type accessTokenIDContextKey struct{}
 
 // AccessTokenIDFromContext returns the stable identifier of the persistent
@@ -391,13 +411,26 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	if handler.tryBuiltinTools(outWriter, request, classified, routingSettings) {
 		return
 	}
-	session.channelBinding = handler.prepareChannelBinding(session, routingSettings, routingSettingsLoaded)
+	pinned, ok := requestedService(request)
+	if !ok {
+		session.captureUnreadRequestBody(request)
+		message := ServiceHeader + " must hold one API provider ID"
+		writeInferenceError(outWriter, http.StatusBadRequest, "invalid_request", message, false, nil)
+		session.noteFailed(errorSummaryFromInference("invalid_request", message, false))
+		return
+	}
+	// A named provider serves every turn of the session, so a binding has
+	// nothing to choose.
+	if pinned == "" {
+		session.channelBinding = handler.prepareChannelBinding(session, routingSettings, routingSettingsLoaded)
+	}
 	candidates, err := handler.resolveCandidates(request.Context(), endpoint.ResolveRequest{
 		Protocol:      classified.Protocol,
 		Model:         classified.routingModel(),
 		Streaming:     classified.Streaming,
 		Continuation:  classified.PreviousResponseID != "",
 		AllCandidates: session.channelBinding != nil || responsesWSTurnFromContext(request.Context()) != nil || builtinInternalFrom(request.Context()) != nil,
+		Service:       pinned,
 	})
 	if err != nil {
 		// No attempt will read the body, so capture it for the audit now.
@@ -439,6 +472,9 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		session.noteFailed(errorSummaryFromInference("response_affinity_unavailable", err.Error(), false))
 		return
 	}
+	// The client's choice explains the provider better than a connection or
+	// response it implies.
+	session.noteRoutingPin(contract.RoutingSelectionClientPin, pinned)
 	if classified.Protocol.IsModelDiscovery() {
 		handler.aggregateModelDiscovery(outWriter, request, classified, candidates, routingSettings.ModelRedirects)
 		return
@@ -1073,7 +1109,12 @@ func (handler *Handler) writeResolveError(writer http.ResponseWriter, request *h
 	}
 	session := recordSessionFromContext(request.Context())
 	var capabilityErr *endpoint.CapabilityUnavailableError
+	var pinnedErr *endpoint.PinnedServiceError
 	switch {
+	case errors.As(err, &pinnedErr):
+		message := pinnedServiceMessage(pinnedErr, classified)
+		writeInferenceError(writer, http.StatusUnprocessableEntity, "api_provider_unavailable", message, false, nil)
+		session.noteFailed(errorSummaryFromInference("api_provider_unavailable", message, false))
 	case errors.As(err, &capabilityErr):
 		message := writeMissingCapability(
 			writer,
@@ -1110,6 +1151,30 @@ func (handler *Handler) writeResolveError(writer http.ResponseWriter, request *h
 			Protocol: string(classified.Protocol), RequiredPlanTypes: []string{string(contract.PlanTypeNative), string(contract.PlanTypeDelegated)},
 		}})
 		session.noteFailed(errorSummaryFromInference("endpoint_resolver_unavailable", "upstream endpoint resolution failed", true))
+	}
+}
+
+// pinnedServiceMessage tells the client why the provider it named in
+// ServiceHeader cannot serve the request, since no other provider will.
+func pinnedServiceMessage(err *endpoint.PinnedServiceError, classified Request) string {
+	if err.Name == "" {
+		return fmt.Sprintf("API provider %q named in %s does not exist", err.Service, ServiceHeader)
+	}
+	switch err.Reason {
+	case contract.RoutingSkipDisabled:
+		return fmt.Sprintf("API provider %q is turned off", err.Name)
+	case contract.RoutingSkipNotConnected:
+		return fmt.Sprintf("API provider %q is not signed in", err.Name)
+	case contract.RoutingSkipRiskPaused:
+		return fmt.Sprintf("API provider %q is paused after its upstream reported a risk", err.Name)
+	case contract.RoutingSkipModelNotListed:
+		return fmt.Sprintf("API provider %q does not serve model %q", err.Name, classified.Model)
+	case contract.RoutingSkipStreamingUnsupported:
+		return fmt.Sprintf("API provider %q cannot stream model %q", err.Name, classified.Model)
+	case contract.RoutingSkipConversionUnavailable:
+		return fmt.Sprintf("API provider %q serves model %q in a format this request cannot be converted to", err.Name, classified.Model)
+	default:
+		return fmt.Sprintf("API provider %q does not accept %s requests", err.Name, classified.Protocol)
 	}
 }
 

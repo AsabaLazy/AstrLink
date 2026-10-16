@@ -6835,6 +6835,7 @@ components:
           response_affinity,
           websocket_connection,
           failover,
+          client_pin,
         ]
       description: |
         Why the attempt used service_id. Absent when no provider could be selected.
@@ -6843,6 +6844,7 @@ components:
         response_affinity: the provider that produced previous_response_id.
         websocket_connection: the provider the Responses WebSocket connection is bound to.
         failover: an earlier provider of this request was rejected or failed.
+        client_pin: the provider the request named in X-AstrLink-Service; no other provider could serve it.
     RoutingSkip:
       type: object
       additionalProperties: false

@@ -7,6 +7,11 @@ import {
 } from "./service-test-model";
 import { parseChannelBindingAudit } from "./channel-binding-model";
 import {
+  parseTerminalChoices,
+  type ServiceTerminalRequest,
+  type TerminalChoice,
+} from "./service-terminal-model";
+import {
   parseClientIdentities,
   parseRoutingSettings,
   type ClientIdentities,
@@ -984,6 +989,29 @@ export async function copyClientConfigSnippet(
   return parseClientConfigCopied(
     await invoke<unknown>("copy_client_config_snippet", { ...input }),
   );
+}
+
+/** Terminal apps installed here, the platform's own first. */
+export async function listTerminalApps(): Promise<TerminalChoice[]> {
+  if (!hasNativeBridge()) return [];
+  return parseTerminalChoices(await invoke<unknown>("list_terminal_apps"));
+}
+
+/** The folder the user picked, or null when they closed the picker. */
+export async function pickTerminalDirectory(
+  start: string | null,
+): Promise<string | null> {
+  requireNativeBridge();
+  const picked = await invoke<unknown>("pick_terminal_directory", { start });
+  return typeof picked === "string" ? picked : null;
+}
+
+/** Opens a terminal whose client reaches the gateway through one provider. */
+export async function openServiceTerminal(
+  request: ServiceTerminalRequest,
+): Promise<void> {
+  requireNativeBridge();
+  await invoke("open_service_terminal", { request });
 }
 
 /** Whether the OS has an app registered for CC Switch's import links. */

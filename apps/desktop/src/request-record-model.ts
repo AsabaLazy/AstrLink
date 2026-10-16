@@ -169,7 +169,8 @@ export type RoutingSelection =
   | "session_binding"
   | "response_affinity"
   | "websocket_connection"
-  | "failover";
+  | "failover"
+  | "client_pin";
 
 /** Why routing excluded a provider before any attempt. */
 export type RoutingSkipReason =
@@ -922,6 +923,7 @@ const routingSelections = new Set<RoutingSelection>([
   "response_affinity",
   "websocket_connection",
   "failover",
+  "client_pin",
 ]);
 
 const routingSkipReasons = new Set<RoutingSkipReason>([

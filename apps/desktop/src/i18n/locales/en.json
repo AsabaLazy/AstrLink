@@ -878,6 +878,7 @@
     "configuredAria": "Configured API providers",
     "enableNamed": "Enable {{name}}",
     "moreNamed": "More actions for {{name}}",
+    "openInTerminal": "Open in terminal…",
     "openaiAccount": "OpenAI account {{hint}}",
     "modelCount": "{{count}} models",
     "openModels": "Open the model list of {{name}}",
@@ -2774,6 +2775,11 @@
       "exited": "The gateway exited unexpectedly",
       "recoveryStopped": "{{message}}; automatic recovery stopped after {{attempts}} attempts.",
       "recoveryFailed": "Automatic gateway recovery failed: {{error}}"
+    },
+    "terminal": {
+      "banner": "AstrLink: {{client}} in this window uses only “{{service}}”.",
+      "exited": "{{client}} exited. Running it again here uses your usual settings.",
+      "automationDenied": "AstrLink needs permission to control {{terminal}} to open a window. In System Settings › Privacy & Security › Automation, turn on {{terminal}} under AstrLink, then try again."
     }
   },
   "failure": {
@@ -2895,14 +2901,16 @@
       "session_binding": "Conversation continuation: session stickiness",
       "response_affinity": "Responses continuation: the previous response came from this API provider",
       "websocket_connection": "WebSocket connection: the API provider that opened it",
-      "failover": "Failover: an API provider tried earlier failed or was rejected"
+      "failover": "Failover: an API provider tried earlier failed or was rejected",
+      "client_pin": "Named by the client: the request asked for this API provider"
     },
     "selectionsShort": {
       "priority": "By priority",
       "session_binding": "Session stickiness",
       "response_affinity": "Continues the previous response",
       "websocket_connection": "Same WebSocket connection",
-      "failover": "Failover"
+      "failover": "Failover",
+      "client_pin": "Named by the client"
     },
     "plans": {
       "native": "Forwarded as is",
@@ -3809,5 +3817,26 @@
     "configHint": "Copy this configuration to your client. Replace YOUR_ACCESS_TOKEN with an access token from this console. Replace YOUR_MODEL with a model from your provider.",
     "copy": "Copy configuration",
     "clipboard": "Clipboard is unavailable. Select and copy the text below."
+  },
+  "serviceTerminal": {
+    "title": "Open “{{name}}” in a terminal",
+    "description": "The client in this terminal uses this API provider only. When the provider fails, the request fails. Your usual client settings stay as they are.",
+    "client": "Client",
+    "noClient": "Install Claude Code or Codex first.",
+    "directory": "Start in",
+    "directoryHint": "The client starts in this folder.",
+    "chooseDirectory": "Choose folder…",
+    "model": "Model",
+    "claudeModelPlaceholder": "Claude Code's own models",
+    "codexModelPlaceholder": "The model in Codex's settings",
+    "claudeModelHint": "A model you choose also runs Claude Code's background tasks.",
+    "terminal": "Terminal",
+    "noTerminal": "AstrLink found no terminal app it can open on this computer.",
+    "open": "Open terminal",
+    "opening": "Opening…",
+    "opened": "Opened {{client}} in {{terminal}}",
+    "failed": "Couldn't open the terminal: {{error}}",
+    "disabled": "This API provider is turned off. Requests from the terminal fail until you turn it on.",
+    "signedOut": "This account isn't signed in. Requests from the terminal fail until you sign in."
   }
 }

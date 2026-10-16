@@ -878,6 +878,7 @@
     "configuredAria": "已配置 API 提供商",
     "enableNamed": "启用 {{name}}",
     "moreNamed": "更多 {{name}} 操作",
+    "openInTerminal": "在终端打开…",
     "openaiAccount": "OpenAI 账户 {{hint}}",
     "modelCount": "{{count}} 个模型",
     "openModels": "打开 {{name}} 的模型列表",
@@ -2774,6 +2775,11 @@
       "exited": "网关异常退出",
       "recoveryStopped": "{{message}}；自动恢复已在 {{attempts}} 次尝试后停止。",
       "recoveryFailed": "网关自动恢复失败：{{error}}"
+    },
+    "terminal": {
+      "banner": "AstrLink：这个窗口里的 {{client}} 只用「{{service}}」。",
+      "exited": "{{client}} 已退出。在这里再运行它，会用你平时的设置。",
+      "automationDenied": "AstrLink 需要控制 {{terminal}} 的权限才能打开窗口。到「系统设置 › 隐私与安全性 › 自动化」里，在 AstrLink 下打开 {{terminal}}，再试一次。"
     }
   },
   "failure": {
@@ -2895,14 +2901,16 @@
       "session_binding": "对话延续：会话粘性",
       "response_affinity": "Responses 续接：上一条响应来自该 API 提供商",
       "websocket_connection": "WebSocket 连接：沿用建立连接的 API 提供商",
-      "failover": "故障切换：此前尝试的 API 提供商失败或被拒绝"
+      "failover": "故障切换：此前尝试的 API 提供商失败或被拒绝",
+      "client_pin": "客户端指定：请求点名要用这个 API 提供商"
     },
     "selectionsShort": {
       "priority": "按优先级",
       "session_binding": "会话粘性",
       "response_affinity": "续接上一条响应",
       "websocket_connection": "沿用 WebSocket 连接",
-      "failover": "故障切换"
+      "failover": "故障切换",
+      "client_pin": "客户端指定"
     },
     "plans": {
       "native": "原样转发",
@@ -3809,5 +3817,26 @@
     "configHint": "将配置复制到客户端。将 YOUR_ACCESS_TOKEN 替换为控制台中的访问令牌。将 YOUR_MODEL 替换为提供商的模型。",
     "copy": "复制配置",
     "clipboard": "剪贴板不可用，请选中下方文本复制。"
+  },
+  "serviceTerminal": {
+    "title": "在终端打开「{{name}}」",
+    "description": "这个终端里的客户端只用这个 API 提供商。它出错时，请求直接失败。你平时的客户端设置保持原样。",
+    "client": "客户端",
+    "noClient": "先安装 Claude Code 或 Codex。",
+    "directory": "启动目录",
+    "directoryHint": "客户端在这个文件夹里启动。",
+    "chooseDirectory": "选择文件夹…",
+    "model": "模型",
+    "claudeModelPlaceholder": "Claude Code 自带的模型",
+    "codexModelPlaceholder": "Codex 设置里的模型",
+    "claudeModelHint": "选了模型，Claude Code 的后台任务也用它。",
+    "terminal": "终端",
+    "noTerminal": "这台电脑上没找到 AstrLink 能打开的终端。",
+    "open": "打开终端",
+    "opening": "正在打开…",
+    "opened": "已在 {{terminal}} 打开 {{client}}",
+    "failed": "打不开终端：{{error}}",
+    "disabled": "这个 API 提供商已关闭。打开它之前，终端里的请求都会失败。",
+    "signedOut": "这个账号还没登录。登录之前，终端里的请求都会失败。"
   }
 }

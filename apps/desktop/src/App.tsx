@@ -1168,6 +1168,7 @@ export default function App() {
                 catalogError={catalog.error}
                 catalogStatus={catalog.status}
                 conversionEngine={snapshot?.capabilities?.conversion_engine}
+                inferenceURL={snapshot?.ready?.client_inference_url ?? ""}
                 isReady={isReady}
                 onDirtyChange={handleEditorDirtyChange}
                 onRefresh={() => void refreshServices()}
