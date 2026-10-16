@@ -385,9 +385,9 @@ fn private_dir() -> Result<PathBuf, String> {
     getrandom::getrandom(&mut random).map_err(|error| error.to_string())?;
     let name: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
     let dir = std::env::temp_dir().join(format!("astrlink-terminal-{name}"));
-    let mut builder = fs::DirBuilder::new();
+    let builder = &mut fs::DirBuilder::new();
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    std::os::unix::fs::DirBuilderExt::mode(builder, 0o700);
     builder
         .create(&dir)
         .map_err(|error| format!("unable to create {}: {error}", dir.display()))?;

@@ -409,7 +409,7 @@ routing_decision = openapi.dig("components", "schemas", "RequestRoutingDecision"
 raise "request records must explain the provider choice" unless request_record.dig("properties", "routing_decision", "$ref") == "#/components/schemas/RequestRoutingDecision" &&
                                                                routing_decision.fetch("required") == %w[skipped] &&
                                                                routing_decision.dig("properties", "skipped", "maxItems") == 64
-raise "RoutingSelection wire values drifted" unless openapi.dig("components", "schemas", "RoutingSelection", "enum") == %w[priority session_binding response_affinity websocket_connection failover]
+raise "RoutingSelection wire values drifted" unless openapi.dig("components", "schemas", "RoutingSelection", "enum") == %w[priority session_binding response_affinity websocket_connection failover client_pin]
 raise "RoutingSkipReason wire values drifted" unless openapi.dig("components", "schemas", "RoutingSkipReason", "enum") == %w[
   disabled not_connected risk_paused model_not_listed protocol_unsupported streaming_unsupported
   conversion_unavailable circuit_open rate_limited websocket_disabled websocket_unsupported
