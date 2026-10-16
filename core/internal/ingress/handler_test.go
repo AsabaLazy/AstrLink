@@ -1603,7 +1603,7 @@ func TestInferencePlaneNeverFailsOverAfterDownstreamResponseStarts(t *testing.T)
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": {"text/event-stream"}},
 				Body: io.NopCloser(io.MultiReader(
-					strings.NewReader("event: response.created\ndata: first\n\n"),
+					strings.NewReader("event: response.created\ndata: first\n\nevent: response.output_text.delta\ndata: second\n\n"),
 					failingReader{err: streamErr},
 				)),
 			}, nil
@@ -1623,7 +1623,7 @@ func TestInferencePlaneNeverFailsOverAfterDownstreamResponseStarts(t *testing.T)
 		t.Fatalf("attempts = %v, want first only", attempts)
 	}
 	if response.Code != http.StatusOK ||
-		response.Body.String() != "event: response.created\ndata: first\n\n" {
+		response.Body.String() != "event: response.created\ndata: first\n\nevent: response.output_text.delta\ndata: second\n\n" {
 		t.Fatalf("partial response = %d %q", response.Code, response.Body.String())
 	}
 }
@@ -1894,14 +1894,14 @@ func TestInferencePlaneDoesNotWriteAnErrorAfterUpstreamResponseStarts(t *testing
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": {"text/event-stream"}},
-				Body:       io.NopCloser(io.MultiReader(strings.NewReader("event: response.created\n\n"), failingReader{err: streamErr})),
+				Body:       io.NopCloser(io.MultiReader(strings.NewReader("event: response.created\n\nevent: response.output_item.added\ndata: {}\n\n"), failingReader{err: streamErr})),
 			}, nil
 		})),
 	})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"stream":true}`)))
 
-	if response.Code != http.StatusOK || response.Body.String() != "event: response.created\n\n" {
+	if response.Code != http.StatusOK || response.Body.String() != "event: response.created\n\nevent: response.output_item.added\ndata: {}\n\n" {
 		t.Fatalf("partial response = %d %q", response.Code, response.Body.String())
 	}
 	if strings.Contains(response.Body.String(), "upstream_unavailable") {
@@ -1923,7 +1923,8 @@ func TestInferencePlaneRecordsInterruptedStreamAsFailed(t *testing.T) {
 				StatusCode: http.StatusOK,
 				Header:     http.Header{"Content-Type": {"text/event-stream"}},
 				Body: io.NopCloser(io.MultiReader(
-					strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"),
+					strings.NewReader("event: response.created\ndata: {\"type\":\"response.created\"}\n\n"+
+						"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n"),
 					failingReader{err: streamErr},
 				)),
 			}, nil

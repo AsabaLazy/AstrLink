@@ -1136,11 +1136,25 @@ func (session *recordSession) failFromHTTPError() bool {
 	return true
 }
 
+// failFromStreamError fails a delivered stream that the upstream ended with
+// an error event.
+func (session *recordSession) failFromStreamError() bool {
+	if session == nil || session.upstreamScanner == nil || session.upstreamScanner.failure == nil {
+		return false
+	}
+	session.status = contract.RequestStatusFailed
+	if session.errorSummary == nil {
+		summary := streamFailureSummary(session.upstreamScanner.protocol, session.upstreamScanner.failure)
+		session.errorSummary = &summary
+	}
+	return true
+}
+
 func (session *recordSession) noteSucceeded() {
 	if session == nil {
 		return
 	}
-	if session.failFromHTTPError() {
+	if session.failFromStreamError() || session.failFromHTTPError() {
 		return
 	}
 	session.status = contract.RequestStatusSucceeded
@@ -2121,7 +2135,7 @@ func errorSummaryFromInference(code, message string, retryable bool) contract.Er
 	case "invalid_access_token", "token_query_forbidden":
 		category = "auth"
 	case "upstream_unavailable", "upstream_timeout", "credential_unavailable",
-		"upstream_stream_interrupted", "upstream_http_error":
+		"upstream_stream_interrupted", "upstream_stream_failed", "upstream_http_error":
 		category = "upstream"
 	case "missing_protocol_capability", "endpoint_resolver_unavailable":
 		category = "routing"

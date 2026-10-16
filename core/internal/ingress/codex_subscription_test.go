@@ -244,16 +244,21 @@ func TestCodexSubscriptionAggregatesForcedStream(t *testing.T) {
 	}
 }
 
+// A refusal in the forced stream follows the failure rule for its HTTP status:
+// the candidate retries 429 and 5xx twice, and the last refusal reaches the
+// client as that status.
 func TestCodexSubscriptionForcedStreamFailureStatus(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name, event, code string
 		status            int
+		hits              int32
 	}{
-		{"rate limit", `{"type":"response.failed","response":{"id":"resp_failed","error":{"code":"rate_limit_exceeded","message":"slow down"}}}`, "rate_limit_exceeded", http.StatusTooManyRequests},
-		{"context length", `{"type":"error","error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"too long"}}`, "context_length_exceeded", http.StatusBadRequest},
-		{"flat error", `{"type":"error","code":"invalid_prompt","message":"bad prompt"}`, "invalid_prompt", http.StatusBadRequest},
-		{"server error", `{"type":"response.failed","response":{"id":"resp_failed","error":{"code":"server_error","message":"oops"}}}`, "server_error", http.StatusBadGateway},
+		{"rate limit", `{"type":"response.failed","response":{"id":"resp_failed","error":{"code":"rate_limit_exceeded","message":"slow down"}}}`, "rate_limit_exceeded", http.StatusTooManyRequests, 3},
+		{"overloaded", `{"type":"response.failed","response":{"id":"resp_failed","error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded."}}}`, "server_is_overloaded", http.StatusServiceUnavailable, 3},
+		{"context length", `{"type":"error","error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"too long"}}`, "context_length_exceeded", http.StatusBadRequest, 1},
+		{"flat error", `{"type":"error","code":"invalid_prompt","message":"bad prompt"}`, "invalid_prompt", http.StatusBadRequest, 1},
+		{"server error", `{"type":"response.failed","response":{"id":"resp_failed","error":{"code":"server_error","message":"oops"}}}`, "server_error", http.StatusBadGateway, 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -267,8 +272,8 @@ func TestCodexSubscriptionForcedStreamFailureStatus(t *testing.T) {
 			if response.Code != test.status || json.Unmarshal(response.Body.Bytes(), &body) != nil || body.Error.Code != test.code {
 				t.Fatalf("response = %d %s, want %d %s", response.Code, response.Body.String(), test.status, test.code)
 			}
-			if hits := upstream.hits.Load(); hits != 1 {
-				t.Fatalf("failed stream was retried %d times", hits)
+			if hits := upstream.hits.Load(); hits != test.hits {
+				t.Fatalf("upstream hits = %d, want %d", hits, test.hits)
 			}
 		})
 	}

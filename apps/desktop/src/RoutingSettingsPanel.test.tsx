@@ -1389,6 +1389,18 @@ describe("shared global recovery settings", () => {
     expect(container.textContent).not.toContain("openai_reasoning_repair");
   });
 
+  it("labels an error inside the stream by the status rule it followed", async () => {
+    await act(async () => {
+      root.render(
+        <RecoveryDetails
+          value={{ action: "failover", reason: "stream_503", delay_ms: 0 }}
+        />,
+      );
+    });
+    expect(container.textContent).toContain("流内报错（按 HTTP 503 处理）");
+    expect(container.textContent).not.toContain("stream_503");
+  });
+
   it("saves the opt-in function-output switch and labels its attempts", async () => {
     await act(async () => {
       root.render(

@@ -37,6 +37,9 @@ type usageScanner struct {
 	anthropicCacheWrite1h *int
 	anthropicSeen         bool
 	outputID              string
+	// failure is the data of the first error event of a stream that did not
+	// finish with a response after it.
+	failure []byte
 	// observer collects session cursors from the same decoded events the
 	// usage parser sees, so the response is parsed exactly once. nil for
 	// protocols without conversation history.
@@ -216,6 +219,18 @@ func (scanner *usageScanner) parseEventJSON(payload []byte) {
 			if kind == streamOutputAnswer {
 				scanner.firstAnswerAt = now
 			}
+		}
+	}
+	if scanner.streaming {
+		var eventType string
+		_ = json.Unmarshal(document["type"], &eventType)
+		switch streamEventOutcome(scanner.protocol, eventType) {
+		case streamOutcomeError, streamOutcomeFailed:
+			if scanner.failure == nil && len(payload) <= contract.MaxUpstreamErrorBodyBytes {
+				scanner.failure = bytes.Clone(payload)
+			}
+		case streamOutcomeFinished:
+			scanner.failure = nil
 		}
 	}
 	if scanner.observer != nil && (scanner.streaming || !scanner.observerFed) {

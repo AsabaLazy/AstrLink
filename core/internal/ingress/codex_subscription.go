@@ -353,6 +353,7 @@ type codexAggregateWriter struct {
 	completed   json.RawMessage
 	failure     json.RawMessage
 	failureCode string
+	failureType string
 }
 
 func newCodexAggregateWriter(writer http.ResponseWriter) *codexAggregateWriter {
@@ -452,10 +453,7 @@ func (writer *codexAggregateWriter) setFailure(raw json.RawMessage) {
 		raw = json.RawMessage(`{"message":"upstream response failed","type":"server_error"}`)
 	}
 	writer.failure = raw
-	writer.failureCode = detail.Code
-	if writer.failureCode == "" {
-		writer.failureCode = detail.Type
-	}
+	writer.failureCode, writer.failureType = detail.Code, detail.Type
 }
 
 // Finish writes the aggregated response. It returns an error, before anything
@@ -472,7 +470,7 @@ func (writer *codexAggregateWriter) Finish() error {
 		if err != nil {
 			return err
 		}
-		writer.ResponseWriter.WriteHeader(codexFailureStatus(writer.failureCode))
+		writer.ResponseWriter.WriteHeader(responsesFailureStatus(writer.failureCode, writer.failureType))
 		_, err = writer.ResponseWriter.Write(body)
 		return err
 	}
@@ -513,15 +511,4 @@ func (writer *codexAggregateWriter) completedWithOutput() ([]byte, error) {
 	}
 	response["output"] = encoded
 	return json.Marshal(response)
-}
-
-func codexFailureStatus(code string) int {
-	switch code {
-	case "rate_limit_exceeded", "usage_limit_reached", "usage_not_included", "insufficient_quota":
-		return http.StatusTooManyRequests
-	case "context_length_exceeded", "invalid_prompt", "invalid_request_error", "invalid_value", "bad_request":
-		return http.StatusBadRequest
-	default:
-		return http.StatusBadGateway
-	}
 }
