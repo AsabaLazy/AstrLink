@@ -24,6 +24,10 @@ const droppedConnection = [
   'error is Error Domain=NSURLErrorDomain Code=-1005 "The network connection was lost."',
   "The staple and validate action failed! Error 68.",
 ].join("\n");
+const timedOut = [
+  "xcrun failed (1):",
+  'Error: HTTPError(statusCode: nil, error: Error Domain=NSURLErrorDomain Code=-1001 "The request timed out.")',
+].join("\n");
 
 function fixture(status = "Accepted") {
   const bundleDirectory = mkdtempSync(
@@ -152,6 +156,37 @@ describe("macOS release signing gates", () => {
       "DMG has changed",
     );
   });
+
+  it.each(["submit", "wait", "log"])(
+    "retries notarytool %s when a request to Apple times out",
+    (subcommand) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const options = fixture();
+      const normal = options.runCommand.getMockImplementation()!;
+      let dropped = false;
+      options.runCommand.mockImplementation((command, args) => {
+        if (args[0] === "notarytool" && args[1] === subcommand && !dropped) {
+          dropped = true;
+          throw new Error(timedOut);
+        }
+        return normal(command, args);
+      });
+      notarizeMacOS({ ...options, retryDelaysMs: [0, 0] });
+      const calls = (name: string) =>
+        options.runCommand.mock.calls.filter(
+          ([, args]) => args[0] === "notarytool" && args[1] === name,
+        ).length;
+      expect(calls(subcommand)).toBe(2);
+      // Waiting again or fetching the log again must not upload again.
+      expect(calls("submit")).toBe(subcommand === "submit" ? 2 : 1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(
+        options.runCommand.mock.calls.filter(
+          ([command]) => command === "spctl",
+        ),
+      ).toHaveLength(2);
+    },
+  );
 
   it("retries stapler when Apple's ticket service drops the connection", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
