@@ -1732,7 +1732,7 @@ describe("SafetyPolicy", () => {
     );
   });
 
-  it("notes the first Core ML compile and the macOS 26 requirement on local import", async () => {
+  it("notes the Core ML compile on enable and the macOS 26 requirement on local import", async () => {
     const coreMLVariant = {
       id: "coreml_fp16_gpu",
       name: "Core ML FP16 · GPU",
@@ -1749,7 +1749,7 @@ describe("SafetyPolicy", () => {
       name: "Guard FP16",
       variants: [coreMLVariant, catalogModel.variants[0]],
     });
-    const hint = "Core ML 版本首次加载时会针对这台 Mac 编译模型";
+    const hint = "开始使用 Core ML 版本时，AstrLink 会立即为这台 Mac 编译模型";
     bridgeMocks.probeLocalPrivacyModel
       .mockResolvedValueOnce(localProbe)
       .mockResolvedValueOnce({
@@ -1808,7 +1808,7 @@ describe("SafetyPolicy", () => {
     expect(coreMLOption?.getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("notes the first Core ML compile when a Core ML model is chosen for the policy", async () => {
+  it("notes the Core ML compile on enable when a Core ML model is chosen for the policy", async () => {
     const cpu = readyInstallation();
     const coreML = {
       ...cpu,
@@ -1818,7 +1818,7 @@ describe("SafetyPolicy", () => {
       variant_name: "Core ML FP16 · GPU",
       quantization: "f16",
     };
-    const hint = "Core ML 版本首次加载时会针对这台 Mac 编译模型";
+    const hint = "开始使用 Core ML 版本时，AstrLink 会立即为这台 Mac 编译模型";
     bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(
       policyRecord({
         enabled: true,
@@ -1860,6 +1860,182 @@ describe("SafetyPolicy", () => {
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("确认使用本地模型");
     expect(dialog?.textContent).toContain(hint);
+  });
+
+  function coreMLInstallation(
+    overrides: Partial<PrivacyModelInstallation> = {},
+  ): PrivacyModelInstallation {
+    return {
+      ...readyInstallation(),
+      id: customInstallationID,
+      name: "Guard FP16",
+      variant_id: "coreml_fp16_gpu",
+      variant_name: "Core ML FP16 · GPU",
+      quantization: "f16",
+      ...overrides,
+    };
+  }
+
+  it("shows a spinner while the policy's Core ML model compiles, then that it is ready", async () => {
+    vi.useFakeTimers();
+    const coreML = coreMLInstallation({
+      preparation: { state: "preparing", fallback: "local_model" },
+    });
+    bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(
+      policyRecord({
+        enabled: true,
+        detector: "local_model",
+        local_model_id: coreML.id,
+      }),
+    );
+    bridgeMocks.listPrivacyModelInstallations.mockResolvedValueOnce({
+      items: [coreML],
+    });
+    bridgeMocks.getPrivacyModelInstallation.mockResolvedValueOnce({
+      ...coreML,
+      preparation: { state: "ready", fallback: null },
+    });
+    await renderPolicy();
+
+    const notice = () =>
+      container.querySelector('[data-testid="model-preparation"]');
+    expect(
+      notice()?.querySelector('[role="status"][aria-busy="true"]'),
+    ).not.toBeNull();
+    expect(notice()?.textContent).toContain(
+      "正在为这台 Mac 编译模型，首次约需 15–25 秒…",
+    );
+    expect(notice()?.textContent).toContain(
+      "就绪之前，之前的本地模型会继续检查请求。",
+    );
+    expect(container.textContent).toContain("正在准备本地模型…");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(900);
+      await Promise.resolve();
+    });
+    expect(bridgeMocks.getPrivacyModelInstallation).toHaveBeenCalledWith(
+      coreML.id,
+    );
+    expect(notice()?.textContent).toBe("已为这台 Mac 编译完成，可以使用。");
+    expect(notice()?.getAttribute("role")).toBe("status");
+    expect(container.textContent).not.toContain("正在准备本地模型…");
+
+    // Polling stops once the model is ready.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1800);
+    });
+    expect(bridgeMocks.getPrivacyModelInstallation).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains a failed Core ML preparation and retries it", async () => {
+    const coreML = coreMLInstallation({
+      preparation: { state: "failed", fallback: null },
+    });
+    const record = policyRecord({
+      enabled: true,
+      detector: "local_model",
+      local_model_id: coreML.id,
+    });
+    bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(record);
+    bridgeMocks.listPrivacyModelInstallations.mockResolvedValueOnce({
+      items: [coreML],
+    });
+    bridgeMocks.updatePrivacyPolicy.mockResolvedValueOnce(record);
+    bridgeMocks.getPrivacyModelInstallation.mockResolvedValueOnce({
+      ...coreML,
+      preparation: { state: "preparing", fallback: null },
+    });
+    await renderPolicy();
+
+    const notice = () =>
+      container.querySelector('[data-testid="model-preparation"]');
+    expect(notice()?.getAttribute("role")).toBe("alert");
+    expect(notice()?.textContent).toBe(
+      "这个模型没能在这台 Mac 上准备好。在模型可用或你改选其他模型之前，请求会被拦截。重试",
+    );
+
+    await act(async () => {
+      button("重试").click();
+      await Promise.resolve();
+    });
+    await flush();
+    await flush();
+    expect(bridgeMocks.updatePrivacyPolicy).toHaveBeenCalledWith(etag, {
+      local_model_id: coreML.id,
+    });
+    expect(bridgeMocks.getPrivacyModelInstallation).toHaveBeenCalledWith(
+      coreML.id,
+    );
+    expect(notice()?.textContent).toContain("就绪之前，请求会先等待。");
+  });
+
+  it("keeps the previous model while a newly chosen Core ML model compiles", async () => {
+    const cpu = { ...readyInstallation(), preparation: null };
+    const coreML = coreMLInstallation();
+    bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(
+      policyRecord({
+        enabled: true,
+        detector: "local_model",
+        local_model_id: cpu.id,
+      }),
+    );
+    bridgeMocks.listPrivacyModelInstallations.mockResolvedValueOnce({
+      items: [cpu, coreML],
+    });
+    const pending = deferred<PrivacyPolicyRecord>();
+    bridgeMocks.updatePrivacyPolicy.mockReturnValueOnce(pending.promise);
+    bridgeMocks.getPrivacyModelInstallation.mockResolvedValueOnce({
+      ...coreML,
+      preparation: { state: "preparing", fallback: "local_model" },
+    });
+    await renderPolicy();
+    expect(
+      container.querySelector('[data-testid="model-preparation"]'),
+    ).toBeNull();
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("#privacy-detector-local-model")!
+        .click(),
+    );
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(`#privacy-model-choice-${coreML.id}`)!
+        .click(),
+    );
+    await act(async () => {
+      button("使用所选模型").click();
+      await Promise.resolve();
+    });
+    expect(bridgeMocks.updatePrivacyPolicy).toHaveBeenCalledWith(etag, {
+      detector: "local_model",
+      local_model_id: coreML.id,
+    });
+    // Core keeps the previous model, so nothing is being closed.
+    expect(
+      container.querySelector('[data-testid="privacy-model-unloading"]'),
+    ).toBeNull();
+
+    await act(async () => {
+      pending.resolve(
+        policyRecord({
+          enabled: true,
+          detector: "local_model",
+          local_model_id: coreML.id,
+        }),
+      );
+      await Promise.resolve();
+    });
+    await flush();
+    await flush();
+    const notice = container.querySelector('[data-testid="model-preparation"]');
+    expect(notice?.textContent).toContain(
+      "正在为这台 Mac 编译模型，首次约需 15–25 秒…",
+    );
+    expect(notice?.textContent).toContain(
+      "就绪之前，之前的本地模型会继续检查请求。",
+    );
   });
 
   it("shows an in-app confirmation and feedback when deleting a model", async () => {

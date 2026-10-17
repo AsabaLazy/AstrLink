@@ -25,6 +25,7 @@ import { UsageRangeSelect } from "@/components/UsageRangeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { FormMessage } from "@/components/FormMessage";
+import { LoadingState } from "@/components/LoadingState";
 import { IconButton } from "@/components/IconButton";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +113,7 @@ import {
   type PrivacyLabelMapping,
   type PrivacyModelInstallation,
   type PrivacyModelInstallInput,
+  type PrivacyModelPreparation,
   type PrivacyModelProbe,
   type PrivacyModelVariant,
   type PrivacyPolicyPatch,
@@ -713,6 +715,73 @@ function LabelMappingDialog({
   );
 }
 
+/**
+ * How Core is getting the policy's Core ML model ready on this Mac. While it
+ * compiles, the previous detector keeps checking requests, or requests wait.
+ */
+function ModelPreparationNotice({
+  preparation,
+  retrying,
+  onRetry,
+}: {
+  preparation: PrivacyModelPreparation;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const t = useT();
+  if (preparation.state === "preparing") {
+    return (
+      <div className="grid gap-0.5" data-testid="model-preparation">
+        <LoadingState
+          className="justify-start text-xs"
+          label={t("safety.modelCompiling")}
+        />
+        <p className="pl-5.5 text-xs text-muted-foreground">
+          {preparation.fallback === "local_model"
+            ? t("safety.modelCompilingLocalFallback")
+            : preparation.fallback === "regex"
+              ? t("safety.modelCompilingRegexFallback")
+              : t("safety.modelCompilingWait")}
+        </p>
+      </div>
+    );
+  }
+  if (preparation.state === "ready") {
+    return (
+      <FormMessage data-testid="model-preparation" tone="success">
+        {t("safety.modelReadyOnMac")}
+      </FormMessage>
+    );
+  }
+  return (
+    <FormMessage
+      asChild
+      className="flex flex-wrap items-center justify-between gap-2"
+      data-testid="model-preparation"
+      tone="error"
+    >
+      <div>
+        <span>
+          {preparation.fallback === "local_model"
+            ? t("safety.modelPrepareFailedLocalFallback")
+            : preparation.fallback === "regex"
+              ? t("safety.modelPrepareFailedRegexFallback")
+              : t("safety.modelPrepareFailedBlocked")}
+        </span>
+        <Button
+          disabled={retrying}
+          onClick={onRetry}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {t("safety.retryPrepare")}
+        </Button>
+      </div>
+    </FormMessage>
+  );
+}
+
 interface ModelActionDialogProps {
   action: PendingModelAction;
   installation: PrivacyModelInstallation;
@@ -796,7 +865,7 @@ function ModelActionDialog({
           </FormMessage>
           {isCoreMLVariantID(installation.variant_id) ? (
             <FormMessage tone="notice">
-              {t("safety.coreMLFirstLoad")}
+              {t("safety.coreMLCompileOnEnable")}
             </FormMessage>
           ) : null}
         </>
@@ -914,7 +983,9 @@ function InstalledModelPicker({
           </FormMessage>
         ) : null}
         {selected && isCoreMLVariantID(selected.variant_id) ? (
-          <FormMessage tone="notice">{t("safety.coreMLFirstLoad")}</FormMessage>
+          <FormMessage tone="notice">
+            {t("safety.coreMLCompileOnEnable")}
+          </FormMessage>
         ) : null}
         {error ? <FormMessage tone="error">{error}</FormMessage> : null}
         <DialogFooter className="shrink-0 flex-row flex-wrap items-center">
@@ -1547,18 +1618,24 @@ export function SafetyPolicy({
     if (initialView) setWorkspace(initialView);
   }, [initialView]);
 
-  const downloadingIDs = useMemo(
+  // Downloads report progress, and Core reports when the policy's Core ML
+  // model finishes compiling, only when asked.
+  const pollingIDs = useMemo(
     () =>
       installations
-        .filter((installation) => installation.status === "downloading")
+        .filter(
+          (installation) =>
+            installation.status === "downloading" ||
+            installation.preparation?.state === "preparing",
+        )
         .map((installation) => installation.id)
         .sort(),
     [installations],
   );
-  const downloadingSignature = downloadingIDs.join(",");
+  const pollingSignature = pollingIDs.join(",");
 
   useEffect(() => {
-    if (!isReady || coreSessionKey === null || downloadingIDs.length === 0) {
+    if (!isReady || coreSessionKey === null || pollingIDs.length === 0) {
       return;
     }
     const generation = generationRef.current;
@@ -1579,7 +1656,7 @@ export function SafetyPolicy({
     const poll = async () => {
       try {
         const updates = await Promise.all(
-          downloadingIDs.map((id) => getPrivacyModelInstallation(id)),
+          pollingIDs.map((id) => getPrivacyModelInstallation(id)),
         );
         if (!stillCurrent()) return;
         setInstallations((current) =>
@@ -1610,7 +1687,7 @@ export function SafetyPolicy({
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [coreSessionKey, downloadingSignature, isReady]);
+  }, [coreSessionKey, pollingSignature, isReady]);
 
   const refresh = () => {
     if (
@@ -1641,6 +1718,37 @@ export function SafetyPolicy({
     void load(generation, true);
   };
 
+  // Core reports a preparation only for the policy's Core ML model, and
+  // starts it as the policy changes, so read that model again after a save.
+  const syncPreparation = (
+    policy: PrivacyPolicyRecord["policy"],
+    generation: number,
+  ) => {
+    const active = localModelActive(policy) ? policy.local_model_id : null;
+    setInstallations((items) =>
+      items.map((item) =>
+        item.id !== active && item.preparation !== null
+          ? { ...item, preparation: null }
+          : item,
+      ),
+    );
+    if (active === null) return;
+    void (async () => {
+      try {
+        const update = await getPrivacyModelInstallation(active);
+        if (generationRef.current !== generation) return;
+        if (!update || typeof update.id !== "string") return;
+        setInstallations((items) =>
+          items.some((item) => item.id === update.id)
+            ? mergeInstallation(items, update)
+            : items,
+        );
+      } catch {
+        // The policy saved; the page shows the state on its next load.
+      }
+    })();
+  };
+
   const patchPolicy = async (
     patch: PrivacyPolicyPatch,
     successNotice = i18n.t("safety.saved"),
@@ -1649,13 +1757,21 @@ export function SafetyPolicy({
     const generation = generationRef.current;
     const previous = record;
     policyMutationVersion.current += 1;
-    const unloadsModel = patchUnloadsLocalModel(record.policy, patch);
+    const nextPolicy = { ...record.policy, ...patch };
+    // Core keeps the previous detector while a Core ML model compiles.
+    const unloadsModel =
+      patchUnloadsLocalModel(record.policy, patch) &&
+      !(
+        localModelActive(nextPolicy) &&
+        installations.some(
+          (installation) =>
+            installation.id === nextPolicy.local_model_id &&
+            isCoreMLVariantID(installation.variant_id),
+        )
+      );
     setRecord({
       ...record,
-      policy: {
-        ...record.policy,
-        ...patch,
-      },
+      policy: nextPolicy,
     });
     setSaving(true);
     setUnloadingModel(unloadsModel);
@@ -1675,6 +1791,7 @@ export function SafetyPolicy({
       if (generationRef.current !== generation) return false;
       cacheRecord(next);
       setRecord(next);
+      syncPreparation(next.policy, generation);
       notify.success(
         unloadsModel && !localModelActive(next.policy)
           ? t("safety.modelClosed")
@@ -1717,6 +1834,14 @@ export function SafetyPolicy({
           (installation) => installation.id === record.policy.local_model_id,
         ) ?? null);
   const selectedModelReady = selectedInstallation?.status === "ready";
+  const activePreparation =
+    record !== null && localModelActive(record.policy)
+      ? (selectedInstallation?.preparation ?? null)
+      : null;
+  const retryPreparation = () => {
+    const id = record?.policy.local_model_id;
+    if (id) void patchPolicy({ local_model_id: id });
+  };
 
   const requestModelActivation = (
     installation: PrivacyModelInstallation,
@@ -2769,6 +2894,11 @@ export function SafetyPolicy({
               <span className="text-xs text-muted-foreground">
                 {t("common.saving")}
               </span>
+            ) : activePreparation?.state === "preparing" ? (
+              <LoadingState
+                className="gap-1.5 text-xs text-muted-foreground"
+                label={t("safety.preparingModel")}
+              />
             ) : null}
             {policy !== null ? (
               <>
@@ -2986,6 +3116,15 @@ export function SafetyPolicy({
                       value="local_model"
                     />
                   </RadioGroup>
+                  {activePreparation === null ? null : (
+                    <div className="mt-2">
+                      <ModelPreparationNotice
+                        preparation={activePreparation}
+                        retrying={saving}
+                        onRetry={retryPreparation}
+                      />
+                    </div>
+                  )}
                 </fieldset>
 
                 {policy.detector === "regex" ? (
@@ -4558,6 +4697,13 @@ export function SafetyPolicy({
                                     )}
                               </p>
                             )}
+                            {selected && activePreparation !== null ? (
+                              <ModelPreparationNotice
+                                preparation={activePreparation}
+                                retrying={saving}
+                                onRetry={retryPreparation}
+                              />
+                            ) : null}
                             {Object.keys(installation.label_mapping).length >
                             0 ? (
                               <details className="rounded-md border bg-muted/40 px-3 py-2 text-xs">
@@ -4801,7 +4947,7 @@ export function SafetyPolicy({
                           variant.supported && isCoreMLVariantID(variant.id),
                       ) ? (
                         <FormMessage tone="notice">
-                          {t("safety.coreMLFirstLoad")}
+                          {t("safety.coreMLCompileOnEnable")}
                         </FormMessage>
                       ) : null}
 
