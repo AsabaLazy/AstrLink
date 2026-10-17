@@ -120,16 +120,36 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: go
         with:
           go-version-file: core/go.mod
-          cache-dependency-path: |
-            core/go.mod
-            core/go.sum
-            convo/go.mod
-            contracts/go.mod
-            contracts/go.sum
+          # Other Go jobs can populate setup-go's shared key before -race runs.
+          # Its immutable cache then never gains the race compiler artifacts.
+          cache: false
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: race-cache
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.modules }}
+          key: go-race-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('core/go.mod', 'core/go.sum', 'convo/go.mod', 'contracts/go.mod', 'contracts/go.sum', 'Makefile') }}-${{ hashFiles('core/**/*.go', 'convo/**/*.go', 'contracts/**/*.go', '**/testdata/**') }}
+          restore-keys: |
+            go-race-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('core/go.mod', 'core/go.sum', 'convo/go.mod', 'contracts/go.mod', 'contracts/go.sum', 'Makefile') }}-
+            go-race-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
       - name: Test Core, convo and contracts with race detector
         run: make -j3 core-race convo-race contracts-race
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && steps.race-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.modules }}
+          key: ${{ steps.race-cache.outputs.cache-primary-key }}
 
   govulncheck:
     name: Go vulnerability scan
