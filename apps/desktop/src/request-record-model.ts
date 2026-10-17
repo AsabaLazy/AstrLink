@@ -376,6 +376,8 @@ export interface RequestSessionListQuery {
   protocol?: string;
   service_id?: string;
   local_access_token_ids?: string[];
+  /** Roots asking for, redirected to, or served by any of these models. */
+  models?: string[];
   // Filters on record status, not on the aggregated session outcome, so it
   // cannot name a session-only status such as interrupted.
   status?: RequestStatus;
@@ -394,6 +396,8 @@ export interface RequestRecordListQuery {
   protocol?: string;
   service_id?: string;
   local_access_token_ids?: string[];
+  /** Roots asking for, redirected to, or served by any of these models. */
+  models?: string[];
   status?: RequestStatus;
 }
 

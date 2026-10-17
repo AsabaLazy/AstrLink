@@ -491,3 +491,55 @@ VALUES (?,1,'service_sort','','model_sort',?,1,?,'priced',?)`,
 		t.Fatalf("without token breakdown=%+v error=%v", withoutTokens, err)
 	}
 }
+
+func TestBillingSummaryServiceAmountsCountFailoverRootsPerService(t *testing.T) {
+	ctx := t.Context()
+	s := openTestStore(t, filepath.Join(t.TempDir(), "service-order.db"))
+	defer s.Close()
+	start := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+	for _, row := range []struct {
+		root    string
+		attempt int
+		service string
+		amount  string
+		reason  string
+	}{
+		{"request_a", 1, "service_small", "9", "priced"},
+		{"request_b", 1, "service_large", "4", "priced"},
+		{"request_b", 2, "service_large", "6", "priced"},
+		// A failover attempt bills the service that served it.
+		{"request_c", 1, "service_large", "0", "unpriced"},
+		{"request_c", 2, "service_small", "0.5", "priced"},
+		{"request_d", 1, "service_tie", "9.000000000", "priced"},
+		{"request_e", 1, "service_pending", "0", "pending"},
+	} {
+		_, err := s.db.ExecContext(ctx, `INSERT INTO billing_ledger
+(root_id,attempt,service_id,account_key,model,started_at,terminal,amount_usd,reason)
+VALUES (?,?,?,'','model_sort',?,1,?,?)`,
+			row.root, row.attempt, row.service, billingTime(start), row.amount, row.reason)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := s.BillingSummary(ctx, "", "", start, start.Add(time.Hour), pricing.BillingSummaryOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.AmountUSD != "28.500000000" || summary.Requests != 5 {
+		t.Fatalf("summary=%+v", summary)
+	}
+	// Numeric cost first (10 > 9.5 > 9), then root count, then service ID.
+	want := []pricing.ServiceGroup{
+		{ServiceID: "service_large", Amounts: pricing.Amounts{AmountUSD: "10.000000000", Priced: 2, Unpriced: 1, Requests: 2}},
+		{ServiceID: "service_small", Amounts: pricing.Amounts{AmountUSD: "9.500000000", Priced: 2, Requests: 2}},
+		{ServiceID: "service_tie", Amounts: pricing.Amounts{AmountUSD: "9.000000000", Priced: 1, Requests: 1}},
+		{ServiceID: "service_pending", Amounts: pricing.Amounts{AmountUSD: "0.000000000", Pending: 1, Requests: 1}},
+	}
+	if !slices.Equal(summary.ByService, want) {
+		t.Fatalf("services=%+v\nwant=%+v", summary.ByService, want)
+	}
+	scoped, err := s.BillingSummary(ctx, "service_small", "", start, start.Add(time.Hour), pricing.BillingSummaryOptions{})
+	if err != nil || len(scoped.ByService) != 1 || scoped.ByService[0] != want[1] {
+		t.Fatalf("scoped services=%+v error=%v", scoped.ByService, err)
+	}
+}

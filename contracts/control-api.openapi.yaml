@@ -1258,8 +1258,9 @@ paths:
       description: >-
         Returns successful request counts and tokens, failed request counts,
         and sparse calendar, service and model buckets in one response.
-        Retry children, pending, blocked and cancelled requests are excluded.
-        Legacy succeeded requests with HTTP errors count as failed. Service,
+        Retry children are excluded. Pending, blocked and cancelled requests
+        appear only in status_counts. Legacy succeeded requests with HTTP
+        errors count as failed. Service,
         model and local access-token buckets contain successful and failed request
         counts; token usage is accumulated only for successful requests. No
         pagination cap applies.
@@ -2566,6 +2567,7 @@ paths:
             uniqueItems: true
             items:
               $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
+        - $ref: "#/components/parameters/ModelFilter"
         - name: status
           in: query
           schema:
@@ -3294,6 +3296,7 @@ paths:
             uniqueItems: true
             items:
               $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
+        - $ref: "#/components/parameters/ModelFilter"
         - name: status
           in: query
           description: >
@@ -3428,6 +3431,23 @@ components:
       schema:
         type: string
         format: date-time
+    ModelFilter:
+      name: model
+      in: query
+      description: >
+        Restrict to root records that name any of these models as the requested
+        model, its routing redirect target, or the model a recovery sent
+        upstream. Matches are exact. Repeat the parameter for multiple models.
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 100
+        uniqueItems: true
+        items:
+          type: string
+          minLength: 1
+          maxLength: 256
     ServiceId:
       name: service_id
       in: path
@@ -3747,11 +3767,22 @@ components:
           properties:
             token_id:
               $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
+    BillingServiceGroup:
+      description: >-
+        Amounts billed to one service. A root request that failed over counts
+        once under every service that served one of its attempts.
+      allOf:
+        - { $ref: "#/components/schemas/BillingAmounts" }
+        - type: object
+          required: [service_id]
+          properties:
+            service_id:
+              $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
     BillingSummary:
       allOf:
         - { $ref: "#/components/schemas/BillingAmounts" }
         - type: object
-          required: [from, to, by_model, by_token]
+          required: [from, to, by_model, by_token, by_service]
           properties:
             from: { type: string, format: date-time }
             to: { type: string, format: date-time }
@@ -3769,6 +3800,11 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/BillingTokenGroup"
+            by_service:
+              type: array
+              description: Ranked by amount, then root requests, then service ID.
+              items:
+                $ref: "#/components/schemas/BillingServiceGroup"
     BillingPeriod:
       type: object
       required:
@@ -3881,6 +3917,19 @@ components:
         total_tokens: { type: integer, minimum: 0 }
         cache_read_tokens: { type: integer, minimum: 0 }
         cache_write_tokens: { type: integer, minimum: 0 }
+    UsageStatusCounts:
+      type: object
+      additionalProperties: false
+      description: >-
+        Root inference requests in the window by stored status. succeeded and
+        failed equal totals.requests and totals.failed_requests.
+      required: [succeeded, failed, blocked, cancelled, pending]
+      properties:
+        succeeded: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+        blocked: { type: integer, minimum: 0 }
+        cancelled: { type: integer, minimum: 0 }
+        pending: { type: integer, minimum: 0 }
     UsageDayBucket:
       allOf:
         - $ref: "#/components/schemas/UsageTotals"
@@ -3935,6 +3984,7 @@ components:
       required:
         [
           totals,
+          status_counts,
           by_day,
           by_hour,
           by_service,
@@ -3946,6 +3996,8 @@ components:
         totals:
           $ref: "#/components/schemas/UsageTotals"
           unevaluatedProperties: false
+        status_counts:
+          $ref: "#/components/schemas/UsageStatusCounts"
         by_day:
           type: array
           items: { $ref: "#/components/schemas/UsageDayBucket" }

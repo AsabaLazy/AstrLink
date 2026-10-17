@@ -279,6 +279,7 @@ WHERE parent_request_id IS NULL`)
 		args = append(args, options.To.UTC().Format(time.RFC3339Nano))
 	}
 	appendAccessTokenFilter(&query, &args, options.LocalAccessTokenIDs)
+	appendModelFilter(&query, &args, options.Models)
 	if options.Protocol != nil {
 		query.WriteString(` AND input_protocol = ?`)
 		args = append(args, string(*options.Protocol))

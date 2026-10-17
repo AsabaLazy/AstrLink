@@ -52,21 +52,22 @@ import {
   copyAccessToken,
   createAccessToken,
   deleteAccessToken,
-  getClientConfigStatus,
   listAccessTokenUsage,
   removeClientConfig,
 } from "./bridge";
 import type { AccessTokenSummary } from "./access-token-model";
-import type { ClientConfigStatus, DirectClient } from "./client-config-model";
+import type { DirectClient } from "./client-config-model";
 import { currentLocale, i18n } from "./i18n";
 import { notify } from "./notify";
 import { PageHeader } from "./PageHeader";
 import { startOfTodayIso, type ServicePerformance } from "./usage-range";
+import { ClientSetupDialog } from "./ClientSetupDialog";
+import { TokenClientMarks, clientNames } from "@/components/TokenClientMarks";
 import {
-  ClientSetupDialog,
-  clientLabel,
-  clientSetupClients,
-} from "./ClientSetupDialog";
+  clientsUsing as clientsUsingToken,
+  configsUsing as configsUsingToken,
+  useClientConfigs,
+} from "./use-client-configs";
 
 export type AccessTokenCatalogStatus =
   | "blocked"
@@ -106,12 +107,6 @@ function emptyBilling(): BillingAmounts {
 
 function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
-}
-
-function clientList(clients: readonly DirectClient[]): string {
-  return new Intl.ListFormat(currentLocale(), { style: "narrow" }).format(
-    clients.map(clientLabel),
-  );
 }
 
 function createdAtLabel(value: string): string {
@@ -168,7 +163,8 @@ export function AccessTokenManager({
   const [copyingID, setCopyingID] = useState<string | null>(null);
   const [copiedID, setCopiedID] = useState<string | null>(null);
   const [setupToken, setSetupToken] = useState<AccessTokenSummary | null>(null);
-  const [clientConfigs, setClientConfigs] = useState<ClientConfigStatus[]>([]);
+  const { configs: clientConfigs, refresh: refreshClientConfigs } =
+    useClientConfigs(inferenceURL);
   const [removeConfigs, setRemoveConfigs] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [usageByToken, setUsageByToken] = useWorkspaceSnapshot<
@@ -199,40 +195,11 @@ export function AccessTokenManager({
     if (createOpen) nameInput.current?.focus();
   }, [createOpen]);
 
-  const clientGeneration = useRef(0);
-  const refreshClientConfigs = useCallback(() => {
-    const generation = ++clientGeneration.current;
-    // The client marks only annotate the list; a failed read hides them.
-    getClientConfigStatus(inferenceURL || null).then(
-      (overview) => {
-        if (clientGeneration.current === generation)
-          setClientConfigs(overview.clients);
-      },
-      () => {
-        if (clientGeneration.current === generation) setClientConfigs([]);
-      },
-    );
-  }, [inferenceURL]);
-
-  useEffect(() => {
-    refreshClientConfigs();
-    // Clients and CC Switch rewrite their configs outside AstrLink.
-    window.addEventListener("focus", refreshClientConfigs);
-    return () => {
-      clientGeneration.current += 1;
-      window.removeEventListener("focus", refreshClientConfigs);
-    };
-  }, [refreshClientConfigs]);
-
   // A client may hold the token on this computer and in WSL distributions.
   const configsUsing = (tokenId: string | undefined) =>
-    clientConfigs.filter(
-      (status) =>
-        status.token_id === tokenId && status.state !== "not_configured",
-    );
-  const clientsUsing = (tokenId: string | undefined): DirectClient[] => [
-    ...new Set(configsUsing(tokenId).map((status) => status.client)),
-  ];
+    configsUsingToken(clientConfigs, tokenId);
+  const clientsUsing = (tokenId: string | undefined): DirectClient[] =>
+    clientsUsingToken(clientConfigs, tokenId);
 
   const refreshTokenUsage = useCallback(async () => {
     const generation = usageGeneration.current + 1;
@@ -417,7 +384,7 @@ export function AccessTokenManager({
       if (failed.size > 0) {
         notify.error(
           i18n.t("tokens.removeConfigsFailed", {
-            clients: clientList([...failed]),
+            clients: clientNames([...failed]),
           }),
         );
       }
@@ -642,26 +609,7 @@ export function AccessTokenManager({
                           >
                             {token.name}
                           </strong>
-                          {usedBy.length > 0 ? (
-                            <span
-                              aria-label={t("clientSetup.configuredIn", {
-                                clients: clientList(usedBy),
-                              })}
-                              className="inline-flex shrink-0 items-center gap-1"
-                              role="img"
-                              title={t("clientSetup.configuredIn", {
-                                clients: clientList(usedBy),
-                              })}
-                            >
-                              {clientSetupClients
-                                .filter(({ id }) =>
-                                  usedBy.some((client) => client === id),
-                                )
-                                .map(({ id, Icon }) => (
-                                  <Icon key={id} aria-hidden="true" size={14} />
-                                ))}
-                            </span>
-                          ) : null}
+                          <TokenClientMarks clients={usedBy} />
                         </span>
                         <code
                           className="truncate font-mono text-xs text-muted-foreground"
@@ -924,7 +872,7 @@ export function AccessTokenManager({
                 <p>
                   {t("tokens.usedBy", {
                     name: pendingDelete?.name ?? "",
-                    clients: clientList(deleteClients),
+                    clients: clientNames(deleteClients),
                   })}
                 </p>
                 <Label className="flex items-center gap-2 text-foreground">

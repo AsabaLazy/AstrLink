@@ -5087,6 +5087,7 @@ fn build_request_record_query(query: &serde_json::Value) -> Result<String, Strin
     let mut protocol: Option<&str> = None;
     let mut service_id: Option<&str> = None;
     let mut local_access_token_ids: Vec<&str> = Vec::new();
+    let mut models: Vec<&str> = Vec::new();
     let mut status: Option<&str> = None;
 
     for (key, value) in object {
@@ -5170,6 +5171,26 @@ fn build_request_record_query(query: &serde_json::Value) -> Result<String, Strin
                     local_access_token_ids.push(text);
                 }
             }
+            "models" => {
+                let values = value.as_array().ok_or_else(|| {
+                    "request record query models must be an array of strings".to_string()
+                })?;
+                if values.len() > 100 {
+                    return Err("request record query models has too many entries".to_string());
+                }
+                for value in values {
+                    let text = value.as_str().ok_or_else(|| {
+                        "request record query models must be an array of strings".to_string()
+                    })?;
+                    if text.is_empty()
+                        || text.chars().count() > 256
+                        || text.chars().any(char::is_control)
+                    {
+                        return Err("request record query model is invalid".to_string());
+                    }
+                    models.push(text);
+                }
+            }
             "status" => {
                 let text = value
                     .as_str()
@@ -5211,6 +5232,9 @@ fn build_request_record_query(query: &serde_json::Value) -> Result<String, Strin
             "local_access_token_id={}",
             percent_encode_query(value)
         ));
+    }
+    for value in models {
+        pairs.push(format!("model={}", percent_encode_query(value)));
     }
     if let Some(value) = status {
         pairs.push(format!("status={}", percent_encode_query(value)));
@@ -6332,6 +6356,24 @@ mod tests {
             .unwrap(),
             "?service_id=service_01&local_access_token_id=token_01&local_access_token_id=token_02&status=succeeded&kind=inference"
         );
+        assert_eq!(
+            build_request_session_query(&serde_json::json!({
+                "kind": "inference",
+                "models": ["claude-opus-5-5", "gpt-6.1/sol 模型"]
+            }))
+            .unwrap(),
+            "?model=claude-opus-5-5&model=gpt-6.1%2Fsol%20%E6%A8%A1%E5%9E%8B&kind=inference"
+        );
+        for models in [
+            serde_json::json!("claude-opus-5-5"),
+            serde_json::json!([""]),
+            serde_json::json!([1]),
+            serde_json::json!(["model\nname"]),
+            serde_json::json!(["m".repeat(257)]),
+            serde_json::json!(vec!["model"; 101]),
+        ] {
+            assert!(build_request_session_query(&serde_json::json!({"models": models})).is_err());
+        }
         assert_eq!(
             build_request_session_query(&serde_json::json!({})).unwrap(),
             ""

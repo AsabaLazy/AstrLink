@@ -318,9 +318,9 @@ describe("tray navigation targets", () => {
     const now = new Date(2026, 9, 12, 15, 30);
     expect(trayNavigationTarget("failedToday", now)).toEqual({
       kind: "records",
-      failedWithin: {
-        from: new Date(2026, 9, 12).toISOString(),
-        to: new Date(2026, 9, 13).toISOString(),
+      target: {
+        status: "failed",
+        range: { from: "2026-10-12", to: "2026-10-12" },
       },
     });
     for (const payload of [
@@ -521,6 +521,13 @@ describe("App workspace navigation", () => {
         total_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
+      },
+      status_counts: {
+        succeeded: 0,
+        failed: 0,
+        blocked: 0,
+        cancelled: 0,
+        pending: 0,
       },
       by_day: [],
       by_hour: [],
@@ -1309,7 +1316,7 @@ describe("App workspace navigation", () => {
     expect(workspaceHeading().textContent).toBe("API 提供商");
   });
 
-  it("opens a service editor from the overview usage list", async () => {
+  it("opens a provider's requests from its usage row and its settings from the gear", async () => {
     bridgeMocks.getService.mockResolvedValue({
       service: {
         id: "service_gateway_01",
@@ -1336,16 +1343,37 @@ describe("App workspace navigation", () => {
     });
     await renderApp();
 
-    const serviceRow = [...container.querySelectorAll("button")].find(
-      (candidate) =>
-        candidate.textContent?.includes("Primary gateway") &&
-        candidate.textContent?.includes("次"),
-    );
+    const serviceRow = [
+      ...container.querySelectorAll("[data-slot='breakdown-row'] button"),
+    ].find((candidate) => candidate.textContent?.includes("Primary gateway"));
     if (!(serviceRow instanceof HTMLButtonElement)) {
       throw new Error("Missing overview service usage row");
     }
     await act(async () => {
       serviceRow.click();
+      await Promise.resolve();
+    });
+    // The row narrows the request records to the provider over the
+    // overview's range, a year by default.
+    expect(workspaceHeading().textContent).toBe("请求记录");
+    expect(
+      container.querySelector('[aria-label="提供商筛选"]')?.textContent,
+    ).toContain("Primary gateway");
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: "inference",
+        from: expect.any(String),
+        to: expect.any(String),
+      }),
+    );
+
+    await act(async () => button("概览").click());
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Primary gateway 的设置"]',
+        )!
+        .click();
       await Promise.resolve();
     });
 

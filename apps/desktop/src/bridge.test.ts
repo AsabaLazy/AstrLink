@@ -87,7 +87,11 @@ import {
 } from "./bridge";
 import { defaultPrivacyKindRules } from "./privacy-policy-model";
 import { emptyPrivacyTotals } from "./privacy-summary-model";
-import { emptyUsageTotals, resolveUsageWindow } from "./usage-range";
+import {
+  emptyUsageStatusCounts,
+  emptyUsageTotals,
+  resolveUsageWindow,
+} from "./usage-range";
 
 function validSnapshot(): Record<string, unknown> {
   return {
@@ -373,6 +377,7 @@ describe("desktop bridge contract", () => {
     const window = resolveUsageWindow("1d", new Date(2026, 8, 19, 12));
     invokeMock.mockResolvedValueOnce({
       totals: emptyUsageTotals(),
+      status_counts: emptyUsageStatusCounts(),
       by_day: [],
       by_hour: [],
       by_service: [],

@@ -465,11 +465,11 @@ func (s *Store) BackfillPricing(ctx context.Context, id contract.ServiceID) (int
 }
 
 func (s *Store) BillingSummary(ctx context.Context, id contract.ServiceID, account string, from, to time.Time, options pricing.BillingSummaryOptions) (pricing.Summary, error) {
-	result := pricing.Summary{From: from, To: to, Amounts: pricing.Amounts{AmountUSD: "0.000000000"}, ByModel: []pricing.Group{}, ByToken: []pricing.TokenGroup{}}
+	result := pricing.Summary{From: from, To: to, Amounts: pricing.Amounts{AmountUSD: "0.000000000"}, ByModel: []pricing.Group{}, ByToken: []pricing.TokenGroup{}, ByService: []pricing.ServiceGroup{}}
 	if from.IsZero() || !to.After(from) || to.Sub(from) > 367*24*time.Hour {
 		return result, fmt.Errorf("%w: invalid billing range", storage.ErrInvalidArgument)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT root_id,local_access_token_id,model,COALESCE(json_extract(NULLIF(price_json,''),'$.provider'),''),amount_usd,reason,revalued FROM billing_ledger WHERE started_at>=? AND started_at<? AND (?='' OR service_id=?) AND (?='' OR account_key=?)`, billingTime(from), billingTime(to), id, id, account, account)
+	rows, err := s.db.QueryContext(ctx, `SELECT root_id,service_id,local_access_token_id,model,COALESCE(json_extract(NULLIF(price_json,''),'$.provider'),''),amount_usd,reason,revalued FROM billing_ledger WHERE started_at>=? AND started_at<? AND (?='' OR service_id=?) AND (?='' OR account_key=?)`, billingTime(from), billingTime(to), id, id, account, account)
 	if err != nil {
 		return result, err
 	}
@@ -489,11 +489,14 @@ func (s *Store) BillingSummary(ctx context.Context, id contract.ServiceID, accou
 	tokenGroups := map[string]*pricing.TokenGroup{}
 	tokenAmounts := map[string]*big.Rat{}
 	tokenRoots := map[string]map[string]bool{}
+	serviceGroups := map[string]*pricing.ServiceGroup{}
+	serviceAmounts := map[string]*big.Rat{}
+	serviceRoots := map[string]map[string]bool{}
 	for rows.Next() {
-		var root, model, provider, amount, reason string
+		var root, service, model, provider, amount, reason string
 		var localAccessTokenID sql.NullString
 		var revalued bool
-		if err = rows.Scan(&root, &localAccessTokenID, &model, &provider, &amount, &reason, &revalued); err != nil {
+		if err = rows.Scan(&root, &service, &localAccessTokenID, &model, &provider, &amount, &reason, &revalued); err != nil {
 			return result, err
 		}
 		key := provider + "/" + model
@@ -502,6 +505,14 @@ func (s *Store) BillingSummary(ctx context.Context, id contract.ServiceID, accou
 			groupAmounts[key] = new(big.Rat)
 			groupRoots[key] = map[string]bool{}
 		}
+		// A root that failed over is billed per attempt, so it counts once
+		// under every service that served one of its attempts.
+		if serviceGroups[service] == nil {
+			serviceGroups[service] = &pricing.ServiceGroup{ServiceID: service}
+			serviceAmounts[service] = new(big.Rat)
+			serviceRoots[service] = map[string]bool{}
+		}
+		serviceRoots[service][root] = true
 		var tokenGroup *pricing.TokenGroup
 		if options.IncludeTokenBreakdown && localAccessTokenID.Valid {
 			if _, ok := currentTokenIDs[localAccessTokenID.String]; ok {
@@ -516,7 +527,7 @@ func (s *Store) BillingSummary(ctx context.Context, id contract.ServiceID, accou
 		}
 		roots[root] = true
 		groupRoots[key][root] = true
-		amounts := []*pricing.Amounts{&result.Amounts, &groups[key].Amounts}
+		amounts := []*pricing.Amounts{&result.Amounts, &groups[key].Amounts, &serviceGroups[service].Amounts}
 		if tokenGroup != nil {
 			amounts = append(amounts, &tokenGroup.Amounts)
 		}
@@ -540,6 +551,7 @@ func (s *Store) BillingSummary(ctx context.Context, id contract.ServiceID, accou
 			}
 			totals.Add(totals, v)
 			groupAmounts[key].Add(groupAmounts[key], v)
+			serviceAmounts[service].Add(serviceAmounts[service], v)
 			if tokenGroup != nil {
 				tokenAmounts[tokenGroup.TokenID].Add(tokenAmounts[tokenGroup.TokenID], v)
 			}
@@ -555,6 +567,17 @@ func (s *Store) BillingSummary(ctx context.Context, id contract.ServiceID, accou
 		g.Requests = int64(len(groupRoots[key]))
 		result.ByModel = append(result.ByModel, *g)
 	}
+	for service, group := range serviceGroups {
+		group.AmountUSD = serviceAmounts[service].FloatString(9)
+		group.Requests = int64(len(serviceRoots[service]))
+		result.ByService = append(result.ByService, *group)
+	}
+	slices.SortFunc(result.ByService, func(a, b pricing.ServiceGroup) int {
+		if order := amountOrder(a.Amounts, b.Amounts); order != 0 {
+			return order
+		}
+		return cmp.Compare(a.ServiceID, b.ServiceID)
+	})
 	if options.IncludeTokenBreakdown {
 		for tokenID, group := range tokenGroups {
 			group.AmountUSD = tokenAmounts[tokenID].FloatString(9)
@@ -562,13 +585,8 @@ func (s *Store) BillingSummary(ctx context.Context, id contract.ServiceID, accou
 			result.ByToken = append(result.ByToken, *group)
 		}
 		slices.SortFunc(result.ByToken, func(a, b pricing.TokenGroup) int {
-			av, _ := new(big.Rat).SetString(a.AmountUSD)
-			bv, _ := new(big.Rat).SetString(b.AmountUSD)
-			if amountOrder := bv.Cmp(av); amountOrder != 0 {
-				return amountOrder
-			}
-			if requestOrder := cmp.Compare(b.Requests, a.Requests); requestOrder != 0 {
-				return requestOrder
+			if order := amountOrder(a.Amounts, b.Amounts); order != 0 {
+				return order
 			}
 			return cmp.Compare(a.TokenID, b.TokenID)
 		})
@@ -582,6 +600,17 @@ func (s *Store) BillingSummary(ctx context.Context, id contract.ServiceID, accou
 		return result.ByModel[i].Provider+result.ByModel[i].Model < result.ByModel[j].Provider+result.ByModel[j].Model
 	})
 	return result, nil
+}
+
+// amountOrder ranks the larger amount first, then the group with more root
+// requests. Amounts compare as decimals, so 10 ranks above 9.
+func amountOrder(a, b pricing.Amounts) int {
+	av, _ := new(big.Rat).SetString(a.AmountUSD)
+	bv, _ := new(big.Rat).SetString(b.AmountUSD)
+	if order := bv.Cmp(av); order != 0 {
+		return order
+	}
+	return cmp.Compare(b.Requests, a.Requests)
 }
 
 func (s *Store) ObserveSubscriptionUsage(ctx context.Context, service contract.Service, usage contract.SubscriptionUsage) error {

@@ -35,7 +35,11 @@ import {
   parsePrivacySummary,
   type PrivacySummary,
 } from "./privacy-summary-model";
-import type { UsageSummary, UsageWindow } from "./usage-range";
+import {
+  hourlyUsageWindow,
+  type UsageSummary,
+  type UsageWindow,
+} from "./usage-range";
 
 import {
   browserSnapshot,
@@ -611,6 +615,9 @@ function compactQuery(
   ) {
     compact.local_access_token_ids = query.local_access_token_ids;
   }
+  if (query.models !== undefined && query.models.length > 0) {
+    compact.models = query.models;
+  }
   if (query.status !== undefined) compact.status = query.status;
   return compact;
 }
@@ -861,7 +868,7 @@ export async function getUsageSummary(
       from: window.from,
       to: window.to,
       timeZone: window.time_zone || "UTC",
-      bucket: window.preset === "1d" ? "hour" : "day",
+      bucket: hourlyUsageWindow(window) ? "hour" : "day",
     }),
     window,
   );
@@ -877,7 +884,7 @@ export async function getPrivacySummary(
       from: window.from,
       to: window.to,
       timeZone: window.time_zone || "UTC",
-      bucket: window.preset === "1d" ? "hour" : "day",
+      bucket: hourlyUsageWindow(window) ? "hour" : "day",
     }),
     window,
   );

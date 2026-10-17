@@ -82,25 +82,20 @@ import {
   TRAY_NAVIGATE_EVENT,
   TRAY_PRIVACY_OVERVIEW_PAGE,
 } from "./tray-popover-window";
+import type { RecordsTarget } from "./request-live-model";
 import {
   DEFAULT_USAGE_RANGE_PRESET,
-  localDayWindow,
+  localDayKey,
   resolveUsageWindow,
-  type UsageRangePreset,
+  type UsageRange,
   type UsageState,
-  type UsageWindow,
 } from "./usage-range";
 
 type WorkspacePage =
   | { kind: "overview" }
   | { kind: "tokens" }
   | { kind: "safety"; view?: "models" | "overview" }
-  | {
-      kind: "records";
-      tokenId?: string;
-      /** Conversations with a call that failed in this window. */
-      failedWithin?: Pick<UsageWindow, "from" | "to">;
-    }
+  | { kind: "records"; target?: RecordsTarget }
   | { kind: "routing" }
   | { kind: "agentTools"; preselectSkill?: AgentSkillId }
   | { kind: "settings" }
@@ -205,9 +200,14 @@ export function trayNavigationTarget(
   now = new Date(),
 ): WorkspacePage | null {
   switch (kind) {
-    case TRAY_FAILED_TODAY_PAGE:
+    case TRAY_FAILED_TODAY_PAGE: {
       // The same local day the tray counted its failures over.
-      return { kind: "records", failedWithin: localDayWindow(now) };
+      const today = localDayKey(now);
+      return {
+        kind: "records",
+        target: { status: "failed", range: { from: today, to: today } },
+      };
+    }
     case TRAY_PRIVACY_OVERVIEW_PAGE:
       return { kind: "safety", view: "overview" };
     case "overview":
@@ -315,7 +315,7 @@ export default function App() {
   const [tokenCatalog, setTokenCatalog] =
     useState<AccessTokenCatalog>(emptyTokenCatalog);
   const [usage, setUsage] = useState<UsageState>(blockedUsage);
-  const [usagePreset, setUsagePreset] = useState<UsageRangePreset>(
+  const [usageRange, setUsageRange] = useState<UsageRange>(
     DEFAULT_USAGE_RANGE_PRESET,
   );
   const [page, setPage] = useState<WorkspacePage>({ kind: "overview" });
@@ -595,7 +595,7 @@ export default function App() {
         }));
       }
       try {
-        const usageWindow = resolveUsageWindow(usagePreset, new Date());
+        const usageWindow = resolveUsageWindow(usageRange, new Date());
         const summary = await getUsageSummary(usageWindow);
         if (usageGeneration.current !== generation) return;
         setUsage((current) =>
@@ -617,7 +617,7 @@ export default function App() {
         }
       }
     },
-    [isReady, usagePreset],
+    [isReady, usageRange],
   );
 
   useEffect(() => {
@@ -1077,11 +1077,16 @@ export default function App() {
                 onOpenOnboarding={isWebEdition ? undefined : onboarding.open}
                 showOnboardingHint={!isWebEdition && onboarding.showResumeHint}
                 onDismissOnboardingHint={onboarding.dismissResumeHint}
+                onOpenRecords={(target) =>
+                  // The list covers the days the overview counted, unless
+                  // the target names a day of its own.
+                  navigate({
+                    kind: "records",
+                    target: { range: usageRange, ...target },
+                  })
+                }
                 onOpenService={(serviceId) =>
                   navigate({ kind: "edit", serviceId })
-                }
-                onOpenTokenRecords={(tokenId) =>
-                  navigate({ kind: "records", tokenId })
                 }
                 onRefreshServices={() => void refreshServices()}
                 onRefresh={() => {
@@ -1090,11 +1095,11 @@ export default function App() {
                   void refreshAccessTokens({ silent: true });
                 }}
                 onRestart={() => void handleRestart()}
-                onUsagePresetChange={setUsagePreset}
+                onUsageRangeChange={setUsageRange}
                 snapshot={snapshot}
                 tokenCatalog={tokenCatalog}
                 usage={usage}
-                usagePreset={usagePreset}
+                usageRange={usageRange}
               />
             ) : page.kind === "tokens" ? (
               <AccessTokenManager
@@ -1127,10 +1132,9 @@ export default function App() {
                 accessTokens={tokenCatalog.items}
                 accessTokensReady={tokenCatalog.status === "ready"}
                 coreSessionKey={coreSessionKey}
-                initialFailedWithin={page.failedWithin}
-                initialLocalAccessTokenId={page.tokenId}
                 services={catalog.items}
                 isReady={isReady}
+                target={page.target}
               />
             ) : page.kind === "routing" ? (
               <RouteManager

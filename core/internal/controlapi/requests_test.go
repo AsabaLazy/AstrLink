@@ -64,6 +64,36 @@ func TestParseRequestRecordQueryAllowsOnlyRepeatedTokenFilters(t *testing.T) {
 	}
 }
 
+func TestParseRequestRecordQueryRepeatsModelFilters(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, RequestSessionsPath+"?model=claude-opus-5-5&model=gpt-6.1%2Fsol", nil)
+	options, err := parseRequestSessionListOptions(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Models) != 2 || options.Models[0] != "claude-opus-5-5" || options.Models[1] != "gpt-6.1/sol" {
+		t.Fatalf("session model filters = %#v", options.Models)
+	}
+
+	tooMany := make([]string, maxModelFilters+1)
+	for i := range tooMany {
+		tooMany[i] = "model-" + strings.Repeat("a", i+1)
+	}
+	for name, values := range map[string][]string{
+		"empty":     {""},
+		"duplicate": {"model-a", "model-a"},
+		"too long":  {strings.Repeat("m", maxModelFilterRunes+1)},
+		"control":   {"model\nname"},
+		"too many":  tooMany,
+	} {
+		if _, err := parseRequestRecordQuery(url.Values{"model": values}); err == nil {
+			t.Fatalf("%s model filter was accepted", name)
+		}
+	}
+	if _, err := parseRequestRecordQuery(url.Values{"model": {strings.Repeat("模", maxModelFilterRunes)}}); err != nil {
+		t.Fatalf("a model name at the rune limit was rejected: %v", err)
+	}
+}
+
 func TestRequestRecordControlAPI(t *testing.T) {
 	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "astrlink.db"))
 	if err != nil {
@@ -118,6 +148,24 @@ func TestRequestRecordControlAPI(t *testing.T) {
 	decode(t, response, &page)
 	if len(page.Items) != 1 || page.Items[0].ID != "request_ctrl" {
 		t.Fatalf("page=%#v", page)
+	}
+	for path, want := range map[string]int{
+		RequestsPath + "?model=public-alias":                          1,
+		RequestsPath + "?model=other-model":                           0,
+		RequestSessionsPath + "?model=other-model&model=public-alias": 1,
+		RequestSessionsPath + "?model=other-model":                    0,
+	} {
+		response := requestRecordHTTP(t, handler, http.MethodGet, path, "", "")
+		if response.Code != http.StatusOK {
+			t.Fatalf("model filter path=%s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+		var filtered struct {
+			Items []struct{} `json:"items"`
+		}
+		decode(t, response, &filtered)
+		if len(filtered.Items) != want {
+			t.Fatalf("model filter path=%s items=%d, want %d", path, len(filtered.Items), want)
+		}
 	}
 
 	response = requestRecordHTTP(t, handler, http.MethodGet, RequestsPath+"/request_ctrl", "", "")
