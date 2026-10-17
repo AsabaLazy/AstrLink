@@ -78,7 +78,7 @@ func TestPrepareCodexSubscriptionRequestNormalizesStructureOnly(t *testing.T) {
 }
 
 func TestPrepareCodexSubscriptionRequestKeepsCompliantBytes(t *testing.T) {
-	const compliant = "{ \"model\": \"gpt-6-astra\",\n  \"instructions\": \"be brief\", \"input\": \"hello\",\n" +
+	const compliant = "{ \"model\": \"gpt-6-astra\",\n  \"instructions\": \"be brief\", \"input\": [{\"role\":\"user\",\"content\":\"hello\"}],\n" +
 		"  \"store\": false, \"stream\": true, \"reasoning\": {\"effort\": \"low\"},\n" +
 		"  \"include\": [\"reasoning.encrypted_content\"] }"
 	_, raw, forced := prepareCodexBody(t, contract.ProtocolOpenAIResponses, compliant)
@@ -150,13 +150,21 @@ type codexSSEUpstream struct {
 // newCodexSSEUpstream answers attempt N with streams[min(N, len-1)].
 func newCodexSSEUpstream(t *testing.T, streams ...string) *codexSSEUpstream {
 	t.Helper()
+	return newCodexSSEUpstreamWithType(t, "text/event-stream", streams...)
+}
+
+func newCodexSSEUpstreamWithType(t *testing.T, contentType string, streams ...string) *codexSSEUpstream {
+	t.Helper()
 	upstream := &codexSSEUpstream{bodies: make(chan []byte, 8), accept: make(chan string, 8)}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		hit := int(upstream.hits.Add(1)) - 1
 		body, _ := io.ReadAll(request.Body)
 		upstream.bodies <- body
 		upstream.accept <- request.Header.Get("Accept")
-		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.Header()["Content-Type"] = nil // Suppress net/http's MIME sniffing.
+		if contentType != "" {
+			writer.Header().Set("Content-Type", contentType)
+		}
 		_, _ = io.WriteString(writer, streams[min(hit, len(streams)-1)])
 	}))
 	t.Cleanup(server.Close)
@@ -337,7 +345,7 @@ func TestCodexSubscriptionConvertedNonStreamingRequestAggregates(t *testing.T) {
 
 func TestCodexSubscriptionForwardsCompliantNativeBodyUnchanged(t *testing.T) {
 	t.Parallel()
-	const compliant = `{"model":"gpt-6-astra","instructions":"be brief","input":"hello","store":false,"stream":true}`
+	const compliant = `{"model":"gpt-6-astra","instructions":"be brief","input":[{"role":"user","content":"hello"}],"store":false,"stream":true}`
 	upstream := newCodexSSEUpstream(t, codexSSE(codexCompletedWithoutOutput))
 	handler := NewWithDependencies(Dependencies{
 		Resolver:   candidateResolver{candidates: []endpoint.Resolved{riskCodexCandidate("service_codex", upstream.url)}},

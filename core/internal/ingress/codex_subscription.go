@@ -110,6 +110,12 @@ func normalizeCodexSubscriptionBody(body map[string]json.RawMessage, protocol co
 	if protocol != contract.ProtocolOpenAIResponses {
 		return changed, false
 	}
+	if input := bytes.TrimSpace(body["input"]); len(input) > 0 && input[0] == '"' {
+		// Responses accepts shorthand text; the subscription backend requires
+		// a message list. Wrap the JSON string without changing its text.
+		body["input"] = json.RawMessage(`[{"role":"user","content":` + string(input) + `}]`)
+		changed = true
+	}
 	if !bytes.Equal(bytes.TrimSpace(body["store"]), []byte("false")) {
 		body["store"] = json.RawMessage("false")
 		changed = true
