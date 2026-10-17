@@ -238,7 +238,7 @@ export interface PrivacyModelVariant {
   estimated_ram_bytes: number;
   recommended: boolean;
   supported: boolean;
-  unsupported_reason: null | "cpu_only";
+  unsupported_reason: null | "cpu_only" | "requires_macos_26";
 }
 
 export interface PrivacyCatalogModel {
@@ -640,8 +640,9 @@ function parseVariant(value: unknown, path: string): PrivacyModelVariant {
   const unsupportedReason =
     variant.unsupported_reason === null
       ? null
-      : variant.unsupported_reason === "cpu_only"
-        ? "cpu_only"
+      : variant.unsupported_reason === "cpu_only" ||
+          variant.unsupported_reason === "requires_macos_26"
+        ? variant.unsupported_reason
         : invalid(`${path}.unsupported_reason`, "unknown unsupported reason");
   if (supported !== (unsupportedReason === null)) {
     invalid(path, "supported state and unsupported reason are inconsistent");

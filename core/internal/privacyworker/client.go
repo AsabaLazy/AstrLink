@@ -45,6 +45,8 @@ const (
 	maxModelFiles                = 128
 	maxModelLabels               = 256
 	maxModelRequestTokens        = 128 * 1024
+	// Token ids index the embedding table; no tokenizer comes close to this.
+	maxPadTokenID = 1<<24 - 1
 
 	// A frame carries at most this much text, which bounds how long another
 	// request waits for the worker.
@@ -1099,6 +1101,17 @@ type installationManifest struct {
 	OutputName            string                             `json:"output_name"`
 	LabelMapping          map[string]*contract.CanonicalKind `json:"label_mapping"`
 	Files                 []installationFile                 `json:"files"`
+	Execution             *installationExecution             `json:"execution"`
+}
+
+// installationExecution is present only for static-shape installations, such
+// as FP16 exports run through Core ML. CPU installations omit it.
+type installationExecution struct {
+	Provider             string  `json:"provider"`
+	ModelFormat          *string `json:"model_format"`
+	ComputeUnits         *string `json:"compute_units"`
+	StaticSequenceLength int     `json:"static_sequence_length"`
+	PadTokenID           int     `json:"pad_token_id"`
 }
 
 type installationInputNames struct {
@@ -1344,6 +1357,38 @@ func validateInstallationManifest(
 		if _, exists := declared[requiredPath]; !exists {
 			return errors.New("required model file is not declared")
 		}
+	}
+	return validateInstallationExecution(manifest)
+}
+
+func validateInstallationExecution(manifest installationManifest) error {
+	execution := manifest.Execution
+	if execution == nil {
+		return nil
+	}
+	if manifest.Adapter != contract.PrivacyModelAdapterHFToken ||
+		execution.StaticSequenceLength <= 0 ||
+		execution.StaticSequenceLength != manifest.Window ||
+		execution.PadTokenID < 0 || execution.PadTokenID > maxPadTokenID {
+		return errors.New("invalid model execution")
+	}
+	switch execution.Provider {
+	case "cpu":
+		if execution.ModelFormat != nil || execution.ComputeUnits != nil {
+			return errors.New("invalid CPU execution")
+		}
+	case "coreml":
+		if execution.ModelFormat == nil || *execution.ModelFormat != "mlprogram" ||
+			execution.ComputeUnits == nil {
+			return errors.New("invalid Core ML execution")
+		}
+		switch *execution.ComputeUnits {
+		case "cpu_and_gpu", "cpu_and_neural_engine", "all":
+		default:
+			return errors.New("invalid Core ML compute units")
+		}
+	default:
+		return errors.New("invalid execution provider")
 	}
 	return nil
 }

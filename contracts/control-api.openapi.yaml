@@ -5831,7 +5831,7 @@ components:
         unsupported_reason:
           oneOf:
             - type: string
-              enum: [cpu_only]
+              enum: [cpu_only, requires_macos_26]
             - type: "null"
       additionalProperties: false
     PrivacyModelCatalogItem:

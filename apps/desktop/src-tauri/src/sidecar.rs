@@ -4246,7 +4246,7 @@ fn validate_privacy_model_variants(value: &serde_json::Value) -> Result<(), Stri
         }
         let supported = variant["supported"].as_bool().expect("validated boolean");
         let reason = match variant["unsupported_reason"].as_str() {
-            Some("cpu_only") => Some("cpu_only"),
+            Some(reason @ ("cpu_only" | "requires_macos_26")) => Some(reason),
             None if variant["unsupported_reason"].is_null() => None,
             _ => return Err("privacy model variant unsupported_reason is invalid".to_string()),
         };
@@ -7139,6 +7139,39 @@ mod tests {
             .unwrap()
             .remove("style");
         assert!(parse_privacy_dry_run_result(&serde_json::to_vec(&legacy).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn privacy_model_variants_accept_only_known_unsupported_reasons() {
+        let unsupported = |reason: serde_json::Value| {
+            let mut variant = privacy_variant_value();
+            variant["id"] = serde_json::json!("coreml_fp16_gpu");
+            variant["recommended"] = serde_json::json!(false);
+            variant["supported"] = serde_json::json!(false);
+            variant["unsupported_reason"] = reason;
+            variant
+        };
+        for reason in ["cpu_only", "requires_macos_26"] {
+            let variants = serde_json::json!([
+                privacy_variant_value(),
+                unsupported(serde_json::json!(reason))
+            ]);
+            assert!(
+                validate_privacy_model_variants(&variants).is_ok(),
+                "{reason}"
+            );
+        }
+        for variant in [
+            unsupported(serde_json::json!("requires_macos_15")),
+            unsupported(serde_json::Value::Null),
+            {
+                let mut supported = unsupported(serde_json::json!("requires_macos_26"));
+                supported["supported"] = serde_json::json!(true);
+                supported
+            },
+        ] {
+            assert!(validate_privacy_model_variants(&serde_json::json!([variant])).is_err());
+        }
     }
 
     fn privacy_variant_value() -> serde_json::Value {

@@ -578,6 +578,35 @@ describe("privacy-policy IPC contract", () => {
       ...probe,
       license: null,
     });
+    const coreMLBeforeMacOS26 = {
+      ...variant,
+      id: "coreml_fp16_gpu",
+      name: "Core ML FP16 · GPU",
+      quantization: "f16",
+      recommended: false,
+      supported: false,
+      unsupported_reason: "requires_macos_26",
+    } as const;
+    expect(
+      parsePrivacyModelProbe({
+        ...probe,
+        variants: [coreMLBeforeMacOS26, variant],
+      }).variants,
+    ).toEqual([coreMLBeforeMacOS26, variant]);
+    expect(() =>
+      parsePrivacyModelProbe({
+        ...probe,
+        variants: [
+          { ...coreMLBeforeMacOS26, unsupported_reason: "requires_macos_15" },
+        ],
+      }),
+    ).toThrow("unknown unsupported reason");
+    expect(() =>
+      parsePrivacyModelProbe({
+        ...probe,
+        variants: [{ ...coreMLBeforeMacOS26, supported: true }],
+      }),
+    ).toThrow("inconsistent");
     expect(() =>
       parsePrivacyModelCatalog({
         items: [

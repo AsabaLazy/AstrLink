@@ -424,6 +424,12 @@ func inspectLocalModelAssets(
 	if err != nil {
 		return contract.PrivacyModelProbeResponse{}, nil, ErrUnsupportedModel
 	}
+	variants, plans, err = expandLocalCoreMLVariants(
+		ctx, directory, adapter, tokenizerDocument, variants, plans,
+	)
+	if err != nil {
+		return contract.PrivacyModelProbeResponse{}, nil, err
+	}
 	if name == "" {
 		name = "Local privacy model · " + revision[:8]
 	}
@@ -800,6 +806,7 @@ func cloneCustomVariantPlans(
 		plan.runtime.inputNames.TokenTypeIDs = cloneString(
 			plan.runtime.inputNames.TokenTypeIDs,
 		)
+		plan.runtime.execution = cloneExecution(plan.runtime.execution)
 		result[id] = plan
 	}
 	return result

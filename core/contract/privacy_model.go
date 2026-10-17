@@ -371,7 +371,8 @@ func validatePrivacyModelVariant(variant PrivacyModelVariant) error {
 			return fmt.Errorf("supported privacy model variant is invalid")
 		}
 	} else if variant.UnsupportedReason == nil ||
-		*variant.UnsupportedReason != "cpu_only" {
+		(*variant.UnsupportedReason != "cpu_only" &&
+			*variant.UnsupportedReason != "requires_macos_26") {
 		return fmt.Errorf("unsupported privacy model variant is invalid")
 	}
 	return nil
