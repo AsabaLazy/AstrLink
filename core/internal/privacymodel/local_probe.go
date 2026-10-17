@@ -431,7 +431,14 @@ func inspectLocalModelAssets(
 		return contract.PrivacyModelProbeResponse{}, nil, err
 	}
 	if name == "" {
+		// The fingerprint keeps several imports of one model apart. Only the
+		// display name changes: ids derive from the revision alone, and no
+		// license is claimed that the files do not state.
 		name = "Local privacy model · " + revision[:8]
+		if adapter == contract.PrivacyModelAdapterHFToken &&
+			validateAstrLinkGuardConfig(configDocument) == nil {
+			name = "AstrLink Guard · " + revision[:8]
+		}
 	}
 	repoID := localRepoID(revision)
 	response := contract.PrivacyModelProbeResponse{

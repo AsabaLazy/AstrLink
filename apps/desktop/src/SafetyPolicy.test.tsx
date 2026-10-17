@@ -1803,9 +1803,86 @@ describe("SafetyPolicy", () => {
       option.textContent?.startsWith("Core ML FP16 · GPU"),
     );
     expect(coreMLOption?.textContent).toBe(
-      "Core ML FP16 · GPU · 需要 macOS 26 或更高版本",
+      "Core ML FP16 · GPU（推荐） · 需要 macOS 26 或更高版本",
     );
     expect(coreMLOption?.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("names Core ML variants in the user's language and keeps unknown names", async () => {
+    const variant = (id: string, name: string) =>
+      ({
+        id,
+        name,
+        quantization: "f16",
+        bytes_total: 74_000_000,
+        estimated_ram_bytes: 370_000_000,
+        recommended: false,
+        supported: true,
+        unsupported_reason: null,
+      }) as const;
+    bridgeMocks.probeLocalPrivacyModel.mockResolvedValueOnce(
+      probe({
+        repo_id: "local/model-aaaaaaaaaaaa",
+        requested_revision: revision,
+        name: "AstrLink Guard · 1a2b3c4d",
+        variants: [
+          variant("coreml_fp16_gpu", "Core ML FP16 · GPU"),
+          variant("coreml_fp16_ane", "Core ML FP16 · Neural Engine"),
+          variant("coreml_fp16_gpu_mobile", "Core ML FP16 · GPU mobile"),
+        ],
+      }),
+    );
+    // An install from before "All units" was withdrawn keeps its own name.
+    bridgeMocks.listPrivacyModelInstallations.mockResolvedValueOnce({
+      items: [
+        {
+          ...readyInstallation(),
+          id: customInstallationID,
+          variant_id: "coreml_fp16_all",
+          variant_name: "Core ML FP16 · All units",
+          quantization: "f16",
+        },
+      ],
+    });
+    await renderPolicy();
+    await openModels();
+    await act(async () => button("已安装 1").click());
+    expect(container.textContent).toContain("Core ML FP16 · 全部计算单元");
+    expect(container.textContent).not.toContain("All units");
+
+    await act(async () => button("本地导入").click());
+    await setInput(
+      '[aria-label="本地模型路径"]',
+      "/Volumes/models/guard/model_fp16_static512.onnx",
+    );
+    await act(async () => {
+      button("检查本地模型").click();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("AstrLink Guard · 1a2b3c4d");
+    const trigger = document.querySelector<HTMLButtonElement>(
+      '[aria-label="本地模型版本"]',
+    )!;
+    expect(trigger.textContent).toContain("Core ML FP16 · GPU（推荐）");
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(
+      [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual([
+      "Core ML FP16 · GPU（推荐）",
+      "Core ML FP16 · 神经网络引擎（较慢）",
+      "Core ML FP16 · GPU mobile",
+    ]);
   });
 
   it("notes the Core ML compile on enable when a Core ML model is chosen for the policy", async () => {

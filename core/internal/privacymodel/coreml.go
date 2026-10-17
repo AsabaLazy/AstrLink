@@ -63,10 +63,14 @@ type coreMLVariantChoice struct {
 	ramMultiplier int64
 }
 
+// coreMLVariantChoices are offered for each eligible FP16 model. "All units"
+// (compute units "all") is no longer offered: on Apple silicon it ran on the
+// GPU at GPU speed and used four times the memory. Installations that already
+// use it keep loading, because validateExecution and the worker still accept
+// that compute unit.
 var coreMLVariantChoices = []coreMLVariantChoice{
 	{suffix: "gpu", name: "Core ML FP16 · GPU", computeUnits: coreMLComputeUnitsCPUAndGPU, ramMultiplier: 5},
 	{suffix: "ane", name: "Core ML FP16 · Neural Engine", computeUnits: coreMLComputeUnitsCPUAndNeuralEngine, ramMultiplier: 20},
-	{suffix: "all", name: "Core ML FP16 · All units", computeUnits: coreMLComputeUnitsAll, ramMultiplier: 20},
 }
 
 type coreMLSupport int

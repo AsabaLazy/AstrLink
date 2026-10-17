@@ -498,6 +498,21 @@ function formatBytes(bytes: number): string {
   return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }
 
+// Core names variants in English. The Core ML variants it offers are shown
+// in the user's language, by id; any other id keeps the name Core sent.
+function variantName(id: string, name: string): string {
+  switch (id) {
+    case "coreml_fp16_gpu":
+      return i18n.t("safety.coreMLVariantGPU");
+    case "coreml_fp16_ane":
+      return i18n.t("safety.coreMLVariantNeuralEngine");
+    case "coreml_fp16_all":
+      return i18n.t("safety.coreMLVariantAllUnits");
+    default:
+      return name;
+  }
+}
+
 function unsupportedVariantSuffix(variant: PrivacyModelVariant): string {
   if (variant.supported) return "";
   return variant.unsupported_reason === "requires_macos_26"
@@ -1032,7 +1047,7 @@ function InstallationResourceDialog({
           <p>
             {t("safety.heavyResource", {
               name: pending.name,
-              variant: pending.variant.name,
+              variant: variantName(pending.variant.id, pending.variant.name),
             })}
           </p>
           <dl className="grid grid-cols-2 gap-2.5">
@@ -2795,8 +2810,8 @@ export function SafetyPolicy({
   const installationSummary = (installation: PrivacyModelInstallation) => {
     const release = installationRelease(installation);
     return release === null
-      ? installation.variant_name
-      : `${installation.variant_name} · ${release}`;
+      ? variantName(installation.variant_id, installation.variant_name)
+      : `${variantName(installation.variant_id, installation.variant_name)} · ${release}`;
   };
   // The update check reports the newest compatible release, so every other
   // catalog revision of that model is older. Once installed, the newer
@@ -4418,7 +4433,10 @@ export function SafetyPolicy({
                                       key={candidate.id}
                                       value={candidate.id}
                                     >
-                                      {candidate.name}
+                                      {variantName(
+                                        candidate.id,
+                                        candidate.name,
+                                      )}
                                       {candidate.recommended
                                         ? t("safety.recommended")
                                         : ""}
@@ -4602,8 +4620,11 @@ export function SafetyPolicy({
                                   {installation.name}
                                 </strong>
                                 <span className="mt-1 block text-xs leading-snug text-muted-foreground">
-                                  {installation.variant_name} ·{" "}
-                                  {installation.quantization}
+                                  {variantName(
+                                    installation.variant_id,
+                                    installation.variant_name,
+                                  )}{" "}
+                                  · {installation.quantization}
                                   {release === null ? null : ` · ${release}`}
                                 </span>
                               </div>
@@ -4932,7 +4953,7 @@ export function SafetyPolicy({
                                 key={variant.id}
                                 value={variant.id}
                               >
-                                {variant.name}
+                                {variantName(variant.id, variant.name)}
                                 {variant.recommended
                                   ? t("safety.recommended")
                                   : ""}
@@ -5109,7 +5130,7 @@ export function SafetyPolicy({
                                 key={variant.id}
                                 value={variant.id}
                               >
-                                {variant.name}
+                                {variantName(variant.id, variant.name)}
                                 {variant.recommended
                                   ? t("safety.recommended")
                                   : ""}

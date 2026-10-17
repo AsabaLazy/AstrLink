@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -56,6 +57,112 @@ func TestMacOSVersionIsReadOnDarwin(t *testing.T) {
 	}
 }
 
+// An "All units" installation made before the variant was withdrawn still
+// loads: neither the registry nor the worker derives variants again.
+func TestInstalledAllUnitsCoreMLVariantStillLoads(t *testing.T) {
+	source := writeLocalFP16Fixture(t, staticFP16Inputs(512), true)
+	root := filepath.Join(t.TempDir(), "registry")
+	store := openRegistryStore(t)
+	setLocalCoreMLSupport(t, coreMLSupported)
+	offered := coreMLVariantChoices
+	t.Cleanup(func() { coreMLVariantChoices = offered })
+	coreMLVariantChoices = append(slices.Clone(offered), coreMLVariantChoice{
+		suffix: "all", name: "Core ML FP16 · All units",
+		computeUnits: coreMLComputeUnitsAll, ramMultiplier: 20,
+	})
+
+	registry := newLocalTestRegistry(t, root, store)
+	probe, err := registry.ProbeLocal(
+		context.Background(),
+		contract.PrivacyModelLocalProbeRequest{Path: source},
+	)
+	if err != nil {
+		t.Fatalf("ProbeLocal: %v", err)
+	}
+	started, err := registry.Install(
+		context.Background(),
+		contract.PrivacyModelInstallRequest{
+			RepoID: probe.RepoID, Revision: probe.Revision,
+			VariantID: "coreml_fp16_all", LabelMapping: emailMapping(),
+		},
+	)
+	if err != nil {
+		t.Fatalf("Install coreml_fp16_all: %v", err)
+	}
+	if ready := waitForInstallation(t, registry, started.ID); ready.Status != contract.PrivacyModelStatusReady {
+		t.Fatalf("installation=%#v", ready)
+	}
+
+	coreMLVariantChoices = offered
+	restarted := newLocalTestRegistry(t, root, store)
+	installation, err := restarted.GetInstallation(started.ID)
+	if err != nil || installation.VariantID != "coreml_fp16_all" ||
+		installation.Status != contract.PrivacyModelStatusReady {
+		t.Fatalf("installation after restart=%#v err=%v", installation, err)
+	}
+	if _, ok := restarted.ReadyInstallation(started.ID); !ok {
+		t.Fatal("the All units installation is not ready after the variant was withdrawn")
+	}
+	reprobed, err := restarted.ProbeLocal(
+		context.Background(),
+		contract.PrivacyModelLocalProbeRequest{Path: source},
+	)
+	if err != nil {
+		t.Fatalf("ProbeLocal after withdrawal: %v", err)
+	}
+	assertVariantIDs(t, reprobed.Variants, "coreml_fp16_gpu", "coreml_fp16_ane", "cpu_int8")
+	if reprobed.RepoID != probe.RepoID || reprobed.Revision != probe.Revision {
+		t.Fatal("withdrawing a Core ML variant changed the local identity")
+	}
+}
+
+func TestLocalProbeNamesAstrLinkGuardImportsByFingerprint(t *testing.T) {
+	setLocalCoreMLSupport(t, coreMLSupported)
+	probeWith := func(config []byte) contract.PrivacyModelProbeResponse {
+		t.Helper()
+		source := writeLocalFP16Fixture(t, staticFP16Inputs(512), true)
+		if err := os.WriteFile(filepath.Join(source, "config.json"), config, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		registry := newLocalTestRegistry(t, filepath.Join(t.TempDir(), "registry"), openRegistryStore(t))
+		probe, err := registry.ProbeLocal(
+			context.Background(),
+			contract.PrivacyModelLocalProbeRequest{Path: source},
+		)
+		if err != nil {
+			t.Fatalf("ProbeLocal: %v", err)
+		}
+		if probe.RepoID != localRepoID(probe.Revision) || probe.RequestedRevision != probe.Revision {
+			t.Fatalf("local identity=%s@%s", probe.RepoID, probe.Revision)
+		}
+		return probe
+	}
+
+	guard := probeWith(guardConfigDocument(t, nil))
+	if want := "AstrLink Guard · " + guard.Revision[:8]; guard.Name != want {
+		t.Fatalf("name=%q, want %q", guard.Name, want)
+	}
+	if guard.License != nil || guard.Adapter != contract.PrivacyModelAdapterHFToken {
+		t.Fatalf("Guard import claims license %v, adapter %q", guard.License, guard.Adapter)
+	}
+	assertVariantIDs(t, guard.Variants, "coreml_fp16_gpu", "coreml_fp16_ane", "cpu_int8")
+
+	// The same contract values the catalog checks decide it: another label
+	// order or span contract is a generic local model.
+	for _, edit := range []func(map[string]any){
+		func(config map[string]any) { config[astrLinkGuardSpanContractField] = "other-span-contract" },
+		func(config map[string]any) {
+			labels := config["id2label"].(map[string]string)
+			labels["1"], labels["3"] = labels["3"], labels["1"]
+		},
+	} {
+		other := probeWith(guardConfigDocument(t, edit))
+		if want := "Local privacy model · " + other.Revision[:8]; other.Name != want {
+			t.Fatalf("name=%q, want %q", other.Name, want)
+		}
+	}
+}
+
 func TestLocalProbeOffersCoreMLVariantsForStaticFP16Models(t *testing.T) {
 	source := writeLocalFP16Fixture(t, staticFP16Inputs(512), true)
 	root := filepath.Join(t.TempDir(), "registry")
@@ -89,8 +196,8 @@ func TestLocalProbeOffersCoreMLVariantsForStaticFP16Models(t *testing.T) {
 			probe.RepoID, probe.Revision, cpuOnly.RepoID, cpuOnly.Revision)
 	}
 	assertVariantIDs(t, probe.Variants,
-		"coreml_fp16_gpu", "coreml_fp16_ane", "coreml_fp16_all", "cpu_int8")
-	for index, variant := range probe.Variants[:3] {
+		"coreml_fp16_gpu", "coreml_fp16_ane", "cpu_int8")
+	for index, variant := range probe.Variants[:2] {
 		if want := coreMLEstimatedRAM(variant.BytesTotal, coreMLVariantChoices[index].ramMultiplier); variant.EstimatedRAMBytes != want {
 			t.Fatalf("%s estimated RAM=%d, want %d", variant.ID, variant.EstimatedRAMBytes, want)
 		}
@@ -101,8 +208,8 @@ func TestLocalProbeOffersCoreMLVariantsForStaticFP16Models(t *testing.T) {
 			t.Fatalf("Core ML variant=%#v", variant)
 		}
 	}
-	if probe.Variants[3] != cpuOnly.Variants[1] {
-		t.Fatalf("INT8 variant changed: %#v vs %#v", probe.Variants[3], cpuOnly.Variants[1])
+	if probe.Variants[2] != cpuOnly.Variants[1] {
+		t.Fatalf("INT8 variant changed: %#v vs %#v", probe.Variants[2], cpuOnly.Variants[1])
 	}
 
 	documents := map[string][]byte{}
@@ -164,15 +271,15 @@ func TestLocalProbeListsCoreMLVariantsAsUnsupportedBeforeMacOS26(t *testing.T) {
 		t.Fatalf("ProbeLocal before macOS 26: %v", err)
 	}
 	assertVariantIDs(t, probe.Variants,
-		"coreml_fp16_gpu", "coreml_fp16_ane", "coreml_fp16_all", "cpu_int8")
-	for _, variant := range probe.Variants[:3] {
+		"coreml_fp16_gpu", "coreml_fp16_ane", "cpu_int8")
+	for _, variant := range probe.Variants[:2] {
 		if variant.Supported || variant.Recommended || variant.UnsupportedReason == nil ||
 			*variant.UnsupportedReason != "requires_macos_26" {
 			t.Fatalf("Core ML variant before macOS 26=%#v", variant)
 		}
 	}
-	if !probe.Variants[3].Supported {
-		t.Fatalf("INT8 variant=%#v", probe.Variants[3])
+	if !probe.Variants[2].Supported {
+		t.Fatalf("INT8 variant=%#v", probe.Variants[2])
 	}
 	if err := contract.ValidatePrivacyModelProbeResponse(probe); err != nil {
 		t.Fatalf("probe response is invalid: %v", err)
