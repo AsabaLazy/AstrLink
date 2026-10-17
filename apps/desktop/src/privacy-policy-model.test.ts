@@ -91,9 +91,48 @@ const readyInstallation = {
   error: null,
   label_mapping: { EMAIL: "email", OTHER: null },
   installed_at: "2026-07-24T10:30:00Z",
+  preparation: null,
 } as const;
 
 describe("privacy-policy IPC contract", () => {
+  it("accepts the policy model's preparation only on a ready installation", () => {
+    for (const preparation of [
+      { state: "preparing", fallback: "local_model" },
+      { state: "preparing", fallback: null },
+      { state: "failed", fallback: "regex" },
+      { state: "ready", fallback: null },
+    ] as const) {
+      expect(
+        parsePrivacyModelInstallation({ ...readyInstallation, preparation }),
+      ).toEqual({ ...readyInstallation, preparation });
+    }
+    for (const preparation of [
+      { state: "compiling", fallback: null },
+      { state: "ready", fallback: "regex" },
+      { state: "preparing", fallback: "cloud" },
+      { state: "preparing" },
+      { state: "preparing", fallback: null, progress: 1 },
+      "preparing",
+    ]) {
+      expect(() =>
+        parsePrivacyModelInstallation({ ...readyInstallation, preparation }),
+      ).toThrow();
+    }
+    expect(() =>
+      parsePrivacyModelInstallation({
+        ...readyInstallation,
+        status: "downloading",
+        bytes_downloaded: 45,
+        installed_at: null,
+        preparation: { state: "preparing", fallback: null },
+      }),
+    ).toThrow("only a ready installation");
+    const { preparation: _omitted, ...missing } = readyInstallation;
+    expect(() => parsePrivacyModelInstallation(missing)).toThrow(
+      "missing field",
+    );
+  });
+
   it("strictly parses the singleton policy with a nullable local model selection", () => {
     expect(
       parsePrivacyPolicyPage({ items: [policy], next_cursor: null }),

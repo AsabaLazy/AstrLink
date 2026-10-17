@@ -152,6 +152,7 @@ function installation(
     error: null,
     label_mapping: {},
     installed_at: null,
+    preparation: null,
     ...overrides,
   };
 }

@@ -317,6 +317,21 @@ export interface PrivacyModelInstallation {
   error: PrivacyModelInstallationError | null;
   label_mapping: PrivacyLabelMapping;
   installed_at: string | null;
+  preparation: PrivacyModelPreparation | null;
+}
+
+export type PrivacyModelPreparationState = "preparing" | "ready" | "failed";
+export type PrivacyModelPreparationFallback = "local_model" | "regex";
+
+/**
+ * Core prepares the policy's Core ML model as soon as it is selected: the
+ * worker starts and compiles the model for this Mac. `fallback` is the
+ * previous detector, which inspects requests until the model is ready and
+ * after it failed; without one, requests wait, then fail once it failed.
+ */
+export interface PrivacyModelPreparation {
+  state: PrivacyModelPreparationState;
+  fallback: PrivacyModelPreparationFallback | null;
 }
 
 export interface PrivacyModelInstallationList {
@@ -1574,6 +1589,7 @@ export function parsePrivacyModelInstallation(
       "error",
       "label_mapping",
       "installed_at",
+      "preparation",
     ],
     [],
     path,
@@ -1647,6 +1663,13 @@ export function parsePrivacyModelInstallation(
   ) {
     invalid(path, "installation lifecycle fields are inconsistent");
   }
+  const preparation = parsePreparation(
+    installation.preparation,
+    `${path}.preparation`,
+  );
+  if (preparation !== null && status !== "ready") {
+    invalid(`${path}.preparation`, "only a ready installation is prepared");
+  }
   return {
     id: installationIDAt(installation.id, `${path}.id`),
     source: installation.source,
@@ -1687,7 +1710,32 @@ export function parsePrivacyModelInstallation(
       `${path}.label_mapping`,
     ),
     installed_at: installedAt,
+    preparation,
   };
+}
+
+function parsePreparation(
+  value: unknown,
+  path: string,
+): PrivacyModelPreparation | null {
+  if (value === null) return null;
+  const preparation = objectAt(value, path);
+  keysAt(preparation, ["state", "fallback"], [], path);
+  const fallback =
+    preparation.fallback === null
+      ? null
+      : preparation.fallback === "local_model" ||
+          preparation.fallback === "regex"
+        ? preparation.fallback
+        : invalid(`${path}.fallback`, "unknown preparation fallback");
+  const state = preparation.state;
+  if (
+    !(state === "preparing" || state === "failed") &&
+    !(state === "ready" && fallback === null)
+  ) {
+    invalid(`${path}.state`, "unknown preparation state");
+  }
+  return { state, fallback };
 }
 
 export function parsePrivacyModelInstallationList(

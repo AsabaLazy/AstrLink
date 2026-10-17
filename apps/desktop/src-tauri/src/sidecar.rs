@@ -4284,6 +4284,7 @@ fn validate_privacy_model_installation(installation: &serde_json::Value) -> Resu
             "error",
             "label_mapping",
             "installed_at",
+            "preparation",
         ],
         "privacy model installation",
     )?;
@@ -4398,7 +4399,31 @@ fn validate_privacy_model_installation(installation: &serde_json::Value) -> Resu
             return Err("privacy model installation lifecycle fields are inconsistent".to_string())
         }
     }
+    if status != "ready" && !object["preparation"].is_null() {
+        return Err(
+            "privacy model installation preparation needs a ready installation".to_string(),
+        );
+    }
+    validate_privacy_model_preparation(&object["preparation"])?;
     validate_label_mapping(&object["label_mapping"])
+}
+
+/// Core prepares the policy's Core ML model ahead of requests; `fallback`
+/// names the previous detector that inspects requests until it is ready.
+fn validate_privacy_model_preparation(value: &serde_json::Value) -> Result<(), String> {
+    if value.is_null() {
+        return Ok(());
+    }
+    validate_exact_object_keys(value, &["state", "fallback"], "privacy model preparation")?;
+    let fallback = match value["fallback"].as_str() {
+        Some(kind @ ("local_model" | "regex")) => Some(kind),
+        None if value["fallback"].is_null() => None,
+        _ => return Err("privacy model preparation fallback is invalid".to_string()),
+    };
+    match (value["state"].as_str(), fallback) {
+        (Some("preparing" | "failed"), _) | (Some("ready"), None) => Ok(()),
+        _ => Err("privacy model preparation state is invalid".to_string()),
+    }
 }
 
 fn validate_label_mapping(value: &serde_json::Value) -> Result<(), String> {
@@ -7208,8 +7233,44 @@ mod tests {
             "estimated_ram_bytes": 420_000_000,
             "error": null,
             "label_mapping": {"EMAIL": "email", "MISC": null},
-            "installed_at": null
+            "installed_at": null,
+            "preparation": null
         })
+    }
+
+    #[test]
+    fn validates_policy_model_preparation_state() {
+        let mut installation = privacy_installation_value();
+        installation["status"] = serde_json::json!("ready");
+        installation["bytes_downloaded"] = serde_json::json!(180_000_000);
+        installation["installed_at"] = serde_json::json!("2026-10-17T10:30:00Z");
+        assert!(validate_privacy_model_installation(&installation).is_ok());
+        for preparation in [
+            serde_json::json!({"state": "preparing", "fallback": "local_model"}),
+            serde_json::json!({"state": "preparing", "fallback": null}),
+            serde_json::json!({"state": "failed", "fallback": "regex"}),
+            serde_json::json!({"state": "ready", "fallback": null}),
+        ] {
+            installation["preparation"] = preparation;
+            assert!(validate_privacy_model_installation(&installation).is_ok());
+        }
+        for preparation in [
+            serde_json::json!({"state": "compiling", "fallback": null}),
+            serde_json::json!({"state": "ready", "fallback": "regex"}),
+            serde_json::json!({"state": "preparing", "fallback": "cloud"}),
+            serde_json::json!({"state": "preparing"}),
+            serde_json::json!({"state": "preparing", "fallback": null, "progress": 1}),
+            serde_json::json!("preparing"),
+        ] {
+            installation["preparation"] = preparation;
+            assert!(validate_privacy_model_installation(&installation).is_err());
+        }
+        let mut downloading = privacy_installation_value();
+        downloading["preparation"] = serde_json::json!({"state": "preparing", "fallback": null});
+        assert!(validate_privacy_model_installation(&downloading).is_err());
+        let mut missing = privacy_installation_value();
+        missing.as_object_mut().unwrap().remove("preparation");
+        assert!(validate_privacy_model_installation(&missing).is_err());
     }
 
     #[test]

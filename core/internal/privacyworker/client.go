@@ -545,6 +545,31 @@ func (plan *inspection) result() []privacy.Finding {
 	return append(findings, merged...)
 }
 
+// prepare starts the worker of the selected model ahead of its first request.
+// It holds the worker slot meanwhile, so a request for this model waits for
+// that worker instead of starting another.
+func (client *Client) prepare(ctx context.Context) error {
+	select {
+	case client.slot <- struct{}{}:
+		defer func() { <-client.slot }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	client.mu.Lock()
+	modelID := client.modelID
+	client.mu.Unlock()
+	_, err := client.ensureProcess(ctx, modelID)
+	return err
+}
+
+// servable reports whether the client may still inspect requests for its
+// model: it is active and has not latched a failure.
+func (client *Client) servable() bool {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.active && client.failed == nil
+}
+
 func (client *Client) expectedModelActive(expected contract.PrivacyModelID) bool {
 	client.mu.Lock()
 	defer client.mu.Unlock()

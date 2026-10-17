@@ -1066,6 +1066,7 @@ describe("desktop bridge contract", () => {
       error: null,
       label_mapping: {},
       installed_at: null,
+      preparation: null,
     };
 
     invokeMock.mockResolvedValueOnce({ items: [policy], next_cursor: null });
