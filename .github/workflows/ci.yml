@@ -230,7 +230,9 @@ jobs:
       - name: Reject production model artifacts
         run: bun ../../scripts/check-no-production-models.mjs
       - name: Check frontend
-        run: bun run branding:sync && bun run typecheck && bun run test
+        # This Linux runner has four CPUs. Keep the smaller default worker cap
+        # in vitest.config.ts for local runs and macOS package jobs.
+        run: bun run branding:sync && bun run typecheck && bun run test --maxWorkers=4
 
   desktop-checks:
     name: Desktop checks
@@ -314,8 +316,8 @@ jobs:
         with:
           toolchain: stable
           components: clippy, rustfmt
-      - name: Reduce Intel test debug information
-        if: matrix.os == 'macos-15-intel' && env.ASTRLINK_CI_BUILD_ARTIFACTS != 'true'
+      - name: Reduce test debug information
+        if: env.ASTRLINK_CI_BUILD_ARTIFACTS != 'true'
         shell: bash
         # Keep debug assertions and all tests; omit bulky debugger symbols.
         # rust-cache includes CARGO_* in its key, isolating this test profile.

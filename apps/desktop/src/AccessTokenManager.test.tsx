@@ -291,8 +291,12 @@ describe("AccessTokenManager", () => {
 
     await act(async () => button("删除", row(firstToken.name)).click());
     const confirmation = document.querySelector('[role="alertdialog"]');
+    // ICU data differs by platform: a narrow Chinese list may use 和 or 、.
+    const clientNames = new Intl.ListFormat("zh-CN", {
+      style: "narrow",
+    }).format(["Claude Code", "Codex"]);
     expect(confirmation?.textContent).toContain(
-      "以下客户端正在使用“VS Code”：Claude Code、Codex。",
+      `以下客户端正在使用“VS Code”：${clientNames}。`,
     );
     const checkbox = confirmation?.querySelector('[role="checkbox"]');
     expect(checkbox?.getAttribute("aria-checked")).toBe("true");
