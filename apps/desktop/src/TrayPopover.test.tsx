@@ -631,7 +631,7 @@ describe("TrayPopoverPanel", () => {
     expect(document.querySelector('[data-slot="tray-raw-pending"]')).toBeNull();
     // Cost is shown without an unpriced caveat.
     expect(container.textContent).toContain("$0.83");
-    expect(container.textContent).not.toContain("待计价");
+    expect(container.textContent).not.toContain("未计价");
   });
 
   it("names approved raw reads and pending raw access requests", async () => {

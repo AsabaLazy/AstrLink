@@ -64,6 +64,15 @@ func TestUsageScannerProtocols(t *testing.T) {
 			want: &contract.Usage{InputTokens: 1, OutputTokens: 2, TotalTokens: 3},
 		},
 		{
+			name:      "openai responses sse incomplete event",
+			protocol:  contract.ProtocolOpenAIResponses,
+			streaming: true,
+			chunks: []string{
+				"data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"usage\":{\"input_tokens\":7,\"output_tokens\":64,\"total_tokens\":71}}}\n",
+			},
+			want: &contract.Usage{InputTokens: 7, OutputTokens: 64, TotalTokens: 71},
+		},
+		{
 			name:      "chat sse last usage-bearing chunk wins",
 			protocol:  contract.ProtocolOpenAIChat,
 			streaming: true,
@@ -214,6 +223,29 @@ func TestUsageScannerProtocols(t *testing.T) {
 			}
 			if recorder.Body.String() != strings.Join(test.chunks, "") {
 				t.Fatalf("scanner altered response bytes")
+			}
+		})
+	}
+}
+
+func TestUsageScannerResponsesTerminalEvents(t *testing.T) {
+	for _, test := range []struct {
+		event    string
+		complete bool
+	}{
+		{"response.completed", true},
+		{"response.incomplete", true},
+		{"response.failed", false},
+	} {
+		t.Run(test.event, func(t *testing.T) {
+			scanner := newUsageScanner(contract.ProtocolOpenAIResponses, true)
+			writer := scanner.wrap(httptest.NewRecorder())
+			if _, err := fmt.Fprintf(writer, "data: {\"type\":%q,\"response\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":2,\"total_tokens\":7}}}\n", test.event); err != nil {
+				t.Fatal(err)
+			}
+			usage := scanner.Usage()
+			if usage == nil || usage.InputTokens != 5 || usage.OutputTokens != 2 || scanner.complete != test.complete {
+				t.Fatalf("usage=%#v complete=%t, want 5/2 complete=%t", usage, scanner.complete, test.complete)
 			}
 		})
 	}

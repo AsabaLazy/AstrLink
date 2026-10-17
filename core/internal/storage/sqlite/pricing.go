@@ -217,7 +217,11 @@ WHERE root_id = ? AND attempt = ? AND local_access_token_id IS NULL`,
 	if r.Status != contract.RequestStatusPending {
 		terminal = 1
 		reason = "missing_price"
-		if priceJSON != "" {
+		if r.Usage == nil && (r.Status == contract.RequestStatusFailed || r.Status == contract.RequestStatusCancelled) {
+			// An attempt that ended without usage has nothing to value; like
+			// new-api, which refunds a failed request, it costs $0.
+			reason = "priced"
+		} else if priceJSON != "" {
 			var price pricing.Price
 			if err = json.Unmarshal([]byte(priceJSON), &price); err != nil {
 				return err
@@ -241,22 +245,40 @@ WHERE root_id = ? AND attempt = ? AND local_access_token_id IS NULL`,
 	return err
 }
 
-// PriceUnpriced fills missing prices from new catalogs and retries audio
-// breakdown failures with the original price snapshot after evaluator fixes.
+// partialUsageReasons are the reasons earlier releases left an entry
+// unpriced for incomplete usage, which Evaluate now values.
+const partialUsageReasons = `'incomplete_usage','invalid_cache_partition','missing_cache_ttl','missing_audio_usage',
+'invalid_token_partition','missing_audio_cache_partition','missing_billing_parameter'`
+
+// PriceUnpriced fills missing prices from new catalogs and values entries
+// that earlier releases left unpriced, using their original price snapshot.
 // It does not import legacy logs or rewrite amounts that were already priced.
 func (s *Store) PriceUnpriced(ctx context.Context) (int, error) {
-	catalog, err := s.PricingCatalog(ctx)
-	if err != nil || catalog.Version == "" {
+	// A failed or cancelled attempt without usage costs $0, as recordBilling
+	// now records it; its request record tells how the attempt ended.
+	result, err := s.db.ExecContext(ctx, `UPDATE billing_ledger SET amount_usd='0.000000000',tier='',reason='priced',revalued=1
+WHERE terminal=1 AND reason<>'priced' AND COALESCE(usage_json,'null')='null' AND EXISTS (SELECT 1 FROM request_records r
+WHERE r.attempt_index=billing_ledger.attempt AND r.status IN ('failed','cancelled')
+AND (r.id=billing_ledger.root_id OR r.parent_request_id=billing_ledger.root_id))`)
+	if err != nil {
 		return 0, err
 	}
-	processed := 0
+	settled, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	processed := int(settled)
+	catalog, err := s.PricingCatalog(ctx)
+	if err != nil || catalog.Version == "" {
+		return processed, err
+	}
 	var lastRoot string
 	lastAttempt := 0
 	for {
 		rows, err := s.db.QueryContext(ctx, `SELECT b.root_id,b.attempt,b.service_id,b.started_at,b.model,b.usage_json,COALESCE(b.price_json,''),b.reason
 FROM billing_ledger b JOIN services s ON s.id=b.service_id
 WHERE b.terminal=1 AND ((b.reason='missing_price' AND b.price_version<>?)
-OR b.reason IN ('missing_audio_usage','missing_audio_cache_partition'))
+OR b.reason IN (`+partialUsageReasons+`))
 AND (b.root_id>? OR (b.root_id=? AND b.attempt>?))
 ORDER BY b.root_id,b.attempt LIMIT 100`, catalog.Version, lastRoot, lastRoot, lastAttempt)
 		if err != nil {
@@ -294,14 +316,22 @@ ORDER BY b.root_id,b.attempt LIMIT 100`, catalog.Version, lastRoot, lastRoot, la
 		}
 		for _, r := range records {
 			lastRoot, lastAttempt = string(r.ID), r.AttemptIndex
-			if r.reason != "missing_price" {
+			// An entry interrupted before it had a price takes the
+			// missing-price path below.
+			if r.reason != "missing_price" && r.priceJSON != "" {
 				var price pricing.Price
 				if err = json.Unmarshal([]byte(r.priceJSON), &price); err != nil {
 					return processed, err
 				}
 				value, evaluationErr := pricing.Evaluate(price.Expression, r.Usage, r.StartedAt)
 				if evaluationErr != nil {
-					continue // A genuinely unknown, price-sensitive split stays unpriced.
+					// Still unpriced, now under the reason that holds (as a rule
+					// missing usage), so later passes skip it.
+					if _, err := s.db.ExecContext(ctx, `UPDATE billing_ledger SET reason=?
+WHERE root_id=? AND attempt=? AND terminal=1 AND reason=?`, evaluationErr.Error(), r.ID, r.AttemptIndex, r.reason); err != nil {
+						return processed, err
+					}
+					continue
 				}
 				result, err := s.db.ExecContext(ctx, `UPDATE billing_ledger SET amount_usd=?,tier=?,reason='priced',revalued=1
 WHERE root_id=? AND attempt=? AND terminal=1 AND reason=? AND price_json=? AND usage_json=?`, value.AmountUSD, value.Tier, r.ID, r.AttemptIndex, r.reason, r.priceJSON, r.usageJSON)

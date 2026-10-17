@@ -289,7 +289,10 @@ func (scanner *usageScanner) parseOpenAIResponses(document map[string]json.RawMe
 		if raw, ok := document["type"]; ok {
 			_ = json.Unmarshal(raw, &eventType)
 		}
-		if eventType != "" && eventType != "response.completed" {
+		// Every terminal response carries the usage the provider bills, an
+		// incomplete one (max_output_tokens, content filter) and a failed one
+		// included.
+		if eventType != "" && eventType != "response.completed" && eventType != "response.incomplete" && eventType != "response.failed" {
 			return
 		}
 		if rawResponse, ok := document["response"]; ok {
@@ -297,7 +300,7 @@ func (scanner *usageScanner) parseOpenAIResponses(document map[string]json.RawMe
 			if json.Unmarshal(rawResponse, &response) == nil {
 				scanner.noteOutputID(response["id"])
 				if usage := decodeOpenAIResponsesUsage(response["usage"]); usage != nil {
-					scanner.complete = true
+					scanner.complete = eventType != "response.failed"
 					scanner.usage = usage
 				}
 				return

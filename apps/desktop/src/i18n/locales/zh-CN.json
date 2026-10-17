@@ -3176,7 +3176,7 @@
     "description": "按官方 API 价格折算",
     "cycleAmount": "本周期",
     "monthAmount": "本月",
-    "incomplete": "部分待计价",
+    "incomplete": "部分未计价",
     "month": "月度",
     "primary": "额度周期",
     "secondary": "长期额度周期",
@@ -3184,7 +3184,7 @@
     "empty": "暂无调用",
     "officialAmount": "折算金额",
     "partial": "仅含已记录调用",
-    "unpricedCount": "{{count}} 次待计价",
+    "unpricedCount": "{{count}} 次未计价",
     "pendingCount": "{{count}} 次进行中",
     "unavailable": "金额暂不可用"
   },
