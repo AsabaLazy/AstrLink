@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/astrlink/core/contract"
-	"github.com/QuantumNous/astrlink/core/internal/storage/sqlite"
 )
 
 func TestParseRequestRecordQueryAllowsOnlyRepeatedTokenFilters(t *testing.T) {
@@ -95,7 +94,7 @@ func TestParseRequestRecordQueryRepeatsModelFilters(t *testing.T) {
 }
 
 func TestRequestRecordControlAPI(t *testing.T) {
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "astrlink.db"))
+	store, err := openControlTestStore(t, context.Background(), filepath.Join(t.TempDir(), "astrlink.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +202,7 @@ func TestRequestRecordControlAPI(t *testing.T) {
 }
 
 func TestRequestSessionControlAPI(t *testing.T) {
-	store, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "sessions.db"))
+	store, err := openControlTestStore(t, context.Background(), filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

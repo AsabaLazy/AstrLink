@@ -9,7 +9,6 @@ import (
 
 	"github.com/QuantumNous/astrlink/core/contract"
 	"github.com/QuantumNous/astrlink/core/internal/storage"
-	"github.com/QuantumNous/astrlink/core/internal/storage/sqlite"
 )
 
 // fakeSync is the sync engine as the API surface sees it, recording what a
@@ -66,7 +65,7 @@ func (f *fakeSync) Sync(context.Context) (contract.SyncStatus, error) {
 
 func newSyncHandler(t *testing.T, manager SyncManager) *Handler {
 	t.Helper()
-	store, err := sqlite.Open(context.Background(), t.TempDir()+"/astrlink.db")
+	store, err := openControlTestStore(t, context.Background(), t.TempDir()+"/astrlink.db")
 	if err != nil {
 		t.Fatalf("open SQLite: %v", err)
 	}
