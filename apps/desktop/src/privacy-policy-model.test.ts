@@ -4,6 +4,7 @@ import {
   compareReleaseVersions,
   defaultPrivacyAllowlistRules,
   defaultPrivacyKindRules,
+  isCoreMLVariantID,
   isResourceHeavyVariant,
   localModelActive,
   missingDefaultPrivacyAllowlistRules,
@@ -839,6 +840,9 @@ describe("privacy-policy IPC contract", () => {
       }),
     ).toThrow("lowercase commit");
     expect(isResourceHeavyVariant(variant)).toBe(false);
+    expect(isCoreMLVariantID("coreml_fp16_ane")).toBe(true);
+    expect(isCoreMLVariantID(variant.id)).toBe(false);
+    expect(isCoreMLVariantID("gpu_f16")).toBe(false);
     expect(
       isResourceHeavyVariant({
         bytes_total: 1024 ** 3,

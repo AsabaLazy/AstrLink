@@ -1752,6 +1752,15 @@ export function validatePrivacyModelInstallationID(
   return installationIDAt(installationID, "$.installation_id");
 }
 
+/**
+ * Core offers a local FP16 model on Apple silicon as Core ML variants named
+ * `coreml_fp16_<units>`. Core ML compiles the model the first time the worker
+ * loads it, so that first start is slow.
+ */
+export function isCoreMLVariantID(variantID: string): boolean {
+  return variantID.startsWith("coreml_");
+}
+
 export function isResourceHeavyVariant(
   variant: Pick<PrivacyModelVariant, "bytes_total" | "estimated_ram_bytes">,
 ): boolean {

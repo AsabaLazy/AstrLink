@@ -1731,6 +1731,136 @@ describe("SafetyPolicy", () => {
     );
   });
 
+  it("notes the first Core ML compile and the macOS 26 requirement on local import", async () => {
+    const coreMLVariant = {
+      id: "coreml_fp16_gpu",
+      name: "Core ML FP16 · GPU",
+      quantization: "f16",
+      bytes_total: 74_000_000,
+      estimated_ram_bytes: 370_000_000,
+      recommended: false,
+      supported: true,
+      unsupported_reason: null,
+    } as const;
+    const localProbe = probe({
+      repo_id: "local/model-aaaaaaaaaaaa",
+      requested_revision: revision,
+      name: "Guard FP16",
+      variants: [coreMLVariant, catalogModel.variants[0]],
+    });
+    const hint = "Core ML 版本首次加载时会针对这台 Mac 编译模型";
+    bridgeMocks.probeLocalPrivacyModel
+      .mockResolvedValueOnce(localProbe)
+      .mockResolvedValueOnce({
+        ...localProbe,
+        variants: [
+          {
+            ...coreMLVariant,
+            supported: false,
+            unsupported_reason: "requires_macos_26",
+          },
+          catalogModel.variants[0],
+        ],
+      });
+    await renderPolicy();
+    await openModels();
+    await act(async () => button("本地导入").click());
+    await setInput(
+      '[aria-label="本地模型路径"]',
+      "/Volumes/models/guard/model_fp16_static512.onnx",
+    );
+    await act(async () => {
+      button("检查本地模型").click();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain(localProbe.name);
+    expect(container.textContent).toContain(hint);
+
+    await act(async () => {
+      button("检查本地模型").click();
+      await Promise.resolve();
+    });
+    expect(bridgeMocks.probeLocalPrivacyModel).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain(hint);
+    const trigger = document.querySelector<HTMLButtonElement>(
+      '[aria-label="本地模型版本"]',
+    )!;
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+    const options = [
+      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ];
+    const coreMLOption = options.find((option) =>
+      option.textContent?.startsWith("Core ML FP16 · GPU"),
+    );
+    expect(coreMLOption?.textContent).toBe(
+      "Core ML FP16 · GPU · 需要 macOS 26 或更高版本",
+    );
+    expect(coreMLOption?.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("notes the first Core ML compile when a Core ML model is chosen for the policy", async () => {
+    const cpu = readyInstallation();
+    const coreML = {
+      ...cpu,
+      id: customInstallationID,
+      name: "Guard FP16",
+      variant_id: "coreml_fp16_gpu",
+      variant_name: "Core ML FP16 · GPU",
+      quantization: "f16",
+    };
+    const hint = "Core ML 版本首次加载时会针对这台 Mac 编译模型";
+    bridgeMocks.getPrivacyPolicy.mockResolvedValueOnce(
+      policyRecord({
+        enabled: true,
+        detector: "local_model",
+        local_model_id: cpu.id,
+      }),
+    );
+    bridgeMocks.listPrivacyModelInstallations.mockResolvedValueOnce({
+      items: [cpu, coreML],
+    });
+    await renderPolicy();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      "#privacy-detector-local-model",
+    )!;
+    await act(async () => trigger.click());
+    const picker = () =>
+      document.querySelector('[role="dialog"]')?.textContent ?? "";
+    expect(picker()).toContain("确认后会立即更新全局策略");
+    expect(picker()).not.toContain(hint);
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(`#privacy-model-choice-${coreML.id}`)!
+        .click(),
+    );
+    expect(picker()).toContain(hint);
+    await act(async () => button("取消").click());
+    await settleClosedLayer();
+
+    await openModels();
+    await act(async () => button("已安装 2").click());
+    const useButtons = [...container.querySelectorAll("button")].filter(
+      (candidate) => candidate.textContent?.trim() === "用于策略",
+    );
+    expect(useButtons).toHaveLength(1);
+    await act(async () => {
+      useButtons[0].click();
+      await Promise.resolve();
+    });
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("确认使用本地模型");
+    expect(dialog?.textContent).toContain(hint);
+  });
+
   it("shows an in-app confirmation and feedback when deleting a model", async () => {
     const ready = readyInstallation();
     bridgeMocks.listPrivacyModelInstallations.mockResolvedValueOnce({

@@ -82,6 +82,7 @@ import {
   compareReleaseVersions,
   DEFAULT_PRIVACY_RESTORE_SETTINGS,
   defaultPrivacyKindRules,
+  isCoreMLVariantID,
   isResourceHeavyVariant,
   localModelActive,
   MAX_PRIVACY_ALLOWLIST_RULES,
@@ -495,6 +496,13 @@ function formatBytes(bytes: number): string {
   return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }
 
+function unsupportedVariantSuffix(variant: PrivacyModelVariant): string {
+  if (variant.supported) return "";
+  return variant.unsupported_reason === "requires_macos_26"
+    ? i18n.t("safety.unsupportedRequiresMacOS26")
+    : i18n.t("safety.unsupported");
+}
+
 function summarizeDryRunFindings(result: PrivacyDryRunResultData): string {
   if (result.findings.length === 0) {
     return i18n.t("privacy.noHit");
@@ -786,6 +794,11 @@ function ModelActionDialog({
           <FormMessage tone={heavy ? "warning" : "notice"}>
             {heavy ? t("safety.heavyConfirm") : t("safety.normalConfirm")}
           </FormMessage>
+          {isCoreMLVariantID(installation.variant_id) ? (
+            <FormMessage tone="notice">
+              {t("safety.coreMLFirstLoad")}
+            </FormMessage>
+          ) : null}
         </>
       ) : null}
     </>
@@ -899,6 +912,9 @@ function InstalledModelPicker({
           <FormMessage tone={heavy ? "warning" : "notice"}>
             {t(heavy ? "safety.heavyConfirm" : "safety.normalConfirm")}
           </FormMessage>
+        ) : null}
+        {selected && isCoreMLVariantID(selected.variant_id) ? (
+          <FormMessage tone="notice">{t("safety.coreMLFirstLoad")}</FormMessage>
         ) : null}
         {error ? <FormMessage tone="error">{error}</FormMessage> : null}
         <DialogFooter className="shrink-0 flex-row flex-wrap items-center">
@@ -4267,9 +4283,7 @@ export function SafetyPolicy({
                                       {candidate.recommended
                                         ? t("safety.recommended")
                                         : ""}
-                                      {!candidate.supported
-                                        ? t("safety.unsupported")
-                                        : ""}
+                                      {unsupportedVariantSuffix(candidate)}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -4776,14 +4790,20 @@ export function SafetyPolicy({
                                 {variant.recommended
                                   ? t("safety.recommended")
                                   : ""}
-                                {!variant.supported
-                                  ? t("safety.unsupported")
-                                  : ""}
+                                {unsupportedVariantSuffix(variant)}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </Label>
+                      {probe.variants.some(
+                        (variant) =>
+                          variant.supported && isCoreMLVariantID(variant.id),
+                      ) ? (
+                        <FormMessage tone="notice">
+                          {t("safety.coreMLFirstLoad")}
+                        </FormMessage>
+                      ) : null}
 
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         <span className="mr-auto text-sm leading-relaxed text-muted-foreground">
@@ -4947,9 +4967,7 @@ export function SafetyPolicy({
                                 {variant.recommended
                                   ? t("safety.recommended")
                                   : ""}
-                                {!variant.supported
-                                  ? t("safety.unsupported")
-                                  : ""}
+                                {unsupportedVariantSuffix(variant)}
                               </SelectItem>
                             ))}
                           </SelectContent>

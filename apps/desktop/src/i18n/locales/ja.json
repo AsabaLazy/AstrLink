@@ -1784,6 +1784,8 @@
     "recommended": " · 推奨",
     "recommendedModel": "推奨",
     "unsupported": " · 現在は非対応",
+    "unsupportedRequiresMacOS26": " · macOS 26 以降が必要",
+    "coreMLFirstLoad": "Core ML 版は初回の読み込み時にこの Mac 向けにモデルをコンパイルするため、15〜25 秒ほどかかります。2 回目以降はすぐに起動します。",
     "checkAndInstall": "確認してインストール",
     "updateAvailableHint": "バージョン {{version}} を利用できます",
     "updateTo": "v{{version}} に更新",

@@ -1784,6 +1784,8 @@
     "recommended": " · recommended",
     "recommendedModel": "Recommended",
     "unsupported": " · not supported now",
+    "unsupportedRequiresMacOS26": " · requires macOS 26 or later",
+    "coreMLFirstLoad": "Core ML versions are compiled for this Mac the first time they load, which takes about 15–25 seconds. Later starts are fast.",
     "checkAndInstall": "Check and install",
     "updateAvailableHint": "Version {{version}} available",
     "updateTo": "Update to v{{version}}",

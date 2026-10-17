@@ -1784,6 +1784,8 @@
     "recommended": " · 推荐",
     "recommendedModel": "推荐",
     "unsupported": " · 当前不支持",
+    "unsupportedRequiresMacOS26": " · 需要 macOS 26 或更高版本",
+    "coreMLFirstLoad": "Core ML 版本首次加载时会针对这台 Mac 编译模型，约需 15–25 秒，之后启动会很快。",
     "checkAndInstall": "检查并安装",
     "updateAvailableHint": "有新版本 v{{version}}",
     "updateTo": "更新到 v{{version}}",
