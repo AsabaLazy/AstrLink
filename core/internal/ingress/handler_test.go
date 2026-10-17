@@ -150,7 +150,7 @@ func TestInferencePlaneReturnsStructuredBoundaryErrors(t *testing.T) {
 	}
 }
 
-func TestInferencePlaneRejectsBrowserOriginsAndSimpleRequestMediaTypes(t *testing.T) {
+func TestInferencePlaneRejectsSimpleRequestMediaTypes(t *testing.T) {
 	tests := []struct {
 		name        string
 		origin      string
@@ -158,7 +158,6 @@ func TestInferencePlaneRejectsBrowserOriginsAndSimpleRequestMediaTypes(t *testin
 		status      int
 		code        string
 	}{
-		{name: "browser origin", origin: "https://attacker.example", contentType: "application/json", status: http.StatusForbidden, code: "origin_forbidden"},
 		{name: "simple text request", contentType: "text/plain;charset=UTF-8", status: http.StatusUnsupportedMediaType, code: "unsupported_media_type"},
 		{name: "HTML form request", contentType: "application/x-www-form-urlencoded", status: http.StatusUnsupportedMediaType, code: "unsupported_media_type"},
 	}
@@ -176,7 +175,7 @@ func TestInferencePlaneRejectsBrowserOriginsAndSimpleRequestMediaTypes(t *testin
 	}
 }
 
-func TestProductionInferenceGateRequiresCanonicalHostOriginBoundaryAndLocalToken(t *testing.T) {
+func TestProductionInferenceGateRequiresCanonicalHostAndLocalToken(t *testing.T) {
 	const token = "astr_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
 	resolveCalls := 0
 	handler, err := NewProduction(Dependencies{
@@ -214,8 +213,10 @@ func TestProductionInferenceGateRequiresCanonicalHostOriginBoundaryAndLocalToken
 		{name: "localhost on another port", host: "localhost:8318", headerName: "Authorization", header: "Bearer " + token, status: http.StatusMisdirectedRequest, code: "host_forbidden"},
 		{name: "localhost Host", host: "LocalHost:8317", headerName: "Authorization", header: "Bearer " + token, status: http.StatusUnprocessableEntity, code: "missing_protocol_capability", resolves: true},
 		{name: "IPv6 loopback Host", host: "[::1]:8317", headerName: "Authorization", header: "Bearer " + token, status: http.StatusUnprocessableEntity, code: "missing_protocol_capability", resolves: true},
-		{name: "browser Origin", host: "127.0.0.1:8317", origin: "https://attacker.example", headerName: "Authorization", header: "Bearer " + token, status: http.StatusForbidden, code: "origin_forbidden"},
-		{name: "browser Origin after empty value", host: "127.0.0.1:8317", origins: []string{"", "https://attacker.example"}, headerName: "Authorization", header: "Bearer " + token, status: http.StatusForbidden, code: "origin_forbidden"},
+		{name: "browser Origin", host: "127.0.0.1:8317", origin: "https://browser.example", headerName: "Authorization", header: "Bearer " + token, status: http.StatusUnprocessableEntity, code: "missing_protocol_capability", resolves: true},
+		{name: "browser Origin after empty value", host: "127.0.0.1:8317", origins: []string{"", "https://browser.example"}, headerName: "Authorization", header: "Bearer " + token, status: http.StatusUnprocessableEntity, code: "missing_protocol_capability", resolves: true},
+		{name: "browser missing token", host: "127.0.0.1:8317", origin: "https://browser.example", status: http.StatusUnauthorized, code: "invalid_access_token"},
+		{name: "browser wrong token", host: "127.0.0.1:8317", origin: "https://browser.example", headerName: "Authorization", header: "Bearer wrong", status: http.StatusUnauthorized, code: "invalid_access_token"},
 		{name: "missing token", host: "127.0.0.1:8317", status: http.StatusUnauthorized, code: "invalid_access_token"},
 		{name: "wrong token", host: "127.0.0.1:8317", headerName: "Authorization", header: "Bearer wrong_token_0123456789abcdef", status: http.StatusUnauthorized, code: "invalid_access_token"},
 		{name: "ambiguous token", host: "127.0.0.1:8317", headerName: "Authorization", header: "Bearer " + token, status: http.StatusUnauthorized, code: "invalid_access_token"},
@@ -252,10 +253,8 @@ func TestProductionInferenceGateRequiresCanonicalHostOriginBoundaryAndLocalToken
 			if got := resolveCalls > before; got != test.resolves {
 				t.Fatalf("resolver called=%t, want %t", got, test.resolves)
 			}
-			for name := range response.Header() {
-				if strings.HasPrefix(http.CanonicalHeaderKey(name), "Access-Control-") {
-					t.Fatalf("CORS header leaked: %s", name)
-				}
+			if response.Result().Header.Get("Access-Control-Allow-Origin") != "*" {
+				t.Fatal("browser cannot read the API response")
 			}
 		})
 	}
@@ -291,12 +290,16 @@ func TestReachabilityProbeSkipsTokenAndRecordsButKeepsLocalGate(t *testing.T) {
 		{name: "IPv4", method: http.MethodGet, host: "127.0.0.1:8317", status: http.StatusNoContent, marked: true},
 		{name: "localhost", method: http.MethodGet, host: "localhost:8317", status: http.StatusNoContent, marked: true},
 		{name: "IPv6", method: http.MethodGet, host: "[::1]:8317", status: http.StatusNoContent, marked: true},
+		{name: "browser", method: http.MethodGet, host: "localhost:8317", status: http.StatusNoContent, marked: true},
 		{name: "POST", method: http.MethodPost, host: "localhost:8317", status: http.StatusMethodNotAllowed},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(test.method, ReachabilityPath, nil)
 			request.Host = test.host
+			if test.name == "browser" {
+				request.Header.Set("Origin", "https://browser.example")
+			}
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
 			if response.Code != test.status {
@@ -317,7 +320,6 @@ func TestReachabilityProbeSkipsTokenAndRecordsButKeepsLocalGate(t *testing.T) {
 		code               string
 	}{
 		{name: "foreign Host", host: "attacker.example:8317", status: http.StatusMisdirectedRequest, code: "host_forbidden"},
-		{name: "browser Origin", host: "localhost:8317", origin: "https://attacker.example", status: http.StatusForbidden, code: "origin_forbidden"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, ReachabilityPath, nil)

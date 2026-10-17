@@ -247,11 +247,20 @@ func removeInboundCredentials(header http.Header) {
 		"Authorization",
 		"Proxy-Authorization",
 		"Cookie",
+		"Origin",
+		"Referer",
 		"X-Api-Key",
 		"X-Goog-Api-Key",
 		localPolicyWarningHeader,
 	} {
 		header.Del(name)
+	}
+	// Browser context belongs to the gateway hop. Provider identity headers
+	// can still be supplied by the target overlay after this cleanup.
+	for name := range header {
+		if strings.HasPrefix(strings.ToLower(name), "sec-fetch-") {
+			delete(header, name)
+		}
 	}
 	// Codex shows its image and search tools only for a provider that sends
 	// this OpenAI header. Its value is a local switch, not a credential that
@@ -315,8 +324,7 @@ func removeForwardingHeaders(header http.Header) {
 	}
 }
 
-// The inference listener is not a browser API. Never let permissive upstream
-// CORS policy turn loopback into a cross-origin credentialed relay.
+// The inference boundary owns CORS. Upstream policy must not override it.
 func removeCORSHeaders(header http.Header) {
 	for name := range header {
 		canonical := http.CanonicalHeaderKey(name)

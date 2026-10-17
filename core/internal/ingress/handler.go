@@ -239,9 +239,9 @@ func NewProduction(dependencies Dependencies) (*Handler, error) {
 
 // NewNetworkProduction is the server edition's inference gate. Its listener
 // is reached from other machines by IP, hostname or container name, so any
-// Host is accepted; the access token stays mandatory and browser origins
-// stay refused. Requests rejected before their token is accepted are not
-// recorded, so whoever can reach the port cannot fill the request records.
+// Host is accepted; the access token stays mandatory for browser callers too.
+// Requests rejected before their token is accepted are not recorded, so
+// whoever can reach the port cannot fill the request records.
 func NewNetworkProduction(dependencies Dependencies) (*Handler, error) {
 	if err := validateProductionDependencies(dependencies); err != nil {
 		return nil, err
@@ -301,6 +301,14 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	// The policy warning header is owned by this local response boundary.
 	// Strip any client-supplied value so it cannot be spoofed upstream.
 	request.Header.Del(PolicyWarningHeader)
+	if builtinInternalFrom(request.Context()) == nil {
+		writer.Header().Set("Access-Control-Allow-Origin", "*")
+		writer.Header().Set("Access-Control-Expose-Headers", "*")
+		if request.Method == http.MethodOptions {
+			handler.servePreflight(writer, request)
+			return
+		}
+	}
 	if builtinInternalFrom(request.Context()) == nil && request.URL.Path == ReachabilityPath {
 		handler.serveReachability(writer, request)
 		return
@@ -849,10 +857,6 @@ func (handler *Handler) hostAllowed(host string) bool {
 }
 
 func (handler *Handler) allowLocalCaller(writer http.ResponseWriter, request *http.Request) bool {
-	if hasBrowserOrigin(request.Header) {
-		handler.writeBoundaryError(writer, request, http.StatusForbidden, "origin_forbidden", "browser origins cannot call the inference plane")
-		return false
-	}
 	if !handler.hostAllowed(request.Host) {
 		handler.writeBoundaryError(writer, request, http.StatusMisdirectedRequest, "host_forbidden", "request Host does not match the inference listener")
 		return false
@@ -981,15 +985,6 @@ func (handler *Handler) writeRecordedInferenceError(
 		session.noteFailed(errorSummaryFromInference(code, message, retryable))
 	}
 	session.finish(context.Background(), handler.requestRecords, handler.auditBlobs, handler.recordLogger)
-}
-
-func hasBrowserOrigin(header http.Header) bool {
-	for _, value := range header.Values("Origin") {
-		if value != "" {
-			return true
-		}
-	}
-	return false
 }
 
 func localClientCredential(header http.Header) (string, bool) {
