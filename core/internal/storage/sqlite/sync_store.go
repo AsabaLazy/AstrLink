@@ -377,6 +377,17 @@ func (store *Store) Baseline(ctx context.Context) (payload []byte, revision int6
 	return payload, revision, nil
 }
 
+// HasBaseline reports whether a merge base is stored. It answers the question
+// the status asks without opening the package, which the status does not need.
+func (store *Store) HasBaseline(ctx context.Context) (bool, error) {
+	var stored bool
+	if err := store.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sync_baseline WHERE key = ?)`,
+		syncBaselineKey).Scan(&stored); err != nil {
+		return false, fmt.Errorf("read sync baseline presence: %w", err)
+	}
+	return stored, nil
+}
+
 // ResetBaseline forgets the merge base. It is what the engine calls when the
 // remote turns out to hold a package this device cannot open, or when the
 // remote it points at changes: without a base every remote entity is treated as

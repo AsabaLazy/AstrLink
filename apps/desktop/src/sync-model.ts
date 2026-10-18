@@ -55,6 +55,12 @@ export interface SyncRemote {
 export interface SyncConfig {
   enabled: boolean;
   device_name: string;
+  /**
+   * One-shot: the next run replaces the package at the remote with this
+   * device's configuration instead of merging with it. The engine clears the
+   * flag after a run that stores the package.
+   */
+  force_push: boolean;
   trigger: SyncTriggerSettings;
   scope: SyncScope;
   remote: SyncRemote;
@@ -88,6 +94,13 @@ export interface SyncStatus {
   device_name: string;
   host_name: string;
   pending_changes: number;
+  /**
+   * The device has never exchanged a package with this remote, so its next run
+   * adopts the remote's configuration.
+   */
+  first_sync_pending: boolean;
+  /** The next run will overwrite the remote instead of merging with it. */
+  force_push_armed: boolean;
   last_synced_at?: string;
   next_run_at?: string;
   last_error?: string;
@@ -102,6 +115,7 @@ export function defaultSyncConfig(): SyncConfig {
   return {
     enabled: false,
     device_name: "",
+    force_push: false,
     trigger: {
       mode: "interval",
       interval_minutes: 60,
@@ -190,6 +204,8 @@ export function parseSyncConfig(value: unknown): SyncConfig {
   return {
     enabled: flag(config.enabled, "sync_config.enabled"),
     device_name: text(config.device_name ?? "", "sync_config.device_name"),
+    // A configuration written before the flag existed omits it, which is off.
+    force_push: flag(config.force_push ?? false, "sync_config.force_push"),
     trigger: {
       mode,
       interval_minutes: integer(
@@ -309,6 +325,14 @@ export function parseSyncStatus(value: unknown): SyncStatus {
       "sync_status.pending_changes",
       0,
       Number.MAX_SAFE_INTEGER,
+    ),
+    first_sync_pending: flag(
+      status.first_sync_pending,
+      "sync_status.first_sync_pending",
+    ),
+    force_push_armed: flag(
+      status.force_push_armed,
+      "sync_status.force_push_armed",
     ),
     ...(status.last_synced_at === undefined || status.last_synced_at === null
       ? {}

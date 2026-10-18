@@ -124,6 +124,10 @@ type SyncStore interface {
 	// Baseline returns the stored package. A device that has never synced
 	// reports ErrNotFound.
 	Baseline(ctx context.Context) (payload []byte, revision int64, err error)
+	// HasBaseline reports whether a package is stored, without opening it. A
+	// device that has never exchanged a package with its remote has none, which
+	// is what makes its next run a first contact.
+	HasBaseline(ctx context.Context) (bool, error)
 	// ResetBaseline forgets the merge base, for when the remote now holds a
 	// package this device cannot open or a different remote is configured.
 	// The next merge then treats every remote entity as new.

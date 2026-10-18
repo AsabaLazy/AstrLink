@@ -91,11 +91,22 @@ type device struct {
 type pair struct {
 	t      *testing.T
 	url    string
+	server *httptest.Server
 	first  *device
 	second *device
 }
 
 func newPair(t *testing.T) *pair {
+	t.Helper()
+	result := newRemote(t)
+	result.first = result.install(0)
+	result.second = result.install(1)
+	return result
+}
+
+// newRemote starts the shared remote without installing a device, for a test
+// that decides itself when each device appears.
+func newRemote(t *testing.T) *pair {
 	t.Helper()
 	shared := &davStore{objects: map[string]davObject{}}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -105,32 +116,33 @@ func newPair(t *testing.T) *pair {
 		shared.ServeHTTP(writer, request)
 	}))
 	t.Cleanup(server.Close)
-	result := &pair{t: t, url: server.URL + "/dav"}
-	base := time.Now().UTC().Add(-time.Hour)
-	for index := 0; index < 2; index++ {
-		database, err := sqlite.Open(context.Background(), filepath.Join(t.TempDir(), fmt.Sprintf("device%d.db", index)))
-		if err != nil {
-			t.Fatalf("open database: %v", err)
-		}
-		t.Cleanup(func() { _ = database.Close() })
-		device := &device{store: database, clock: base}
-		engine, err := New(Dependencies{
-			Store:  database,
-			Client: server.Client(),
-			Now:    func() time.Time { return device.clock },
-			Logf:   t.Logf,
-		})
-		if err != nil {
-			t.Fatalf("new engine: %v", err)
-		}
-		device.engine = engine
-		if index == 0 {
-			result.first = device
-		} else {
-			result.second = device
-		}
+	return &pair{t: t, url: server.URL + "/dav", server: server}
+}
+
+// install opens one more device against the pair's remote. A test calls it
+// itself when the moment a device is installed is part of what it checks: a
+// device installed after another one has published is what makes its own seeded
+// rows newer than the remote's changes, the way a real second machine is
+// installed later.
+func (p *pair) install(index int) *device {
+	p.t.Helper()
+	database, err := sqlite.Open(context.Background(), filepath.Join(p.t.TempDir(), fmt.Sprintf("device%d.db", index)))
+	if err != nil {
+		p.t.Fatalf("open database: %v", err)
 	}
-	return result
+	p.t.Cleanup(func() { _ = database.Close() })
+	device := &device{store: database, clock: time.Now().UTC().Add(-time.Hour)}
+	engine, err := New(Dependencies{
+		Store:  database,
+		Client: p.server.Client(),
+		Now:    func() time.Time { return device.clock },
+		Logf:   p.t.Logf,
+	})
+	if err != nil {
+		p.t.Fatalf("new engine: %v", err)
+	}
+	device.engine = engine
+	return device
 }
 
 // configure points one device at the shared remote and sets the passphrase.
@@ -184,6 +196,30 @@ func serviceRef(id contract.ServiceID) secretstore.Ref {
 
 func serviceID(seed string) contract.ServiceID {
 	return contract.ServiceID("service_" + strings.Repeat(seed, 24))
+}
+
+// syncConfig points one device at the shared remote. It is the same
+// configuration pair.configure saves, in a form a test can adjust before it
+// saves it.
+func (p *pair) syncConfig() contract.SyncConfig {
+	config := contract.DefaultSyncConfig()
+	config.Enabled = true
+	config.Trigger = contract.SyncTriggerSettings{Mode: contract.SyncTriggerManual}
+	config.Remote = contract.SyncRemote{Kind: contract.SyncRemoteWebDAV, Endpoint: p.url, Path: contract.SyncDefaultFolder}
+	return config
+}
+
+// setPolicyEnabled turns the fixed privacy policy on, so a test can tell one
+// device's policy from the default every installation starts with.
+func setPolicyEnabled(ctx context.Context, store *sqlite.Store, enabled bool) error {
+	record, err := store.GetPolicy(ctx, contract.DefaultPrivacyPolicyID)
+	if err != nil {
+		return err
+	}
+	policy := record.Policy
+	policy.Enabled = enabled
+	_, err = store.UpdatePolicy(ctx, policy, record.ETag)
+	return err
 }
 
 // TestEngineSyncsConfigurationAndCredentials is the case the feature exists
@@ -526,7 +562,7 @@ func TestSuccessfulSyncLeavesNothingPending(t *testing.T) {
 	// And the scheduler agrees: an interval trigger is not due again until its
 	// interval, not one debounce later.
 	pair.first.clock = pair.first.clock.Add(31 * time.Second)
-	due, err := pair.first.engine.due(ctx)
+	due, err := pair.first.engine.due(ctx, false)
 	if err != nil {
 		t.Fatalf("due: %v", err)
 	}
@@ -555,5 +591,169 @@ func TestConfigureKeepsTheBaselineWhenAddressingIsOmitted(t *testing.T) {
 	}
 	if _, _, err := pair.first.store.Baseline(ctx); err != nil {
 		t.Fatalf("re-saving the same remote dropped the merge base: %v", err)
+	}
+}
+
+// A device that joins a remote which already holds a configuration adopts it.
+// Everything the installation seeded carries a stamp from when the device was
+// set up, which is later than a change the other device made hours ago, so
+// comparing times alone would let the newcomer publish its own default over the
+// configuration the other devices share.
+func TestFirstSyncAdoptsTheRemoteInsteadOfOverwritingIt(t *testing.T) {
+	pair := newRemote(t)
+	ctx := context.Background()
+	passphrase := []byte("correct horse battery")
+	pair.first = pair.install(0)
+	pair.configure(pair.first, passphrase)
+	id := serviceID("i")
+	newTestService(t, pair.first.store, id, "india")
+	if err := setPolicyEnabled(ctx, pair.first.store, true); err != nil {
+		t.Fatalf("edit policy: %v", err)
+	}
+	pair.sync(pair.first)
+
+	// The joining device is installed now, so the row its own installation
+	// seeded carries a later stamp than the change the first device published.
+	// That is what a device that joins a remote is really like, and it is why
+	// comparing stamps alone is not enough.
+	pair.second = pair.install(1)
+	pair.configure(pair.second, passphrase)
+	before, err := pair.second.engine.Status(ctx)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !before.FirstSyncPending {
+		t.Fatal("a device with no merge base did not report a first sync")
+	}
+	pair.sync(pair.second)
+
+	policy, err := pair.second.store.GetPolicy(ctx, contract.DefaultPrivacyPolicyID)
+	if err != nil {
+		t.Fatalf("read policy: %v", err)
+	}
+	if !policy.Policy.Enabled {
+		t.Fatal("the joining device published its seeded policy over the remote's")
+	}
+	if _, err := pair.second.store.GetService(ctx, id); err != nil {
+		t.Fatalf("the provider was not pulled onto the joining device: %v", err)
+	}
+	// And it did not revert the change on the device that published it.
+	pair.sync(pair.first)
+	kept, err := pair.first.store.GetPolicy(ctx, contract.DefaultPrivacyPolicyID)
+	if err != nil {
+		t.Fatalf("read policy on the first device: %v", err)
+	}
+	if !kept.Policy.Enabled {
+		t.Fatal("the joining device reverted the policy the first device published")
+	}
+	after, err := pair.second.engine.Status(ctx)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if after.FirstSyncPending {
+		t.Fatal("a device that has exchanged a package still reports a first sync")
+	}
+}
+
+// An armed force push replaces the package at the remote with this device's
+// configuration, and the arming is spent by the run that uses it: the run after
+// it merges again rather than overwriting the remote a second time.
+func TestForcePushOverwritesTheRemoteOnceAndThenMergesAgain(t *testing.T) {
+	pair := newPair(t)
+	ctx := context.Background()
+	passphrase := []byte("correct horse battery")
+	pair.configure(pair.first, passphrase)
+	pair.sync(pair.first)
+	pair.configure(pair.second, passphrase)
+	pair.sync(pair.second)
+	theirs := serviceID("m")
+	newTestService(t, pair.second.store, theirs, "mike")
+	pair.sync(pair.second)
+
+	// The first device holds neither that provider nor any other, and the user
+	// arms the run that overwrites the remote with what it does hold.
+	config := pair.syncConfig()
+	config.ForcePush = true
+	if err := pair.first.engine.Configure(ctx, config); err != nil {
+		t.Fatalf("arm force push: %v", err)
+	}
+	status, err := pair.first.engine.Status(ctx)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.ForcePushArmed {
+		t.Fatal("the armed run was not reported")
+	}
+	pair.sync(pair.first)
+
+	// The remote now holds what the first device held, so the provider it never
+	// had is gone from the remote and from the device that published it.
+	pair.sync(pair.second)
+	if _, err := pair.second.store.GetService(ctx, theirs); err == nil {
+		t.Fatal("the force push left the other device's provider on the remote")
+	}
+	after, err := pair.first.engine.Config(ctx)
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	if after.ForcePush {
+		t.Fatal("a force push stayed armed after the run that used it")
+	}
+	// The next run merges again: a provider added on the other device arrives
+	// here instead of being overwritten with this device's copy.
+	added := serviceID("n")
+	newTestService(t, pair.second.store, added, "november")
+	pair.sync(pair.second)
+	pair.sync(pair.first)
+	if _, err := pair.first.store.GetService(ctx, added); err != nil {
+		t.Fatalf("the run after a force push did not merge: %v", err)
+	}
+}
+
+// Saving the settings that point a device at a remote is followed by a run,
+// without waiting for the interval: that run is what brings an existing
+// configuration onto a device that has none. The passphrase is what a device is
+// waiting on, so entering it is the save that starts the run here.
+func TestASettingsSaveStartsARunWithoutWaitingForTheSchedule(t *testing.T) {
+	pair := newPair(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pair.second.engine.Run(ctx, t.Logf)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	// The interval is an hour, so the only thing that can start a run now is the
+	// save itself.
+	pair.second.clock = time.Now().UTC()
+	passphrase := []byte("correct horse battery")
+	pair.configure(pair.first, passphrase)
+	id := serviceID("o")
+	newTestService(t, pair.first.store, id, "oscar")
+	pair.sync(pair.first)
+
+	config := pair.syncConfig()
+	config.Trigger = contract.SyncTriggerSettings{Mode: contract.SyncTriggerInterval, IntervalMinutes: 60, DebounceSeconds: 30}
+	if err := pair.second.engine.Configure(ctx, config); err != nil {
+		t.Fatalf("configure: %v", err)
+	}
+	if err := pair.second.engine.SetPassphrase(ctx, passphrase); err != nil {
+		t.Fatalf("passphrase: %v", err)
+	}
+	deadline := time.After(20 * time.Second)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := pair.second.store.GetService(ctx, id); err == nil {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("the settings save did not start a run")
+		case <-ticker.C:
+		}
 	}
 }

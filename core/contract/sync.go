@@ -108,6 +108,14 @@ type SyncConfig struct {
 	// DeviceName is what this device calls itself, shown wherever a device is
 	// named. An empty value leaves the name to the host.
 	DeviceName string `json:"device_name,omitempty"`
+	// ForcePush arms the next run to replace the package at the remote with this
+	// device's configuration instead of merging with it. It is for the rare case
+	// where the remote has to be overwritten from here: a package sealed under a
+	// passphrase this device no longer holds, or a configuration the user wants
+	// published as it stands. The flag is one-shot — a run that stores the
+	// package clears it — so one save overwrites the remote once and every run
+	// after it merges again.
+	ForcePush bool `json:"force_push,omitempty"`
 }
 
 // DefaultSyncConfig returns the configuration a fresh device starts with:
@@ -196,7 +204,15 @@ type SyncStatus struct {
 	// falls back to.
 	HostName string `json:"host_name"`
 	// PendingChanges counts configuration writes not yet packaged.
-	PendingChanges int        `json:"pending_changes"`
+	PendingChanges int `json:"pending_changes"`
+	// FirstSyncPending reports that this device has never exchanged a package
+	// with the configured remote, so its next run adopts what is published there
+	// rather than overwriting it with the configuration this installation
+	// started from.
+	FirstSyncPending bool `json:"first_sync_pending"`
+	// ForcePushArmed reports that the next run will overwrite the remote with
+	// this device's configuration instead of merging.
+	ForcePushArmed bool       `json:"force_push_armed"`
 	LastSyncedAt   *time.Time `json:"last_synced_at,omitempty"`
 	NextRunAt      *time.Time `json:"next_run_at,omitempty"`
 	LastError      string     `json:"last_error,omitempty"`
