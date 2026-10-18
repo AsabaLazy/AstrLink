@@ -92,6 +92,55 @@ func TestClaudeSafetySeparatesMixedAttribution(t *testing.T) {
 	}
 }
 
+func TestClaudeSafetyPreservesBannerCacheMetadata(t *testing.T) {
+	const cache = `{"type":"ephemeral","ttl":"1h"}`
+	const extension = `{"enabled":true,"integer":9007199254740993}`
+	const instruction = "Keep the caller's instructions."
+	for _, layout := range []string{"banner only", "separate attribution", "mixed attribution"} {
+		for _, ending := range []struct{ name, text string }{
+			{"LF", "\n"},
+			{"CRLF", "\r\n"},
+			{"whitespace", " \t\r\n"},
+		} {
+			t.Run(layout+"/"+ending.name, func(t *testing.T) {
+				text := claudeCodeBanner + ending.text
+				if layout == "mixed attribution" {
+					text = claudeSafetyAttribution + "\n\n" + text
+				}
+				block := `{"type":"text","text":` + safetyJSONString(text) + `,"cache_control":` + cache + `,"future_field":` + extension + `}`
+				system := `[` + block + `,{"type":"text","text":` + safetyJSONString(instruction) + `}]`
+				if layout == "separate attribution" {
+					system = `[{"type":"text","text":` + safetyJSONString(claudeSafetyAttribution) + `},` + system[1:]
+				}
+				upstream := newCapturedUpstream(t, http.StatusOK, "application/json", identityClaudeResponse)
+				harness := newIdentityHarness(t, passthroughSettings(false, true), nil, claudeConversionCandidate(upstream.url))
+				body := strings.Replace(officialClaudeBody, `"messages":`, `"system":`+system+`,"messages":`, 1)
+				harness.serve(t, "/v1/messages", body, officialClaudeHeaders(learnedClaudeUA))
+				_, sent := upstream.request(t)
+				blocks := gjson.GetBytes(sent, "system").Array()
+				bannerIndex := 0
+				if layout != "banner only" {
+					bannerIndex = 1
+					if len(blocks) == 0 || blocks[0].Get("text").String() != claudeSafetyAttribution || blocks[0].Get("cache_control").Exists() {
+						t.Fatalf("attribution changed or inherited the cache marker: %s", gjson.GetBytes(sent, "system").Raw)
+					}
+				}
+				if len(blocks) != bannerIndex+2 || blocks[bannerIndex].Get("text").String() != claudeCodeBanner || blocks[bannerIndex+1].Get("text").String() != instruction {
+					t.Fatalf("banner or instructions changed: %s", gjson.GetBytes(sent, "system").Raw)
+				}
+				banner := blocks[bannerIndex]
+				if banner.Get("cache_control").Raw != cache || banner.Get("future_field").Raw != extension {
+					t.Fatalf("banner lost its cache marker or extension fields: %s", banner.Raw)
+				}
+				_, second := prepareClaudeBody(t, string(sent))
+				if !bytes.Equal(second, sent) {
+					t.Fatal("normalizing the cached banner changed it again")
+				}
+			})
+		}
+	}
+}
+
 // Exercise the final HTTP boundary, including privacy restoration and SSE tail
 // events: a model response is not complete until its safety verdict arrives.
 func TestClaudeSafetyFieldsSurviveNativeForwarding(t *testing.T) {

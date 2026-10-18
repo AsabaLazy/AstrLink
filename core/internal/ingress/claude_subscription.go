@@ -213,9 +213,11 @@ func ensureClaudeCodeBanner(body map[string]json.RawMessage) (bool, error) {
 			text, _ := claudeString(first["text"])
 			if rest, ok := strings.CutPrefix(text, claudeCodeBanner); kind == "text" && ok && strings.TrimLeft(rest, " \t\r\n") != rest {
 				if rest = strings.TrimLeft(rest, " \t\r\n"); rest == "" {
-					blocks = slices.Delete(blocks, bannerIndex, bannerIndex+1)
-					changed = true
-				} else if encodeClaudeField(first, "text", rest) == nil {
+					// Keep banner-only blocks in place so their cache breakpoint
+					// and extension fields remain attached to the same prefix.
+					rest = claudeCodeBanner
+				}
+				if encodeClaudeField(first, "text", rest) == nil {
 					if block, err := json.Marshal(first); err == nil {
 						blocks[bannerIndex] = block
 						changed = true
