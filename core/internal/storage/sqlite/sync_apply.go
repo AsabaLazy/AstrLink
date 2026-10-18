@@ -525,10 +525,8 @@ func normalizeSyncedPricingConfig(document []byte) ([]byte, error) {
 // rather than taken from the package, so a package can neither name a token
 // nobody can present nor point an existing name at another value.
 //
-// Two devices may each have named a token the same thing before they met, and
-// the table keeps names unique. Which of the two keeps the plain name is decided
-// by their ids, so every device reaches the same answer and neither token is
-// dropped for the sake of the other.
+// A name two devices each used is resolved by their ids, so both tokens are
+// kept and every device ends up with the same names.
 //
 // The creation limit the interface applies is deliberately not enforced here. A
 // merge has to be able to hold what the other devices hold, or the token would

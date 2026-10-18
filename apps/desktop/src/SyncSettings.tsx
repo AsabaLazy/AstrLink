@@ -163,8 +163,6 @@ export function SyncSettings({
     void getSyncConfig()
       .then((config) => {
         if (cancelled) return;
-        // The folder a WebDAV remote writes under is filled in here rather than
-        // left blank, which would put the package at the server root.
         const filled = filledRemote(config);
         setStored(filled);
         setDraft(filled);
@@ -710,6 +708,8 @@ export function SyncSettings({
                 })}
               </div>
 
+              {/* An armed force push is cleared on save while sync is off, so
+                  the switch stays locked until sync is on. */}
               <DataRow className="rounded-sm border px-3">
                 <Label
                   className="min-w-0 flex-1 cursor-pointer text-sm font-normal"

@@ -197,8 +197,11 @@ type SyncStatus struct {
 	Enabled          bool `json:"enabled"`
 	PassphraseSet    bool `json:"passphrase_set"`
 	RemoteConfigured bool `json:"remote_configured"`
-	Configured       bool `json:"configured"`
-	Running          bool `json:"running"`
+	// Configured reports that a remote is set and a passphrase is stored, which
+	// is everything a run needs besides Enabled. RemoteConfigured is the remote
+	// on its own.
+	Configured bool `json:"configured"`
+	Running    bool `json:"running"`
 	// DeviceID is this device's identity in the remote lock. It is opaque and
 	// stays out of the interface, which shows DeviceName.
 	DeviceID string `json:"device_id"`

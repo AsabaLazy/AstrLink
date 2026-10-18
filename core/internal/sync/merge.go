@@ -156,8 +156,9 @@ func (document Document) Encode() ([]byte, error) {
 	return json.Marshal(document)
 }
 
-// Decode reads a payload written by Encode. Unknown fields are refused so a
-// future format is not read with this build's rules.
+// Decode reads a payload written by Encode. A package whose format version this
+// build does not recognise is refused, so a future format is not read with this
+// build's rules.
 func Decode(encoded []byte) (Document, error) {
 	var document Document
 	if err := json.Unmarshal(encoded, &document); err != nil {

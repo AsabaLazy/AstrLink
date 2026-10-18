@@ -33,8 +33,10 @@ type SyncStateRecord struct {
 	Config contract.SyncConfig
 	// PassphraseState is "set" once a sync passphrase produced the cached key.
 	PassphraseState string
-	// KeySalt and KeyParams describe the cached key's derivation, so the same
-	// passphrase on another device produces a different key.
+	// KeySalt and KeyParams are the salt and KDF parameters the cached key was
+	// derived with, so a package can be sealed with the cached key without the
+	// passphrase again. The salt is derived from the passphrase, so the same
+	// passphrase produces the same key on every device.
 	KeySalt    []byte
 	KeyParams  []byte
 	DeviceID   string
