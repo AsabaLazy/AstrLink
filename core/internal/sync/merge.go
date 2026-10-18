@@ -36,6 +36,13 @@ const PackageVersion = 1
 // Secret instead of Document. Credentials are their own kinds, so whether they
 // travel is a separate decision from whether the provider row does.
 //
+// KindAccessToken is the one kind that carries both: the value is a secret a
+// client presents, and the name beside it is what a user recognises the token
+// by. The value has to travel for the token to work on another device, which is
+// what the group is for, and the metadata has to travel with it because the
+// digest an authentication reads is derived from the value on the device that
+// stores it.
+//
 // Subscription credentials are deliberately absent: a subscription login is
 // performed on each device, so its OAuth token never enters a package.
 const (
@@ -45,6 +52,7 @@ const (
 	KindBuiltinToolCredential  = "builtin_tool_credential"
 	KindPolicy                 = "policy"
 	KindPricingConfig          = "pricing_config"
+	KindAccessToken            = "access_token"
 )
 
 // Kinds is every kind a package carries, in a stable order.
@@ -56,6 +64,7 @@ func Kinds() []string {
 		KindBuiltinToolCredential,
 		KindPolicy,
 		KindPricingConfig,
+		KindAccessToken,
 	}
 }
 

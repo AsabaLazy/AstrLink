@@ -428,7 +428,9 @@
         "policies": "Privacy policy",
         "policiesHint": "Redaction and request-body policy",
         "pricing": "Pricing",
-        "pricingHint": "Price bindings, budget and billing day"
+        "pricingHint": "Price bindings, budget and billing day",
+        "tokens": "Access tokens",
+        "tokensHint": "Tokens a client presents to this gateway, with their values"
       },
       "scopeNeedsServices": "Included with providers",
       "passphraseTitle": "Sync passphrase",
@@ -507,7 +509,8 @@
         "builtin_tool_credential": "Tool key",
         "policy": "Privacy policy",
         "pricing_config": "Pricing",
-        "remote": "Remote"
+        "remote": "Remote",
+        "access_token": "Access token"
       }
     }
   },

@@ -51,6 +51,7 @@ const scopeKeys = [
   "credentials",
   "policies",
   "pricing",
+  "tokens",
 ] as const satisfies readonly (keyof SyncScope)[];
 
 // A group that names another is only meaningful with it: a credential without

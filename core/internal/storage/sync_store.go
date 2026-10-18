@@ -168,4 +168,10 @@ type SyncStore interface {
 	SyncImportCredential(ctx context.Context, kind, localID string, plaintext []byte) error
 	// SyncDeleteCredential removes one credential of a kind a package carries.
 	SyncDeleteCredential(ctx context.Context, kind, localID string) error
+	// SyncWriteAccessToken writes one gateway access token a merge decided this
+	// device should hold: its metadata row, which carries the digest and the
+	// hint an authentication reads, and the value itself, sealed again under
+	// this device's keys. The two are written together because the metadata is
+	// derived from the value and neither is usable alone.
+	SyncWriteAccessToken(ctx context.Context, localID string, document, value []byte) error
 }

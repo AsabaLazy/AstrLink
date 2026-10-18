@@ -38,6 +38,12 @@ export interface SyncScope {
   credentials: boolean;
   policies: boolean;
   pricing: boolean;
+  /**
+   * The gateway's access tokens, with the value a client presents. A token
+   * authenticates a caller of this gateway, so it is independent of the
+   * providers.
+   */
+  tokens: boolean;
 }
 
 export interface SyncRemote {
@@ -127,6 +133,7 @@ export function defaultSyncConfig(): SyncConfig {
       credentials: true,
       policies: true,
       pricing: true,
+      tokens: true,
     },
     remote: {
       kind: "",
@@ -227,6 +234,9 @@ export function parseSyncConfig(value: unknown): SyncConfig {
       credentials: flag(scope.credentials, "sync_config.scope.credentials"),
       policies: flag(scope.policies, "sync_config.scope.policies"),
       pricing: flag(scope.pricing, "sync_config.scope.pricing"),
+      // A configuration written before the group existed leaves it out, which
+      // is off: the tokens keep working until the user asks for them to travel.
+      tokens: flag(scope.tokens ?? false, "sync_config.scope.tokens"),
     },
     remote: {
       kind,

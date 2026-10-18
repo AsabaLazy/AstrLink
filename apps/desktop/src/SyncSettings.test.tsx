@@ -41,6 +41,7 @@ const storedConfig: SyncConfig = {
     credentials: true,
     policies: true,
     pricing: true,
+    tokens: true,
   },
   remote: {
     kind: "webdav",
@@ -281,6 +282,26 @@ describe("SyncSettings", () => {
     });
     await render();
     expect(container.textContent).toContain("首次同步会采用远端已有的配置");
+  });
+
+  it("offers the access tokens as a group of their own", async () => {
+    await render();
+    expect(container.textContent).toContain("访问令牌");
+    const tokens =
+      container.querySelector<HTMLButtonElement>("#sync-scope-tokens");
+    if (!tokens) throw new Error("missing tokens switch");
+    expect(tokens.disabled).toBe(false);
+    expect(tokens.getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => tokens.click());
+    bridge.configureSync.mockResolvedValue({
+      ...storedConfig,
+      scope: { ...storedConfig.scope, tokens: false },
+    });
+    await act(async () => button("保存").click());
+    await settle();
+    const sent = bridge.configureSync.mock.calls[0]?.[0] as SyncConfig;
+    expect(sent.scope.tokens).toBe(false);
   });
 
   it("asks for confirmation before forgetting the passphrase", async () => {

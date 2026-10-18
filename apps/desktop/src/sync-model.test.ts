@@ -24,6 +24,7 @@ const storedConfig = {
     credentials: false,
     policies: true,
     pricing: false,
+    tokens: true,
   },
   remote: {
     kind: "webdav",
@@ -51,6 +52,7 @@ describe("sync configuration read model", () => {
         credentials: false,
         policies: true,
         pricing: false,
+        tokens: true,
       },
       remote: {
         kind: "webdav",
@@ -133,6 +135,14 @@ describe("sync configuration read model", () => {
 
   it("treats a configuration written before the flag as not armed", () => {
     expect(parseSyncConfig(storedConfig).force_push).toBe(false);
+  });
+
+  it("carries the access token group, and leaves an older configuration out of it", () => {
+    expect(parseSyncConfig(storedConfig).scope.tokens).toBe(true);
+    const { tokens: _tokens, ...withoutTokens } = storedConfig.scope;
+    expect(
+      parseSyncConfig({ ...storedConfig, scope: withoutTokens }).scope.tokens,
+    ).toBe(false);
   });
 
   it("accepts the default configuration it hands out", () => {

@@ -428,7 +428,9 @@
         "policies": "隐私策略",
         "policiesHint": "脱敏与请求原文策略",
         "pricing": "计费",
-        "pricingHint": "价格绑定、预算与账单日"
+        "pricingHint": "价格绑定、预算与账单日",
+        "tokens": "访问令牌",
+        "tokensHint": "客户端调用本网关所用的令牌，含令牌值"
       },
       "scopeNeedsServices": "随提供商一起同步",
       "passphraseTitle": "同步口令",
@@ -507,7 +509,8 @@
         "builtin_tool_credential": "工具密钥",
         "policy": "隐私策略",
         "pricing_config": "计费",
-        "remote": "远端"
+        "remote": "远端",
+        "access_token": "访问令牌"
       }
     }
   },

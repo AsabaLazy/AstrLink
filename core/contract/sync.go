@@ -79,6 +79,11 @@ type SyncScope struct {
 	Policies bool `json:"policies"`
 	// Pricing carries each provider's price bindings, budget, and billing day.
 	Pricing bool `json:"pricing"`
+	// Tokens carries the gateway's access tokens, with the value a client
+	// presents. A token authenticates a caller of this gateway rather than an
+	// upstream, so it is independent of every other group here: a device that
+	// carries no provider still hands out the same tokens as the rest.
+	Tokens bool `json:"tokens"`
 }
 
 // SyncRemote is where a package is stored. Its credentials are part of the
@@ -124,7 +129,7 @@ func DefaultSyncConfig() SyncConfig {
 	return SyncConfig{
 		Enabled: false,
 		Trigger: SyncTriggerSettings{Mode: SyncTriggerInterval, IntervalMinutes: 60, DebounceSeconds: 30},
-		Scope:   SyncScope{Services: true, Credentials: true, Policies: true, Pricing: true},
+		Scope:   SyncScope{Services: true, Credentials: true, Policies: true, Pricing: true, Tokens: true},
 		Remote:  SyncRemote{Path: SyncDefaultFolder, Addressing: SyncS3AddressingPath},
 	}
 }

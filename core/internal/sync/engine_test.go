@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/astrlink/core/contract"
+	"github.com/QuantumNous/astrlink/core/internal/accesstoken"
 	"github.com/QuantumNous/astrlink/core/internal/secretstore"
 	"github.com/QuantumNous/astrlink/core/internal/storage"
 	"github.com/QuantumNous/astrlink/core/internal/storage/sqlite"
@@ -220,6 +222,52 @@ func setPolicyEnabled(ctx context.Context, store *sqlite.Store, enabled bool) er
 	policy.Enabled = enabled
 	_, err = store.UpdatePolicy(ctx, policy, record.ETag)
 	return err
+}
+
+// createAccessToken issues a gateway access token on one device, the way the
+// token manager does.
+func createAccessToken(t *testing.T, store *sqlite.Store, name string) accesstoken.CreatedToken {
+	t.Helper()
+	manager, err := accesstoken.NewManager(store)
+	if err != nil {
+		t.Fatalf("access token manager: %v", err)
+	}
+	created, err := manager.Create(context.Background(), name)
+	if err != nil {
+		t.Fatalf("create access token: %v", err)
+	}
+	return created
+}
+
+// accessTokenNames is every token name a device holds, sorted, so two devices
+// can be compared without depending on the order they were stored in.
+func accessTokenNames(t *testing.T, store *sqlite.Store) []string {
+	t.Helper()
+	tokens, err := store.ListAccessTokens(context.Background())
+	if err != nil {
+		t.Fatalf("list access tokens: %v", err)
+	}
+	names := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		names = append(names, token.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// authenticateAccessToken presents a token value to a device, which is what a
+// client does.
+func authenticateAccessToken(t *testing.T, store *sqlite.Store, value string) contract.AccessTokenID {
+	t.Helper()
+	manager, err := accesstoken.NewManager(store)
+	if err != nil {
+		t.Fatalf("access token manager: %v", err)
+	}
+	id, err := manager.Authenticate(context.Background(), value)
+	if err != nil {
+		t.Fatalf("access token does not authenticate: %v", err)
+	}
+	return id
 }
 
 // TestEngineSyncsConfigurationAndCredentials is the case the feature exists
@@ -756,4 +804,159 @@ func TestASettingsSaveStartsARunWithoutWaitingForTheSchedule(t *testing.T) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// A token issued on one device works on the other: the value travels, and the
+// device that receives it derives the digest and the hint an authentication
+// reads from the value it stored.
+func TestAccessTokenSyncsAndAuthenticates(t *testing.T) {
+	pair := newPair(t)
+	ctx := context.Background()
+	passphrase := []byte("correct horse battery")
+	pair.configure(pair.first, passphrase)
+	pair.configure(pair.second, passphrase)
+	created := createAccessToken(t, pair.first.store, "laptop client")
+	pair.sync(pair.first)
+	pair.sync(pair.second)
+
+	if authenticated := authenticateAccessToken(t, pair.second.store, created.Value); authenticated != created.Token.ID {
+		t.Fatalf("the token authenticates as %q, want %q", authenticated, created.Token.ID)
+	}
+	// The other device keeps its own sealed copy, so it can hand the value to a
+	// client of its own.
+	revealed, err := pair.second.store.RevealAccessToken(ctx, created.Token.ID)
+	if err != nil || revealed != created.Value {
+		t.Fatalf("reveal on the other device = %q, %v", revealed, err)
+	}
+	if names := accessTokenNames(t, pair.second.store); !containsName(names, "laptop client") {
+		t.Fatalf("the token arrived without the name it was given: %v", names)
+	}
+	// And the device that issued it did not have its row rewritten.
+	pair.sync(pair.first)
+	if names := accessTokenNames(t, pair.first.store); !containsName(names, "laptop client") {
+		t.Fatalf("the issuing device lost the name: %v", names)
+	}
+}
+
+// Two devices that each named a token the same thing keep both tokens, and both
+// devices end up with the same two names. A round after that changes nothing,
+// which is what deciding the name by id is for: the devices must not rename each
+// other's tokens on every run.
+func TestSameNamedTokensSurviveOnBothDevices(t *testing.T) {
+	pair := newPair(t)
+	passphrase := []byte("correct horse battery")
+	pair.configure(pair.first, passphrase)
+	pair.configure(pair.second, passphrase)
+	mine := createAccessToken(t, pair.first.store, "work")
+	theirs := createAccessToken(t, pair.second.store, "work")
+
+	pair.sync(pair.first)
+	pair.sync(pair.second)
+	pair.sync(pair.first)
+	pair.sync(pair.second)
+
+	for index, device := range []*device{pair.first, pair.second} {
+		for _, created := range []accesstoken.CreatedToken{mine, theirs} {
+			if authenticated := authenticateAccessToken(t, device.store, created.Value); authenticated != created.Token.ID {
+				t.Fatalf("device %d authenticates %q as %q, want %q", index, created.Token.Name, authenticated, created.Token.ID)
+			}
+		}
+	}
+	first := accessTokenNames(t, pair.first.store)
+	second := accessTokenNames(t, pair.second.store)
+	if !equalNames(first, second) {
+		t.Fatalf("the devices name the same tokens differently: %v and %v", first, second)
+	}
+	if len(first) != 4 {
+		t.Fatalf("each device should hold two named tokens and two bootstrap ones: %v", first)
+	}
+	pair.sync(pair.first)
+	pair.sync(pair.second)
+	pair.sync(pair.first)
+	if settled := accessTokenNames(t, pair.first.store); !equalNames(first, settled) {
+		t.Fatalf("a later round renamed tokens again: %v became %v", first, settled)
+	}
+}
+
+// A token removed on one device is removed on the other, and the value stops
+// authenticating on both.
+func TestAccessTokenDeletionPropagates(t *testing.T) {
+	pair := newPair(t)
+	ctx := context.Background()
+	passphrase := []byte("correct horse battery")
+	pair.configure(pair.first, passphrase)
+	pair.configure(pair.second, passphrase)
+	created := createAccessToken(t, pair.first.store, "retired client")
+	pair.sync(pair.first)
+	pair.sync(pair.second)
+	authenticateAccessToken(t, pair.second.store, created.Value)
+
+	if err := pair.second.store.DeleteAccessToken(ctx, created.Token.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	pair.sync(pair.second)
+	pair.sync(pair.first)
+	if names := accessTokenNames(t, pair.first.store); containsName(names, "retired client") {
+		t.Fatalf("the deletion did not propagate: %v", names)
+	}
+	manager, err := accesstoken.NewManager(pair.first.store)
+	if err != nil {
+		t.Fatalf("manager: %v", err)
+	}
+	if _, err := manager.Authenticate(ctx, created.Value); err == nil {
+		t.Fatal("a deleted token still authenticates")
+	}
+	// And the device that deleted it does not get it back.
+	pair.sync(pair.first)
+	pair.sync(pair.second)
+	if names := accessTokenNames(t, pair.second.store); containsName(names, "retired client") {
+		t.Fatalf("the deleted token came back: %v", names)
+	}
+}
+
+// Tokens stay where they are when the settings leave them out of the package.
+func TestTokensOutOfScopeDoNotTravel(t *testing.T) {
+	pair := newPair(t)
+	ctx := context.Background()
+	passphrase := []byte("correct horse battery")
+	scope := pair.syncConfig()
+	scope.Scope.Tokens = false
+	for _, device := range []*device{pair.first, pair.second} {
+		if err := device.engine.Configure(ctx, scope); err != nil {
+			t.Fatalf("configure: %v", err)
+		}
+		if err := device.engine.SetPassphrase(ctx, passphrase); err != nil {
+			t.Fatalf("passphrase: %v", err)
+		}
+	}
+	createAccessToken(t, pair.first.store, "kept at home")
+	pair.sync(pair.first)
+	pair.sync(pair.second)
+	if names := accessTokenNames(t, pair.second.store); containsName(names, "kept at home") {
+		t.Fatalf("a token travelled with the group switched off: %v", names)
+	}
+	if names := accessTokenNames(t, pair.first.store); !containsName(names, "kept at home") {
+		t.Fatalf("the token left its own device: %v", names)
+	}
+}
+
+func containsName(names []string, name string) bool {
+	for _, candidate := range names {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
+}
+
+func equalNames(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }

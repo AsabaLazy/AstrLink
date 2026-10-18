@@ -428,7 +428,9 @@
         "policies": "プライバシーポリシー",
         "policiesHint": "マスキングとリクエスト本文のポリシー",
         "pricing": "料金",
-        "pricingHint": "価格の紐付け、予算、請求日"
+        "pricingHint": "価格の紐付け、予算、請求日",
+        "tokens": "アクセストークン",
+        "tokensHint": "クライアントがこのゲートウェイに提示するトークン（値も含む）"
       },
       "scopeNeedsServices": "プロバイダーに含まれる",
       "passphraseTitle": "同期パスフレーズ",
@@ -507,7 +509,8 @@
         "builtin_tool_credential": "ツールキー",
         "policy": "プライバシーポリシー",
         "pricing_config": "料金",
-        "remote": "リモート"
+        "remote": "リモート",
+        "access_token": "アクセストークン"
       }
     }
   },
