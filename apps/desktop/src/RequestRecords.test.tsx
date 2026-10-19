@@ -3876,6 +3876,57 @@ describe("RequestRecords", () => {
     });
   });
 
+  it("keeps the model menu in place while a chosen model narrows the list", async () => {
+    bridgeMocks.listRequestSessions.mockImplementation(
+      async (query: { models?: string[] }) => ({
+        items: [secondRecord, firstRecord]
+          .filter(
+            (record) =>
+              !query.models ||
+              query.models.includes(record.requested_model ?? ""),
+          )
+          .map((record) => sessionFromRecord(record)),
+        next_cursor: null,
+      }),
+    );
+    await renderRecords();
+
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="模型筛选"]')!
+        .click(),
+    );
+    const modelOption = (name: string) =>
+      document.querySelector<HTMLButtonElement>(
+        `[role="listbox"] [role="checkbox"][aria-label="${name}"]`,
+      )!;
+    const modelNames = () =>
+      [...document.querySelectorAll('[role="listbox"] [role="checkbox"]')].map(
+        (option) => option.getAttribute("aria-label"),
+      );
+    // No provider lists gpt-4.1-mini; only a loaded call names it.
+    expect(modelNames()).toEqual(["gpt-4.1", "gpt-4.1-mini"]);
+
+    await act(async () => modelOption("gpt-4.1").click());
+    await flush();
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      models: ["gpt-4.1"],
+    });
+    expect(
+      container.querySelector(`[data-session-id="${secondRecord.id}"]`),
+    ).toBeNull();
+    expect(modelNames()).toEqual(["gpt-4.1", "gpt-4.1-mini"]);
+
+    await act(async () => modelOption("gpt-4.1-mini").click());
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      models: ["gpt-4.1", "gpt-4.1-mini"],
+    });
+  });
+
   it("counts failed and blocked calls apart in the conversation summary", async () => {
     const blocked: RequestRecord = {
       ...firstRecord,
