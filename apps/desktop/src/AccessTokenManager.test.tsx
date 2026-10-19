@@ -662,8 +662,8 @@ describe("AccessTokenManager", () => {
     });
     await renderManager(readyCatalog([firstToken, secondToken]));
     expect(row(firstToken.name).textContent).toContain("今日消耗 · USD$1.25");
-    expect(row(firstToken.name).textContent).toContain("缓存率0.0%TPS49.0");
-    expect(row(secondToken.name).textContent).toContain("缓存率—TPS—");
+    expect(row(firstToken.name).textContent).toContain("缓存命中率0.0%TPS49.0");
+    expect(row(secondToken.name).textContent).toContain("缓存命中率—TPS—");
     expect(row(firstToken.name).textContent).toContain("创建时间");
     expect(row(firstToken.name).textContent).toContain("配置客户端");
     expect(row(firstToken.name).textContent).toContain("删除");
@@ -671,7 +671,9 @@ describe("AccessTokenManager", () => {
     await act(async () => button("累计").click());
     expect(row(firstToken.name).textContent).toContain("累计消耗 · USD$325.75");
     expect(row(firstToken.name).textContent).toContain("累计 Token90");
-    expect(row(firstToken.name).textContent).toContain("缓存率26.0%TPS60.0");
+    expect(row(firstToken.name).textContent).toContain(
+      "缓存命中率26.0%TPS60.0",
+    );
     expect(row(firstToken.name).textContent).not.toContain("今日 Token");
     expect(bridgeMocks.listAccessTokenUsage).toHaveBeenCalledOnce();
 
