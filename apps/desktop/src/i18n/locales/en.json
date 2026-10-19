@@ -1304,6 +1304,8 @@
     "unknown": "Unknown",
     "nameRequired": "Enter a token name.",
     "nameTooLong": "The token name can be at most 64 characters.",
+    "nameTaken": "A token with this name already exists. Choose another name.",
+    "limitReached": "You have reached the access token limit. Delete a token you no longer use, then create one.",
     "created": "Created “{{name}}”. Clients can connect with it now.",
     "createFailed": "Unable to create an access token.",
     "copyManual": "Could not copy automatically. Select the token manually.",

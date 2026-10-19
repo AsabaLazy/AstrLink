@@ -536,6 +536,59 @@ describe("AccessTokenManager", () => {
     ).toBeNull();
   });
 
+  it("shows create failures inside the dialog and words a taken name", async () => {
+    const refusal = (code: string) =>
+      new Error(
+        `POST /control/v1/access-tokens returned 409 Conflict: {"error":{"code":"${code}","message":"x","retryable":false,"details":[]},"request_id":"req_0"}`,
+      );
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    const nameInput = () =>
+      document.querySelector<HTMLInputElement>("#access-token-name")!;
+    const submit = async () => {
+      await act(async () => {
+        button("创建", dialog()!).click();
+        await Promise.resolve();
+      });
+    };
+    await renderManager(readyCatalog([firstToken]));
+    await act(async () => button("创建令牌").click());
+
+    await submit();
+    expect(dialog()?.textContent).toContain("请输入令牌名称。");
+    expect(nameInput().getAttribute("aria-invalid")).toBe("true");
+
+    bridgeMocks.createAccessToken.mockRejectedValueOnce(refusal("conflict"));
+    await setInput("#access-token-name", "vs code");
+    expect(nameInput().hasAttribute("aria-invalid")).toBe(false);
+    await submit();
+
+    const taken = "已有同名令牌，请换一个名称。";
+    expect(bridgeMocks.createAccessToken).toHaveBeenCalledWith("vs code");
+    expect(dialog()?.textContent).toContain(taken);
+    expect(container.textContent).not.toContain(taken);
+    expect(document.body.textContent).not.toContain("returned 409");
+    expect(nameInput().getAttribute("aria-invalid")).toBe("true");
+    expect(
+      document.getElementById(nameInput().getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toBe(taken);
+    expect(document.activeElement).toBe(nameInput());
+
+    bridgeMocks.createAccessToken.mockRejectedValueOnce(
+      refusal("access_token_limit"),
+    );
+    await setInput("#access-token-name", "CI");
+    expect(dialog()?.textContent).not.toContain(taken);
+    await submit();
+    expect(dialog()?.textContent).toContain("访问令牌已达数量上限");
+    expect(nameInput().hasAttribute("aria-invalid")).toBe(false);
+
+    await act(async () => button("取消", dialog()!).click());
+    await act(async () => button("创建令牌").click());
+    expect(dialog()?.querySelector('[role="alert"]')).toBeNull();
+    expect(nameInput().value).toBe("");
+  });
+
   describe("while the create dialog closes", () => {
     let removeDialogAnimations: () => void;
     const createDialog = () => document.querySelector('[role="dialog"]')!;
