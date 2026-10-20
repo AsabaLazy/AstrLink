@@ -1070,5 +1070,27 @@ WHEN OLD.started_at IS NOT NEW.started_at OR OLD.local_access_token_id IS NOT NE
     WHERE request_id = NEW.id;
 END`,
 		}},
+		{Version: 54, Name: "access_token_sync", Statements: []string{
+			// A completed run may consume only the force push it started with.
+			`ALTER TABLE sync_state ADD COLUMN force_push_generation INTEGER NOT NULL DEFAULT 0`,
+			// An access token is configuration a package carries, so issuing,
+			// changing, or removing one has to reach the change log the sync
+			// schedule reads. Its value lives in its own table, which is written
+			// with the row that names it and therefore needs no trigger of its
+			// own.
+			//
+			// The bootstrap token is a token like any other here: it is stored
+			// as one the user holds, and a device that has just been installed
+			// therefore has one change waiting — the token it issued itself.
+			`CREATE TRIGGER config_change_access_tokens AFTER INSERT ON local_access_tokens BEGIN
+    INSERT INTO config_change_log (entity_kind, entity_id, changed_at) VALUES ('access_token', NEW.id, strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now'));
+END`,
+			`CREATE TRIGGER config_change_access_tokens_update AFTER UPDATE ON local_access_tokens BEGIN
+    INSERT INTO config_change_log (entity_kind, entity_id, changed_at) VALUES ('access_token', NEW.id, strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now'));
+END`,
+			`CREATE TRIGGER config_change_access_tokens_delete AFTER DELETE ON local_access_tokens BEGIN
+    INSERT INTO config_change_log (entity_kind, entity_id, changed_at) VALUES ('access_token', OLD.id, strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now'));
+END`,
+		}},
 	}
 }
