@@ -1322,6 +1322,42 @@ describe("RequestRecords", () => {
     expect(bridgeMocks.listRequestRecordChildren).not.toHaveBeenCalled();
   });
 
+  it("waits for a slow live detail before polling it again", async () => {
+    const pending: RequestRecord = {
+      ...firstRecord,
+      status: "pending",
+      completed_at: null,
+      http_status: null,
+      latency_ms: null,
+      usage: null,
+      audit: { ...emptyAudit },
+    };
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [sessionFromRecord(pending)],
+      next_cursor: null,
+    });
+    bridgeMocks.getRequestSession.mockResolvedValueOnce(sessionDetail(pending));
+    const slow = deferred<ReturnType<typeof sessionDetail>>();
+    bridgeMocks.getRequestSession.mockReturnValue(slow.promise);
+    await renderRecords();
+    await act(async () => {
+      sessionRow(pending.id).click();
+    });
+    await flush();
+    bridgeMocks.getRequestSession.mockClear();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3100);
+    });
+    expect(bridgeMocks.getRequestSession).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      slow.resolve(sessionDetail(pending));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(bridgeMocks.getRequestSession).toHaveBeenCalledTimes(2);
+  });
+
   // Opening a session hid the list at once and drew the detail only when it
   // arrived, so the whole workspace flashed blank on every click.
   it("keeps the list on screen until the session detail arrives", async () => {

@@ -588,7 +588,10 @@ export function RequestRecords({
   useEffect(() => {
     if (!selectedId) return;
     let cancelled = false;
+    let running = false;
     const load = async () => {
+      if (cancelled || running) return;
+      running = true;
       try {
         const detail = await getRequestSession(selectedId);
         if (cancelled) return;
@@ -610,6 +613,8 @@ export function RequestRecords({
         });
       } catch {
         /* detail view shows missing via selectedSession === null */
+      } finally {
+        running = false;
       }
     };
     const fresh = freshDetailRef.current === selectedId;
@@ -620,7 +625,9 @@ export function RequestRecords({
         cancelled = true;
       };
     }
-    const timer = window.setInterval(() => void load(), POLL_INTERVAL_MS);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void load();
+    }, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
