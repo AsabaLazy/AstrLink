@@ -85,12 +85,10 @@ func (engine *Engine) localDocument(ctx context.Context, state storage.SyncState
 				}
 				record.Secret = encodeSecret(entity.Secret)
 			case kind == KindAccessToken:
-				// A token travels whole or not at all: the value is what makes
-				// it work on the other device, and the metadata is how the user
-				// finds it there. A value this device cannot read leaves the
-				// entity out, so the copy the remote already holds stands.
+				// A token must travel whole. An incomplete snapshot would turn
+				// a read failure into a deletion on every other device.
 				if len(entity.Secret) == 0 || len(entity.Document) == 0 {
-					continue
+					return Document{}, fmt.Errorf("%w: incomplete access token %s", storage.ErrInvalidRecord, entity.LocalID)
 				}
 				record.Document = append(json.RawMessage(nil), entity.Document...)
 				record.Secret = encodeSecret(entity.Secret)

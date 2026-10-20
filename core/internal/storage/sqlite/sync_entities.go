@@ -126,14 +126,13 @@ func (store *Store) syncSecrets(ctx context.Context, kind string, times map[stri
 // the value a client presents. The value is opened here and travels in the
 // package, which is the only place a token is read in the clear for sync.
 //
-// The metadata is what tells the tokens apart, so a token whose value this
-// device cannot open is skipped rather than sent as a name with nothing behind
-// it: the other devices keep the copy they have.
+// A missing or unreadable value aborts the snapshot. Omitting that token would
+// make the three-way merge interpret the read failure as a local deletion.
 func (store *Store) syncAccessTokens(ctx context.Context, times map[string]string) ([]storage.SyncLocalEntity, error) {
 	rows, err := store.db.QueryContext(ctx, `SELECT token.id, token.name, token.source, token.created_at,
-    secret.token_value, secret.sealed
+    secret.token_value, COALESCE(secret.sealed, 1)
 FROM local_access_tokens token
-JOIN local_access_token_secrets secret ON secret.token_id = token.id`)
+LEFT JOIN local_access_token_secrets secret ON secret.token_id = token.id`)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", syncKindAccessToken, err)
 	}
@@ -148,7 +147,7 @@ JOIN local_access_token_secrets secret ON secret.token_id = token.id`)
 		}
 		plaintext, err := store.openSecret(accessTokenSecretsTable, id, stored, sealed)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("open synced access token %s: %w", id, err)
 		}
 		document, err := json.Marshal(contract.AccessTokenDocument{
 			Name:      name,

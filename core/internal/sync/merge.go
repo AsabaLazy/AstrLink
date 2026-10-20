@@ -25,8 +25,12 @@ import (
 	"time"
 )
 
-// PackageVersion is the envelope version this build writes and reads.
-const PackageVersion = 1
+// PackageVersion is the newest payload version this build writes and reads.
+// Version 2 protects access tokens from version 1 writers, which drop unknown
+// entity kinds. The encrypted envelope's format is unchanged.
+const PackageVersion = 2
+
+const legacyPackageVersion = 1
 
 // Entity kinds a package carries.
 //
@@ -164,7 +168,7 @@ func Decode(encoded []byte) (Document, error) {
 	if err := json.Unmarshal(encoded, &document); err != nil {
 		return Document{}, fmt.Errorf("sync package is not readable: %w", err)
 	}
-	if document.Version != PackageVersion {
+	if document.Version != legacyPackageVersion && document.Version != PackageVersion {
 		return Document{}, fmt.Errorf("sync package version %d is unsupported", document.Version)
 	}
 	if document.Entities == nil {

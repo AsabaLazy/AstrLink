@@ -1027,7 +1027,52 @@ END`,
     PRIMARY KEY (session_id, stand_in)
 )`,
 		}},
-		{Version: 53, Name: "access_token_change_log", Statements: []string{
+		{Version: 53, Name: "session_cursor_lookup_order", Statements: []string{
+			// Keep the ordering and principal beside each cursor so a repeated
+			// conversation id can seek its newest matching root without sorting
+			// every request ever sent in that conversation.
+			`ALTER TABLE request_record_cursors ADD COLUMN started_at TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE request_record_cursors ADD COLUMN local_access_token_id TEXT`,
+			`UPDATE request_record_cursors SET (started_at, local_access_token_id) = (
+    SELECT started_at, local_access_token_id FROM request_records WHERE id = request_id
+)`,
+			`CREATE INDEX request_record_cursors_latest_idx ON request_record_cursors
+    (value, kind, direction, started_at DESC, request_id DESC)`,
+			`CREATE INDEX request_record_cursors_principal_latest_idx ON request_record_cursors
+    (value, kind, direction, local_access_token_id, started_at DESC, request_id DESC)`,
+			`DROP INDEX request_record_cursors_value_idx`,
+			`CREATE INDEX request_records_output_latest_idx ON request_records
+    (output_response_id, started_at DESC, id DESC)
+    WHERE parent_request_id IS NULL AND session_id IS NOT NULL`,
+			`CREATE INDEX request_records_previous_latest_idx ON request_records
+    (previous_response_id, started_at DESC, id DESC)
+    WHERE parent_request_id IS NULL AND session_id IS NOT NULL`,
+			`CREATE INDEX request_records_output_principal_latest_idx ON request_records
+    (output_response_id, local_access_token_id, started_at DESC, id DESC)
+    WHERE parent_request_id IS NULL AND session_id IS NOT NULL`,
+			`CREATE INDEX request_records_previous_principal_latest_idx ON request_records
+    (previous_response_id, local_access_token_id, started_at DESC, id DESC)
+    WHERE parent_request_id IS NULL AND session_id IS NOT NULL`,
+			`DROP INDEX request_records_output_response_id_idx`,
+			`DROP INDEX request_records_previous_response_idx`,
+			// Store writes provide these fields directly; old SQL writers that
+			// omit them still get valid ordering. Changes to the parent record
+			// cannot leave the derived fields stale.
+			`CREATE TRIGGER request_cursor_fill_order AFTER INSERT ON request_record_cursors
+WHEN NEW.started_at = '' BEGIN
+    UPDATE request_record_cursors SET (started_at, local_access_token_id) = (
+        SELECT started_at, local_access_token_id FROM request_records WHERE id = NEW.request_id
+    ) WHERE request_id = NEW.request_id AND kind = NEW.kind AND direction = NEW.direction AND value = NEW.value;
+END`,
+			`CREATE TRIGGER request_cursor_update_order AFTER UPDATE OF started_at, local_access_token_id ON request_records
+WHEN OLD.started_at IS NOT NEW.started_at OR OLD.local_access_token_id IS NOT NEW.local_access_token_id BEGIN
+    UPDATE request_record_cursors SET started_at = NEW.started_at, local_access_token_id = NEW.local_access_token_id
+    WHERE request_id = NEW.id;
+END`,
+		}},
+		{Version: 54, Name: "access_token_sync", Statements: []string{
+			// A completed run may consume only the force push it started with.
+			`ALTER TABLE sync_state ADD COLUMN force_push_generation INTEGER NOT NULL DEFAULT 0`,
 			// An access token is configuration a package carries, so issuing,
 			// changing, or removing one has to reach the change log the sync
 			// schedule reads. Its value lives in its own table, which is written

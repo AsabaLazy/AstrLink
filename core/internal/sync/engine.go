@@ -663,7 +663,7 @@ func (engine *Engine) syncOnce(ctx context.Context) error {
 		return err
 	}
 	if state.Config.ForcePush {
-		return engine.forcePush(ctx, state, target, identity, key, salt, params, base)
+		return engine.forcePush(ctx, state, target, identity, key, salt, params, base, hasBase)
 	}
 	scope := state.Config.Scope
 	kinds := inScope(scope)
@@ -702,6 +702,7 @@ func (engine *Engine) syncOnce(ctx context.Context) error {
 		// Base first, remote last: a kind this device does not write has to
 		// carry the remote's copy, not the one this device last synced.
 		carryThrough(merged, kinds, base, remoteDoc)
+		merged.Version = syncDocumentVersion(scope.Tokens, base, hasBase, remoteDoc, exists)
 		pruneOrphans(&merged)
 		if err := engine.apply(ctx, merged, scope); err != nil {
 			return err
@@ -760,6 +761,7 @@ func (engine *Engine) forcePush(
 	key, salt []byte,
 	params syncseal.KDFParams,
 	base Document,
+	hasBase bool,
 ) error {
 	kinds := inScope(state.Config.Scope)
 	snapshotAt := engine.now().UTC()
@@ -767,61 +769,56 @@ func (engine *Engine) forcePush(
 	if err != nil {
 		return err
 	}
-	payload, etag, exists, err := target.Read(ctx)
-	if err != nil {
-		return err
-	}
-	sources := []Document{base}
-	if exists {
-		if remoteDoc, err := openRemotePackage(payload, key); err != nil {
-			// A package this device cannot open is what a force push is for, so
-			// it is reported and replaced rather than blocking the run.
-			engine.logf("sync force push: the stored package did not open: %v", err)
-		} else {
-			sources = append(sources, remoteDoc)
-		}
-	}
-	// Base first, remote last: a kind this device does not write travels through
-	// as the remote holds it, and the last package this device synced fills in
-	// what the remote no longer mentions.
-	carryThrough(local, kinds, sources...)
-	local.Revision = base.Revision + 1
-	pruneOrphans(&local)
-	encoded, err := local.Encode()
-	if err != nil {
-		return fmt.Errorf("encode sync package: %w", err)
-	}
-	pkg, err := syncseal.SealWithKey(key, encoded, salt, params)
-	if err != nil {
-		return err
-	}
-	marshalled, err := syncseal.Marshal(pkg)
-	if err != nil {
-		return err
-	}
-	expected := etag
-	if !exists {
-		expected = ""
-	}
 	for attempt := 0; attempt < maxWriteAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		payload, etag, exists, err := target.Read(ctx)
+		if err != nil {
+			return err
+		}
+		sources := []Document{base}
+		var remoteDoc Document
+		if exists {
+			if remoteDoc, err = openRemotePackage(payload, key); err != nil {
+				// A force push can replace a package this device cannot open.
+				engine.logf("sync force push: the stored package did not open: %v", err)
+			} else {
+				sources = append(sources, remoteDoc)
+			}
+		}
+		// Rebuild the carried groups and format version after every failed
+		// conditional write. Reusing the first payload could overwrite newer
+		// out-of-scope tokens or downgrade a remote that has just become v2.
+		published := restrict(local, kinds)
+		carryThrough(published, kinds, sources...)
+		published.Version = syncDocumentVersion(state.Config.Scope.Tokens, base, hasBase, remoteDoc, exists)
+		published.Revision = base.Revision + 1
+		pruneOrphans(&published)
+		encoded, err := published.Encode()
+		if err != nil {
+			return fmt.Errorf("encode sync package: %w", err)
+		}
+		pkg, err := syncseal.SealWithKey(key, encoded, salt, params)
+		if err != nil {
+			return err
+		}
+		marshalled, err := syncseal.Marshal(pkg)
+		if err != nil {
+			return err
+		}
+		expected := etag
+		if !exists {
+			expected = ""
+		}
 		storedTag, err := target.Write(ctx, marshalled, expected)
 		if errors.Is(err, remote.ErrPrecondition) {
-			// Another device wrote the package first. A force push replaces it in
-			// any case, so the tag is read again and the write repeated.
-			_, next, _, readErr := target.Read(ctx)
-			if readErr != nil {
-				return readErr
-			}
-			expected = next
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		if err := engine.finish(ctx, state, encoded, local.Revision, identity, storedTag, snapshotAt); err != nil {
+		if err := engine.finish(ctx, state, encoded, published.Revision, identity, storedTag, snapshotAt); err != nil {
 			return err
 		}
 		engine.rememberNotices([]Notice{{
@@ -868,9 +865,21 @@ func (engine *Engine) finish(
 	if !state.Config.ForcePush {
 		return nil
 	}
-	config := state.Config
-	config.ForcePush = false
-	return engine.store.UpdateSyncConfig(ctx, config)
+	return engine.store.ConsumeForcePush(ctx, state.ForcePushGeneration)
+}
+
+// A scope without tokens can still exchange v1 packages with older devices.
+// Once tokens participate, v2 must persist even after they are deleted or the
+// group is disabled, so an old writer cannot silently remove the group. Also
+// upgrade token entities written by builds that put them in a v1 package.
+func syncDocumentVersion(tokens bool, base Document, hasBase bool, remoteDoc Document, exists bool) int {
+	requiresV2 := func(document Document) bool {
+		return document.Version >= PackageVersion || len(document.Entities[KindAccessToken]) > 0
+	}
+	if tokens || (hasBase && requiresV2(base)) || (exists && requiresV2(remoteDoc)) {
+		return PackageVersion
+	}
+	return legacyPackageVersion
 }
 
 // tombstoneRetention is how long a deletion is remembered. It bounds how long

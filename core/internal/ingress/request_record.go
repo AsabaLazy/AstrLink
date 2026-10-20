@@ -1,6 +1,7 @@
 package ingress
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -283,6 +284,9 @@ type recordSession struct {
 	persistBlobs   AuditBlobPersister
 	persistLogf    func(string, ...any)
 	persistedAudit map[storage.AuditDirection]bool
+	// Keep serialized metadata so pointer-backed fields cannot mutate the last
+	// successful snapshot. Unchanged capture/progress callbacks need no write.
+	persistedMetadata []byte
 }
 
 func newRecordSession(
@@ -421,22 +425,40 @@ func (session *recordSession) persistAvailableAudit(ctx context.Context) {
 	session.syncCaptureTees()
 	persistCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if session.persistStore != nil {
-		if err := session.persistStore.UpsertRequestRecord(persistCtx, session.recordSnapshot(nil, nil)); err != nil {
-			logRequestRecordFailure(session.persistLogf, "live_audit_upsert", err)
-			return
-		}
+	if err := session.persistMetadata(persistCtx); err != nil {
+		logRequestRecordFailure(session.persistLogf, "live_audit_upsert", err)
+		return
 	}
+	before := session.liveAuditSummary()
 	if session.persistBlobs != nil {
 		session.persistReadyAuditBlobs(persistCtx, session.persistBlobs, session.persistLogf)
 		session.settleRequestExposure(persistCtx, session.persistBlobs, session.persistLogf)
 	}
-	if session.persistStore == nil {
+	if session.liveAuditSummary() == before {
 		return
 	}
-	if err := session.persistStore.UpsertRequestRecord(persistCtx, session.recordSnapshot(nil, nil)); err != nil {
+	if err := session.persistMetadata(persistCtx); err != nil {
 		logRequestRecordFailure(session.persistLogf, "live_audit_upsert", err)
 	}
+}
+
+func (session *recordSession) persistMetadata(ctx context.Context) error {
+	if session.persistStore == nil {
+		return nil
+	}
+	record := session.recordSnapshot(nil, nil)
+	metadata, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(metadata, session.persistedMetadata) {
+		return nil
+	}
+	if err := session.persistStore.UpsertRequestRecord(ctx, record); err != nil {
+		return err
+	}
+	session.persistedMetadata = metadata
+	return nil
 }
 
 func (session *recordSession) persistReadyAuditBlobs(
@@ -1079,7 +1101,7 @@ func (session *recordSession) persistLiveMetadata(ctx context.Context) {
 	}
 	persistCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := session.persistStore.UpsertRequestRecord(persistCtx, session.recordSnapshot(nil, nil)); err != nil {
+	if err := session.persistMetadata(persistCtx); err != nil {
 		logRequestRecordFailure(session.persistLogf, "live_metadata_upsert", err)
 	}
 }

@@ -22,7 +22,7 @@ func TestSyncStateDefaultsAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync state: %v", err)
 	}
-	if state.DeviceID == "" || state.PassphraseState != "unset" || state.Config.Enabled {
+	if state.DeviceID == "" || state.PassphraseState != "unset" || state.Config.Enabled || !state.Config.Scope.Tokens {
 		t.Fatalf("defaults = %+v", state)
 	}
 	// A second read returns the same device identity, not a new one.
@@ -39,6 +39,38 @@ func TestSyncStateDefaultsAndRoundTrip(t *testing.T) {
 	state, err = store.SyncState(ctx)
 	if err != nil || !state.Configured || state.Config.Remote.Endpoint != "https://dav.example/astr" {
 		t.Fatalf("state = %+v, %v", state, err)
+	}
+}
+
+func TestSyncStateDoesNotExpandLegacyTokenScope(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t, filepath.Join(t.TempDir(), "legacy-sync.db"))
+	defer store.Close()
+	config := contract.DefaultSyncConfig()
+	config.Enabled = true
+	config.Remote = contract.SyncRemote{Kind: contract.SyncRemoteWebDAV, Endpoint: "https://dav.example/astr", Path: "/astrlink"}
+	if err := store.UpdateSyncConfig(ctx, config); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE sync_state SET config_json = json_remove(config_json, '$.scope.tokens') WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.SyncState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Config.Scope.Tokens || !state.Config.Enabled || !state.Config.Scope.Services {
+		t.Fatal("reading a legacy configuration changed its sync scope")
+	}
+	for _, enabled := range []bool{true, false} {
+		config.Scope.Tokens = enabled
+		if err := store.UpdateSyncConfig(ctx, config); err != nil {
+			t.Fatal(err)
+		}
+		state, err := store.SyncState(ctx)
+		if err != nil || state.Config.Scope.Tokens != enabled {
+			t.Fatalf("explicit tokens=%v did not survive a reload: %v", enabled, err)
+		}
 	}
 }
 

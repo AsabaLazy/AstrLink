@@ -31,6 +31,9 @@ type ChangeLogStore interface {
 // SyncStateRecord is the one row of sync settings and status.
 type SyncStateRecord struct {
 	Config contract.SyncConfig
+	// ForcePushGeneration identifies the currently armed overwrite. Ordinary
+	// settings edits preserve it; rearming or changing its target advances it.
+	ForcePushGeneration int64
 	// PassphraseState is "set" once a sync passphrase produced the cached key.
 	PassphraseState string
 	// KeySalt and KeyParams are the salt and KDF parameters the cached key was
@@ -88,6 +91,9 @@ type SyncStore interface {
 	SyncState(context.Context) (SyncStateRecord, error)
 	// UpdateSyncConfig replaces the settings.
 	UpdateSyncConfig(ctx context.Context, config contract.SyncConfig) error
+	// ConsumeForcePush disarms only the overwrite a run completed, preserving
+	// other settings and any newer overwrite request.
+	ConsumeForcePush(ctx context.Context, generation int64) error
 
 	// PutSyncKey stores the cached key sealed under the local key hierarchy,
 	// with the salt and parameters that produced it. It is how automatic sync

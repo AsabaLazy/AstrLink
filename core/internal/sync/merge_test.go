@@ -207,6 +207,16 @@ func TestDecodeRejectsFutureVersion(t *testing.T) {
 	}
 }
 
+func TestDecodeAcceptsLegacyPackage(t *testing.T) {
+	document, err := Decode([]byte(`{"version":1,"entities":{"policy":{"policy_default":{"document":{"enabled":true}}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy, ok := document.Get(KindPolicy, "policy_default"); !ok || string(policy.Document) != `{"enabled":true}` {
+		t.Fatalf("legacy policy was lost: %+v", policy)
+	}
+}
+
 // A credential travels inside the package as a secret, and a device that has
 // none receives it whole.
 func TestMergeCarriesCredentials(t *testing.T) {

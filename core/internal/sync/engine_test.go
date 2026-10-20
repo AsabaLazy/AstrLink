@@ -84,9 +84,10 @@ func (store *davStore) ServeHTTP(writer http.ResponseWriter, request *http.Reque
 // device is one Core installation: its own database, and a clock the test can
 // advance to order changes across devices.
 type device struct {
-	engine *Engine
-	store  *sqlite.Store
-	clock  time.Time
+	engine       *Engine
+	store        *sqlite.Store
+	clock        time.Time
+	databasePath string
 }
 
 // pair is two devices sharing one remote.
@@ -128,12 +129,13 @@ func newRemote(t *testing.T) *pair {
 // installed later.
 func (p *pair) install(index int) *device {
 	p.t.Helper()
-	database, err := sqlite.Open(context.Background(), filepath.Join(p.t.TempDir(), fmt.Sprintf("device%d.db", index)))
+	databasePath := filepath.Join(p.t.TempDir(), fmt.Sprintf("device%d.db", index))
+	database, err := sqlite.Open(context.Background(), databasePath)
 	if err != nil {
 		p.t.Fatalf("open database: %v", err)
 	}
 	p.t.Cleanup(func() { _ = database.Close() })
-	device := &device{store: database, clock: time.Now().UTC().Add(-time.Hour)}
+	device := &device{store: database, clock: time.Now().UTC().Add(-time.Hour), databasePath: databasePath}
 	engine, err := New(Dependencies{
 		Store:  database,
 		Client: p.server.Client(),
