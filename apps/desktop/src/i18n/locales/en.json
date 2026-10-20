@@ -239,6 +239,8 @@
     "quit": "Quit AstrLink",
     "quitHint": "Stop every process",
     "autostart": "Start AstrLink when you sign in",
+    "autostartHidden": "Hide to tray when starting at sign-in",
+    "autostartHiddenHint": "Only hide when starting automatically at sign-in. Opening the app manually still shows the main window.",
     "trayHint": "Click the tray icon (either button) to open the panel; opening the window, gateway controls and quitting all live there.",
     "trayKicker": "Tray panel",
     "trayPanelHint": "The panel that opens from the tray icon. Changes apply immediately; the preview is the real panel.",

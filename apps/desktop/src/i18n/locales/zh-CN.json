@@ -239,6 +239,8 @@
     "quit": "退出 AstrLink",
     "quitHint": "结束全部进程",
     "autostart": "登录系统后自动启动 AstrLink",
+    "autostartHidden": "自启动时隐藏到托盘",
+    "autostartHiddenHint": "仅在登录系统后自动启动时隐藏，手动打开应用仍显示主窗口。",
     "trayHint": "点击托盘图标（左键或右键）打开面板；打开窗口、启停网关和退出都在面板里。",
     "trayKicker": "托盘面板",
     "trayPanelHint": "点击托盘图标展开的面板。改动立即生效，预览即实际效果。",
