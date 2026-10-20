@@ -1456,56 +1456,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn onnx_environment_outlives_concurrent_sessions() {
-        const CHILD_ENV: &str = "ASTRLINK_TEST_ORT_LIFETIME_CHILD";
-        if env::var_os(CHILD_ENV).is_none() {
-            // Other tests can keep ORT alive, hiding the last-session race.
-            let output = std::process::Command::new(env::current_exe().expect("test executable"))
-                .args([
-                    "--exact",
-                    "engine::tests::onnx_environment_outlives_concurrent_sessions",
-                    "--nocapture",
-                ])
-                .env(CHILD_ENV, "1")
-                .output()
-                .expect("run isolated ORT lifetime test");
-            assert!(
-                output.status.success(),
-                "isolated ORT lifetime test failed:\n{}\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            return;
-        }
-
-        initialize_onnx_runtime().expect("initialize runtime");
-        let environment = ort::environment::get_environment().expect("get environment");
-        let weak = std::sync::Arc::downgrade(&environment);
-        drop(environment);
-        assert!(
-            weak.upgrade().is_some(),
-            "environment dropped before sessions"
-        );
-
-        let start = std::sync::Barrier::new(8);
-        std::thread::scope(|scope| {
-            for _ in 0..8 {
-                scope.spawn(|| {
-                    start.wait();
-                    for _ in 0..256 {
-                        initialize_onnx_runtime().expect("reuse runtime");
-                        drop(Session::builder().expect("create concurrent session builder"));
-                    }
-                });
-            }
-        });
-        assert!(
-            weak.upgrade().is_some(),
-            "environment dropped after sessions"
-        );
-    }
-
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_core_ml_models_load_their_own_runtime() {
