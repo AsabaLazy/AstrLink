@@ -3581,6 +3581,7 @@
     "availableNotification": "AstrLink {{version}} 已发布，可以下载。",
     "manualNotification": "AstrLink {{version}} 已发布，请前往版本页面下载安装包。",
     "readyNotification": "AstrLink {{version}} 已下载，可以安装。",
+    "errorNotification": "AstrLink {{version}} 更新未完成，可在「关于」中重试或手动下载。",
     "phase": {
       "idle": "尚未检查",
       "checking": "正在检查更新…",

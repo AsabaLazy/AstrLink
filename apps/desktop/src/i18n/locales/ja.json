@@ -3581,6 +3581,7 @@
     "availableNotification": "AstrLink {{version}} をダウンロードできます。",
     "manualNotification": "AstrLink {{version}} が利用できます。リリースページからインストーラーをダウンロードしてください。",
     "readyNotification": "AstrLink {{version}} のダウンロードが完了し、インストールできます。",
+    "errorNotification": "AstrLink {{version}} の更新を完了できませんでした。「情報」から再試行するか、手動でダウンロードしてください。",
     "phase": {
       "idle": "未確認",
       "checking": "更新を確認中…",

@@ -732,6 +732,59 @@ describe("App workspace navigation", () => {
     ).toBe("有新版本可用");
   });
 
+  it("announces a failed automatic download once and opens its recovery details", async () => {
+    let listener: ((snapshot: UpdateSnapshot) => void) | undefined;
+    updateMocks.listen.mockImplementation(async (callback) => {
+      listener = callback;
+      return () => {};
+    });
+    await renderApp();
+    const base = browserUpdateSnapshot();
+    await act(async () =>
+      listener!({
+        ...base,
+        revision: 1,
+        phase: "error",
+        error_code: "network",
+      }),
+    );
+    expect(updateMocks.info).not.toHaveBeenCalled();
+    const failed: UpdateSnapshot = {
+      ...base,
+      revision: 2,
+      phase: "error",
+      error_code: "download",
+      release: {
+        version: "1.1.0",
+        notes: "New release",
+        published_at: null,
+        url: "https://github.com/Calcium-Ion/AstrLink/releases/tag/v1.1.0",
+      },
+    };
+    await act(async () => listener!(failed));
+    expect(updateMocks.info).toHaveBeenCalledOnce();
+    expect(updateMocks.info.mock.calls[0][0]).toContain("1.1.0 更新未完成");
+    expect(
+      button("关于")
+        .querySelector('[role="status"]')
+        ?.getAttribute("aria-label"),
+    ).toBe("更新失败");
+    await act(async () =>
+      listener!({
+        ...failed,
+        revision: 3,
+        phase: "checking",
+        error_code: null,
+      }),
+    );
+    await act(async () => listener!({ ...failed, revision: 4 }));
+    expect(updateMocks.info).toHaveBeenCalledOnce();
+    await act(async () => updateMocks.info.mock.calls[0][1].action.onClick());
+    expect(workspaceHeading().textContent).toBe("关于");
+    expect(container.textContent).toContain("下载失败");
+    expect(button("查看版本与下载")).toBeDefined();
+  });
+
   it("does not toast an update state already shown on About", async () => {
     let listener: ((snapshot: UpdateSnapshot) => void) | undefined;
     updateMocks.listen.mockImplementation(async (callback) => {
