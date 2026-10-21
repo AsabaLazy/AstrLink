@@ -534,7 +534,8 @@ impl Default for CoreInner {
             inference_listen: crate::preferences::InferenceListen::Loopback,
             started_launch: None,
             max_concurrent_inspections: 16,
-            response_start_timeout_seconds: 0,
+            response_start_timeout_seconds:
+                crate::preferences::DEFAULT_RESPONSE_START_TIMEOUT_SECONDS,
             max_request_body_mib: 0,
             use_system_proxy: true,
             locale: Locale::En,
