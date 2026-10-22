@@ -3475,6 +3475,7 @@
     "enable": "启用{{tool}}接管",
     "backend": "{{tool}}执行方",
     "executor": "映射到",
+    "switchHint": "在路由页内切换方式会分别保留填写内容，切回来即可恢复。只保存当前方式的设置；未填完整时仍使用上次保存的配置。",
     "upstream": "Responses · {{tool}}",
     "tavily": "Tavily 兼容 API",
     "serviceImages": "提供商的 Images API",

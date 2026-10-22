@@ -3475,6 +3475,7 @@
     "enable": "Enable {{tool}} execution",
     "backend": "{{tool}} backend",
     "executor": "Map to",
+    "switchHint": "Each backend keeps its own entries while you stay on the Routing page. Switching back restores them. Only the current backend is saved; incomplete settings leave the last saved configuration in use.",
     "upstream": "Responses · {{tool}}",
     "tavily": "Tavily-compatible API",
     "serviceImages": "Provider’s Images API",

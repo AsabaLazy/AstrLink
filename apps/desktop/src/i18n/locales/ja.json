@@ -3475,6 +3475,7 @@
     "enable": "{{tool}}の実行を有効にする",
     "backend": "{{tool}}のバックエンド",
     "executor": "割り当て先",
+    "switchHint": "ルーティングページ内では、方式ごとの入力内容を保持し、切り替えて戻ると復元します。現在の方式の設定だけを保存し、未入力の項目がある場合は最後に保存した設定を使います。",
     "upstream": "Responses · {{tool}}",
     "tavily": "Tavily互換API",
     "serviceImages": "APIプロバイダーのImages API",
