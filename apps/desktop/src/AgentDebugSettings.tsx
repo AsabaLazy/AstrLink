@@ -278,6 +278,19 @@ export function AgentDebugSettings({
   const sharesSkills = detected.some(
     (tool) => sharedGroup(toolKey(tool)).length > 1,
   );
+  const installRows = rows.filter(
+    (row) => row.id !== "pi" || sharedGroup(toolKey(row)).length === 1,
+  );
+  const toolStatusLabel = (tool: AgentToolStatus | undefined): string =>
+    t(
+      !tool?.detected
+        ? "agentDebug.notDetected"
+        : isInstalled(tool)
+          ? "agentDebug.installed"
+          : anySkillInstalled(tool)
+            ? "agentDebug.partial"
+            : "agentDebug.detected",
+    );
   const toggleTool = (key: ToolKey, checked: boolean): void => {
     const group = sharedGroup(key);
     setSelectedTools((current) =>
@@ -644,11 +657,13 @@ export function AgentDebugSettings({
                   {t("agentDebug.selectTools")}
                 </legend>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                  {rows.map((row) => {
+                  {installRows.map((row) => {
                     const { id } = row;
                     const key = toolKey(row);
                     const tool = toolAt(row);
-                    const inputId = `agent-install-${row.wsl === null ? "" : `wsl-${row.wsl}-`}${id}`;
+                    const group = sharedGroup(key);
+                    const shared = group.length > 1;
+                    const inputId = `agent-install-${row.wsl === null ? "" : `wsl-${row.wsl}-`}${shared ? "codex-pi" : id}`;
                     return (
                       <Label
                         className="min-w-0 items-start gap-2"
@@ -665,23 +680,28 @@ export function AgentDebugSettings({
                         />
                         <span className="grid min-w-0 gap-0.5">
                           <span className="text-foreground">
-                            {t(`agentDebug.tools.${id}`)}
+                            {shared
+                              ? t("agentDebug.sharedTools")
+                              : t(`agentDebug.tools.${id}`)}
                             {row.wsl !== null ? (
                               <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                                 {t("agentDebug.wslPlace", { name: row.wsl })}
                               </span>
                             ) : null}
                           </span>
-                          <span className="text-xs font-normal text-muted-foreground">
-                            {t(
-                              !tool?.detected
-                                ? "agentDebug.notDetected"
-                                : isInstalled(tool)
-                                  ? "agentDebug.installed"
-                                  : anySkillInstalled(tool)
-                                    ? "agentDebug.partial"
-                                    : "agentDebug.detected",
-                            )}
+                          <span className="flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-normal text-muted-foreground">
+                            {shared
+                              ? detected
+                                  .filter((item) =>
+                                    group.includes(toolKey(item)),
+                                  )
+                                  .map((item) => (
+                                    <span key={toolKey(item)}>
+                                      {t(`agentDebug.tools.${item.id}`)} ·{" "}
+                                      {toolStatusLabel(item)}
+                                    </span>
+                                  ))
+                              : toolStatusLabel(tool)}
                           </span>
                         </span>
                       </Label>
