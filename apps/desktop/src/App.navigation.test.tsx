@@ -1411,8 +1411,12 @@ describe("App workspace navigation", () => {
     // overview's range, a year by default.
     expect(workspaceHeading().textContent).toBe("请求记录");
     expect(
-      container.querySelector('[aria-label="提供商筛选"]')?.textContent,
+      container.querySelector('[data-slot="filter-chips"]')?.textContent,
     ).toContain("Primary gateway");
+    await act(async () => button("更多筛选").click());
+    expect(button("提供商筛选").textContent).toContain("Primary gateway");
+    await pressEscape();
+    await settleClosedLayer();
     expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith(
       expect.objectContaining({
         kind: "inference",
