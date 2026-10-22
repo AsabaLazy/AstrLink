@@ -3686,6 +3686,7 @@
       "version": "Could not read the version. Refresh and try again.",
       "unsupported": "This installation needs a manual update.",
       "command": "The operation failed. Select View details to see why, then retry.",
+      "permission": "The current user cannot access the client files or cache. In a terminal on {{place}}, fix the directory permissions or update manually with an account that has access, then refresh.",
       "timeout": "The operation timed out. Check your connection and retry.",
       "changed": "The installation changed. Refresh before updating.",
       "unchanged": "No update was installed. Select View details to see why, then retry.",
