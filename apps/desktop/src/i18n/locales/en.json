@@ -2352,7 +2352,11 @@
     "timeRange": "{{from}} → {{to}}",
     "moreActions": "More actions",
     "copySessionId": "Copy session ID",
-    "ttft": "TTFT"
+    "ttft": "TTFT",
+    "moreFilters": "More filters",
+    "activeFilters": "Active filters",
+    "moreActiveFilters": "+{{count}} more",
+    "filterCount": "{{count}} selected"
   },
   "conversation": {
     "tab": "Summary",
@@ -2401,7 +2405,10 @@
     "callList": "Call list",
     "expand": "Expand",
     "collapse": "Collapse",
-    "tokens": "{{input}} / {{output}} tokens"
+    "tokens": "{{input}} / {{output}} tokens",
+    "toolResultReceived": "Result received",
+    "toolResultUnavailable": "Result unavailable",
+    "toolResultUnavailableHint": "No readable tool result in this record. It may not have been returned or captured, or it may be locked."
   },
   "audit": {
     "requestHeaders": "Request headers",
@@ -2543,6 +2550,8 @@
   },
   "trajectory": {
     "timeline": "Call timeline",
+    "timingHint": "Phase timing within this call; each call has its own scale",
+    "timingLabel": "Timing per call",
     "eventList": "Events",
     "eventCount": "{{count}} events",
     "phase": "Phase",

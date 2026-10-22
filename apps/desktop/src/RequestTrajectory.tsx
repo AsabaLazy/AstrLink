@@ -13,8 +13,18 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDown,
   ArrowUp,
+  ArrowRight,
+  BadgeAlert,
+  Ban,
+  Check,
   ChevronRight,
+  ImageDown,
   MessageSquare,
+  RotateCcw,
+  Route,
+  Server,
+  ShieldCheck,
+  type AnimatedIcon,
 } from "@/components/icons";
 import { FindBar, HighlightedText } from "@/components/FindBar";
 import { IconButton } from "@/components/IconButton";
@@ -24,6 +34,15 @@ import { RequestServiceLabel } from "@/components/RequestServiceLabel";
 import { StatusDot } from "@/components/StatusDot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { CallCardRow } from "@/components/ui/tool-call-card";
+import { ExecutionNode, ExecutionSpan } from "@/components/ui/execution-flow";
+import { ThinkingLoader } from "@/components/ui/thinking-loader";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 
 import type { CopyFeedback } from "./copy-feedback";
@@ -64,9 +83,13 @@ import {
   type TrajectoryTimelineItem,
   type TrajectoryTimelinePhase,
 } from "./request-trajectory-model";
-import { chipToneClass } from "./trajectory-chip";
+import { chipDotClass, chipToneClass } from "./trajectory-chip";
 import { TrajectoryInspector } from "./TrajectoryInspector";
 import { useDetachedInspector } from "./trajectory-inspector-window";
+import {
+  trajectoryCardLayout,
+  type TrajectoryCardRow,
+} from "./trajectory-card-model";
 
 const TIMELINE_MIN_CALL_PX = 6;
 const TIMELINE_GAP_PX = 8;
@@ -87,10 +110,23 @@ const TIMELINE_CLOCK_INTERVAL_MS = 500;
  * conversation is ~1400 rows, and mounting them all is what froze the page.
  */
 const LIST_VIRTUALIZE_MIN_ROWS = 80;
-const LIST_ROW_ESTIMATE_PX = 32;
+const LIST_ROW_ESTIMATE_PX = 44;
 const LIST_OVERSCAN_ROWS = 12;
 const ROW_COLUMNS =
-  "grid grid-cols-[4.5rem_minmax(0,1fr)_5rem_1rem] gap-2 @min-[560px]/trajectory:grid-cols-[4.5rem_minmax(0,1fr)_6rem_4rem_1rem] @min-[760px]/trajectory:grid-cols-[4.5rem_4.5rem_minmax(0,1fr)_6rem_4rem_1rem]";
+  "grid grid-cols-[1.75rem_minmax(0,1fr)_3.5rem_0.75rem] gap-2 @min-[560px]/trajectory:grid-cols-[2rem_minmax(0,1fr)_minmax(9rem,27%)_0.75rem]";
+
+const phaseIcons: Record<TrajectoryRow["chip"], AnimatedIcon> = {
+  TURN: MessageSquare,
+  CLIENT: ArrowRight,
+  POLICY: ShieldCheck,
+  REDIRECT: Route,
+  COMPRESS: ImageDown,
+  ROUTE: Route,
+  UPSTREAM: Server,
+  RETRY: RotateCcw,
+  RESTORE: ShieldCheck,
+  RESULT: Check,
+};
 
 /**
  * How long a programmatic scroll owns one direction. Writing scrollTop/Left
@@ -138,6 +174,13 @@ export function RequestTrajectory({
   onUnlockRaw?: () => void;
 }) {
   const t = useT();
+  const compactViewport = useMediaQuery(
+    "(max-height: 680px), (max-width: 760px)",
+  );
+  const [timelineOverride, setTimelineOverride] = useState<boolean | null>(
+    null,
+  );
+  const timelineOpen = timelineOverride ?? !compactViewport;
   const serviceByRequest = useMemo(
     () =>
       Object.fromEntries(
@@ -163,6 +206,10 @@ export function RequestTrajectory({
     );
   }, [childrenByRoot, turns, services]);
   const listSummaries = useMemo(() => trajectoryListSummaries(rows), [rows]);
+  const cardRows = useMemo(
+    () => trajectoryCardLayout(rows, Date.now()),
+    [rows],
+  );
   // Resolving a row id by scanning `rows` costs nothing once, and used to cost
   // a full scan inside every phase mark of every lane: 1300 marks against 1400
   // rows is close to two million comparisons per paint.
@@ -559,91 +606,103 @@ export function RequestTrajectory({
   }, [sessionKey]);
 
   return (
-    <div className="@container/trajectory flex h-full min-h-0 min-w-0 flex-1 flex-col">
-      <TrajectoryTimelineView
-        followSelectionRef={followSelectionOnStripRef}
-        onScroll={() => scheduleSync("strip")}
-        onSelectRow={revealRow}
-        rowById={rowIndex.byId}
-        scrollerRef={scrollerRef}
-        selectedRow={selectedRow}
-        suppressListFromStripUntilRef={suppressListFromStripUntilRef}
-        timeline={timeline}
-      />
-      <div
-        className={cn(
-          ROW_COLUMNS,
-          "h-9 shrink-0 items-center border-b bg-muted/40 px-2 text-micro text-muted-foreground",
-        )}
+    <Collapsible
+      className="@container/trajectory flex h-full min-h-0 min-w-0 flex-1 flex-col"
+      open={timelineOpen}
+      onOpenChange={setTimelineOverride}
+    >
+      {/* Keep the strip mounted so its scroll position and observers survive. */}
+      <CollapsibleContent
+        forceMount
+        className="shrink-0 data-[state=closed]:hidden"
       >
-        <span>{t("trajectory.phase")}</span>
-        <span className="hidden @min-[760px]/trajectory:block">
-          {t("trajectory.time")}
+        <TrajectoryTimelineView
+          visible={timelineOpen}
+          followSelectionRef={followSelectionOnStripRef}
+          onScroll={() => scheduleSync("strip")}
+          onSelectRow={revealRow}
+          rowById={rowIndex.byId}
+          scrollerRef={scrollerRef}
+          selectedRow={selectedRow}
+          suppressListFromStripUntilRef={suppressListFromStripUntilRef}
+          timeline={timeline}
+        />
+      </CollapsibleContent>
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b px-2 text-micro text-muted-foreground">
+        <CollapsibleTrigger asChild>
+          <Button size="sm" variant="ghost" className="gap-1 px-1.5">
+            <ChevronRight
+              aria-hidden="true"
+              className={cn(
+                "size-3 transition-transform",
+                timelineOpen && "rotate-90",
+              )}
+            />
+            {t("trajectory.timeline")}
+          </Button>
+        </CollapsibleTrigger>
+        <span className="hidden shrink-0 tabular-nums @min-[560px]/trajectory:inline">
+          {t("trajectory.eventCount", {
+            count: rows.filter((row) => row.chip !== "TURN").length,
+          })}
         </span>
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0">{t("trajectory.eventList")}</span>
-          <span className="hidden shrink-0 tabular-nums @min-[760px]/trajectory:inline">
-            {t("trajectory.eventCount", {
-              count: rows.filter((row) => row.chip !== "TURN").length,
-            })}
-          </span>
-          {/* Always on screen, so find is seen rather than remembered. */}
-          <FindBar
-            active={find.active}
-            className="ml-auto min-w-28 flex-1 basis-56 @min-[760px]/trajectory:max-w-96"
+        {/* Always on screen, so find is seen rather than remembered. */}
+        <FindBar
+          active={find.active}
+          className="min-w-0 flex-1"
+          disabled={rows.length === 0}
+          inputRef={find.inputRef}
+          label={t("find.turnsLabel")}
+          onQueryChange={find.setQuery}
+          onStep={find.step}
+          placeholder={t("find.turnsPlaceholder")}
+          query={find.query}
+          result={find.result}
+          shortcut={findShortcutLabel()}
+        />
+        <span
+          className="hidden shrink-0 @min-[760px]/trajectory:inline"
+          title={t("trajectory.timingHint")}
+        >
+          {t("trajectory.timingLabel")}
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5">
+          <IconButton
+            size="icon-xs"
             disabled={rows.length === 0}
-            inputRef={find.inputRef}
-            label={t("find.turnsLabel")}
-            onQueryChange={find.setQuery}
-            onStep={find.step}
-            placeholder={t("find.turnsPlaceholder")}
-            query={find.query}
-            result={find.result}
-            shortcut={findShortcutLabel()}
-          />
-          <span className="flex shrink-0 items-center gap-0.5">
-            <IconButton
-              size="icon-xs"
-              disabled={rows.length === 0}
-              label={t("trajectory.firstCall")}
-              onClick={() => {
-                const first = rows.find((row) => row.chip !== "TURN");
-                if (first) {
-                  followSelectionOnStripRef.current = true;
-                  revealRow(first);
-                }
-              }}
-              type="button"
-            >
-              <ArrowUp aria-hidden="true" />
-            </IconButton>
-            <IconButton
-              size="icon-xs"
-              disabled={rows.length === 0}
-              label={t("trajectory.latestCall")}
-              onClick={() => {
-                const last = rows[rows.length - 1];
-                if (last) {
-                  followSelectionOnStripRef.current = true;
-                  revealRow(last);
-                }
-              }}
-              type="button"
-            >
-              <ArrowDown aria-hidden="true" />
-            </IconButton>
-          </span>
+            label={t("trajectory.firstCall")}
+            onClick={() => {
+              const first = rows.find((row) => row.chip !== "TURN");
+              if (first) {
+                followSelectionOnStripRef.current = true;
+                revealRow(first);
+              }
+            }}
+            type="button"
+          >
+            <ArrowUp aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            size="icon-xs"
+            disabled={rows.length === 0}
+            label={t("trajectory.latestCall")}
+            onClick={() => {
+              const last = rows[rows.length - 1];
+              if (last) {
+                followSelectionOnStripRef.current = true;
+                revealRow(last);
+              }
+            }}
+            type="button"
+          >
+            <ArrowDown aria-hidden="true" />
+          </IconButton>
         </span>
-        <span className="text-right">{t("trajectory.result")}</span>
-        <span className="hidden text-right @min-[560px]/trajectory:block">
-          {t("records.duration")}
-        </span>
-        <span />
       </div>
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <div
           aria-label={t("trajectory.eventList")}
-          className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
+          className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
           data-testid="trajectory-list"
           onScroll={() => scheduleSync("list")}
           ref={listRef}
@@ -671,6 +730,7 @@ export function RequestTrajectory({
                     onSelect={selectListRow}
                     position={item.index}
                     row={listRows[item.index]!}
+                    card={cardRows.get(listRows[item.index]!.id)}
                     summary={listSummaries.get(listRows[item.index]!.id) ?? ""}
                     service={serviceByRequest[listRows[item.index]!.requestId]}
                     selected={listRows[item.index]!.id === selectedRow?.id}
@@ -690,6 +750,7 @@ export function RequestTrajectory({
                     onSelect={selectListRow}
                     position={position}
                     row={row}
+                    card={cardRows.get(row.id)}
                     summary={listSummaries.get(row.id) ?? ""}
                     service={serviceByRequest[row.requestId]}
                     selected={row.id === selectedRow?.id}
@@ -733,7 +794,7 @@ export function RequestTrajectory({
           </aside>
         ) : null}
       </div>
-    </div>
+    </Collapsible>
   );
 }
 
@@ -838,6 +899,7 @@ function measureTimelineColumns(scroller: HTMLElement): TrajectoryCallColumn[] {
 }
 
 function TrajectoryTimelineView({
+  visible,
   timeline,
   rowById,
   scrollerRef,
@@ -847,6 +909,7 @@ function TrajectoryTimelineView({
   onScroll,
   onSelectRow,
 }: {
+  visible: boolean;
   timeline: TrajectoryTimeline;
   rowById: Map<string, TrajectoryRow>;
   scrollerRef: RefObject<HTMLDivElement | null>;
@@ -869,7 +932,7 @@ function TrajectoryTimelineView({
   );
 
   useEffect(() => {
-    if (!followSelectionRef.current) return;
+    if (!visible || !followSelectionRef.current) return;
     followSelectionRef.current = false;
     const scroller = scrollerRef.current;
     const selectedId = selectedRow?.id;
@@ -896,6 +959,7 @@ function TrajectoryTimelineView({
     scrollerRef,
     selectedRow?.id,
     suppressListFromStripUntilRef,
+    visible,
   ]);
 
   return (
@@ -1242,6 +1306,7 @@ function findRecord(
  */
 const TrajectoryRowView = memo(function TrajectoryRowView({
   row,
+  card,
   summary,
   service,
   selected,
@@ -1255,6 +1320,7 @@ const TrajectoryRowView = memo(function TrajectoryRowView({
   onSelect,
 }: {
   row: TrajectoryRow;
+  card?: TrajectoryCardRow;
   summary: string;
   service?: RequestServiceIdentity;
   selected: boolean;
@@ -1272,19 +1338,94 @@ const TrajectoryRowView = memo(function TrajectoryRowView({
   onSelect: (row: TrajectoryRow) => void;
 }) {
   const t = useT();
+  const pending = row.tone === "pending" && row.endedAt === null;
+  // Only phases in the active call share a moving scale. Historical calls
+  // remain memoized, even in a long session with thousands of events.
+  const nowMs = useLiveClock(
+    pending || Boolean(card?.timingWindow?.open),
+    1000,
+  );
   const started = new Date(row.startedAt);
-  const ended = row.endedAt === null ? NaN : Date.parse(row.endedAt);
+  const ended = pending
+    ? nowMs
+    : row.endedAt === null
+      ? NaN
+      : Date.parse(row.endedAt);
   const duration =
-    Number.isFinite(ended) && Number.isFinite(started.getTime())
-      ? formatDuration(Math.max(0, ended - started.getTime()))
-      : row.tone === "pending"
+    Number.isFinite(ended) &&
+    Number.isFinite(started.getTime()) &&
+    ended >= started.getTime()
+      ? formatDuration(ended - started.getTime())
+      : pending
         ? t("status.pending")
-        : "\u2014";
+        : "—";
   const time = Number.isFinite(started.getTime())
     ? started.toLocaleTimeString(i18n.language, { hour12: false })
-    : "\u2014";
+    : "—";
+  const timingWindow = card?.timingWindow;
+  const windowDuration = timingWindow
+    ? Math.max(
+        0,
+        (timingWindow.open
+          ? Math.max(timingWindow.endMs, nowMs)
+          : timingWindow.endMs) - timingWindow.startMs,
+      )
+    : 0;
+  const timingOffset =
+    card?.timing && timingWindow
+      ? windowDuration > 0
+        ? Math.min(
+            1,
+            Math.max(
+              0,
+              (started.getTime() - timingWindow.startMs) / windowDuration,
+            ),
+          )
+        : 0
+      : undefined;
+  const timingDuration =
+    timingOffset !== undefined
+      ? windowDuration > 0
+        ? Math.min(
+            1 - timingOffset,
+            Math.max(0, (ended - started.getTime()) / windowDuration),
+          )
+        : 0
+      : undefined;
+  const first = card?.edge === "first" || card?.edge === "only";
+  const last = card?.edge === "last" || card?.edge === "only";
+  const turn = row.chip === "TURN";
+  const PhaseIcon =
+    row.tone === "failed"
+      ? BadgeAlert
+      : row.tone === "blocked" || row.tone === "cancelled"
+        ? Ban
+        : phaseIcons[row.chip];
+  const statusTone =
+    row.tone === "ok"
+      ? "positive"
+      : row.tone === "failed"
+        ? "negative"
+        : row.tone === "cancelled"
+          ? "neutral"
+          : row.tone;
+  const accessibleName = [
+    first && card
+      ? `${t("conversation.callNumber", { index: card.callNumber })}${row.child ? ` · ${t("trajectory.chips.RETRY")}` : ""}`
+      : "",
+    t(`trajectory.chips.${row.chip}`),
+    time,
+    row.chip === "UPSTREAM" || row.chip === "RETRY" ? service?.name : "",
+    row.summary,
+    row.conversationContinued ? t("trajectory.continuation") : "",
+    row.result,
+    `${t("records.duration")} ${duration}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <li
+      className={cn("h-11 px-2", first && "pt-1", last && "pb-1")}
       data-index={position}
       ref={measureRef}
       style={
@@ -1299,25 +1440,31 @@ const TrajectoryRowView = memo(function TrajectoryRowView({
             }
       }
     >
-      <Button
+      <CallCardRow
+        edge={card?.edge}
         aria-current={selected ? "true" : undefined}
         aria-expanded={expanded}
+        aria-label={turn ? undefined : accessibleName}
         className={cn(
           ROW_COLUMNS,
-          "group relative h-8 w-full shrink-0 items-center rounded-none border-b border-border/60 bg-transparent px-2 py-0 text-left text-xs font-normal text-foreground shadow-none hover:bg-muted focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring focus-visible:ring-0",
-          row.chip === "TURN" && "border-border bg-muted/70 font-medium",
-          row.tone === "failed" && "bg-danger-wash/60 hover:bg-danger-wash",
-          row.tone === "blocked" && "bg-blocked-wash/60 hover:bg-blocked-wash",
+          "group relative h-full w-full shrink-0 items-center px-2 py-0 text-left text-xs font-normal text-foreground shadow-none hover:bg-muted/70 focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring focus-visible:ring-0",
+          turn && "rounded-none border-0 border-b bg-muted/40 font-medium",
+          first && "bg-accent/35",
+          row.tone === "failed" && "bg-danger-wash/45 hover:bg-danger-wash",
+          row.tone === "blocked" && "bg-blocked-wash/50 hover:bg-blocked-wash",
           row.tone === "cancelled" &&
-            "bg-warning-wash/50 hover:bg-warning-wash",
+            "bg-warning-wash/40 hover:bg-warning-wash",
+          pending && "bg-warning-wash/40",
           (selected || highlighted) && "bg-accent hover:bg-accent",
           findStop &&
             "bg-tide-wash after:absolute after:inset-y-0 after:left-0 after:w-0.5 after:bg-tide hover:bg-tide-wash",
           findStop === "active" && "ring-1 ring-tide ring-inset after:w-1",
           selected &&
-            "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary",
+            "before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
         )}
         data-chip={row.chip}
+        data-card-edge={card?.edge}
+        data-call-number={card?.callNumber}
         data-find-stop={findStop}
         data-highlighted={highlighted ? "true" : undefined}
         data-request-id={row.requestId}
@@ -1327,113 +1474,140 @@ const TrajectoryRowView = memo(function TrajectoryRowView({
         data-tone={row.tone}
         onClick={() => onSelect(row)}
         type="button"
-        variant="ghost"
       >
-        {row.chip === "TURN" ? (
-          <span className="flex items-center gap-1 text-micro text-muted-foreground">
+        {turn ? (
+          <span className="flex items-center justify-center gap-0.5 text-muted-foreground">
             <ChevronRight
               aria-hidden="true"
               className={cn(
-                "size-3 transition-transform",
+                "size-3 transition-transform motion-reduce:transition-none",
                 expanded && "rotate-90",
               )}
             />
-            <MessageSquare aria-hidden="true" className="size-3" />
-            {t("trajectory.chips.TURN")}
+            <MessageSquare aria-hidden="true" className="size-3.5" />
           </span>
         ) : (
-          <Badge
-            className={cn(
-              "h-5 max-w-full",
-              chipToneClass(row.chip, row.tone, "subtle"),
-            )}
-            variant="secondary"
+          <ExecutionNode
+            first={first}
+            last={last}
+            pending={pending}
+            label={t("status.pending")}
+            className={chipToneClass(row.chip, row.tone, "subtle")}
           >
-            {t(`trajectory.chips.${row.chip}`)}
-          </Badge>
+            {first && card && !row.child ? (
+              card.callNumber
+            ) : (
+              <PhaseIcon animateOnHover={false} />
+            )}
+          </ExecutionNode>
         )}
-        <time
-          className="hidden font-mono text-micro text-muted-foreground @min-[760px]/trajectory:block"
-          dateTime={row.startedAt}
-          title={row.startedAt}
-        >
-          {time}
-        </time>
-        <span className="flex min-w-0 items-center gap-2" title={row.summary}>
-          {service && (row.chip === "UPSTREAM" || row.chip === "RETRY") ? (
-            <RequestServiceLabel
-              className={cn(
-                "shrink-0 font-medium",
-                summary ? "max-w-[65%]" : "max-w-full",
-              )}
-              service={service}
-            />
-          ) : null}
-          {row.chip === "REDIRECT" && row.redirect ? (
-            <ModelLabel
-              model={row.redirect.from}
-              redirectedTo={row.redirect.to}
-            />
-          ) : (
-            <span className="truncate">
-              <HighlightedText
-                query={findQuery}
-                text={
-                  summary ||
-                  (row.chip === "RESULT" ? t("trajectory.clientResponse") : "")
-                }
-              />
+        <span className="flex min-w-0 flex-col justify-center gap-0.5">
+          <span className="flex min-w-0 items-center gap-2 leading-none">
+            <span
+              className={cn("shrink-0 font-medium", first && "text-primary")}
+            >
+              {first && card
+                ? t("conversation.callNumber", { index: card.callNumber })
+                : t(`trajectory.chips.${row.chip}`)}
             </span>
-          )}
-          {row.conversationContinued ? (
-            <ConversationIndicator kind="continuation" />
-          ) : null}
-        </span>
-        <span
-          className={cn(
-            "flex min-w-0 items-center justify-end gap-1.5 text-micro text-muted-foreground",
-            row.tone === "failed" && "text-danger-foreground",
-            row.tone === "blocked" && "text-blocked-foreground",
-            row.tone === "cancelled" && "text-warning-foreground",
-          )}
-          title={row.result}
-        >
-          {row.chip !== "TURN" ? (
-            <StatusDot
-              tone={
-                row.tone === "ok"
-                  ? "positive"
-                  : row.tone === "failed"
-                    ? "negative"
-                    : row.tone === "cancelled"
-                      ? "neutral"
-                      : row.tone
-              }
-            />
-          ) : null}
-          <span className="truncate">
-            <HighlightedText query={findQuery} text={row.result} />
+            {first ? (
+              <Badge className="h-4 px-1" variant="outline">
+                {t(`trajectory.chips.${row.chip}`)}
+              </Badge>
+            ) : null}
+            <time
+              className="hidden font-mono text-micro text-muted-foreground/70 @min-[760px]/trajectory:block"
+              dateTime={row.startedAt}
+              title={row.startedAt}
+            >
+              {time}
+            </time>
+            <span
+              className={cn(
+                "ml-auto flex min-w-0 items-center gap-1 text-micro text-muted-foreground",
+                row.tone === "failed" && "text-danger-foreground",
+                row.tone === "blocked" && "text-blocked-foreground",
+                row.tone === "cancelled" && "text-warning-foreground",
+              )}
+              title={row.result}
+            >
+              {pending ? (
+                <ThinkingLoader
+                  className="h-4 gap-0 border-0 bg-transparent px-0 text-micro [&_svg]:hidden"
+                  label={row.result || t("status.pending")}
+                />
+              ) : (
+                <>
+                  {!turn ? <StatusDot tone={statusTone} /> : null}
+                  <span className="truncate">
+                    <HighlightedText query={findQuery} text={row.result} />
+                  </span>
+                </>
+              )}
+            </span>
+          </span>
+          <span
+            className="flex min-w-0 items-center gap-2 leading-tight text-muted-foreground"
+            title={row.summary}
+          >
+            {service && (row.chip === "UPSTREAM" || row.chip === "RETRY") ? (
+              <RequestServiceLabel
+                className={cn(
+                  "shrink-0 font-medium text-foreground",
+                  summary ? "max-w-[55%]" : "max-w-full",
+                )}
+                labelClassName="sr-only"
+                service={service}
+              />
+            ) : null}
+            {row.chip === "REDIRECT" && row.redirect ? (
+              <ModelLabel
+                model={row.redirect.from}
+                redirectedTo={row.redirect.to}
+              />
+            ) : (
+              <span
+                className={cn(
+                  "truncate",
+                  first && "font-medium text-foreground",
+                )}
+              >
+                <HighlightedText
+                  query={findQuery}
+                  text={
+                    summary ||
+                    (row.chip === "RESULT"
+                      ? t("trajectory.clientResponse")
+                      : "")
+                  }
+                />
+              </span>
+            )}
+            {row.conversationContinued ? (
+              <ConversationIndicator kind="continuation" />
+            ) : null}
           </span>
         </span>
-        <span
-          className="hidden truncate text-right font-mono text-micro tabular-nums text-muted-foreground @min-[560px]/trajectory:block"
-          title={duration}
-        >
-          {duration}
-        </span>
-        {/* A header folds its turn instead of opening the inspector. */}
-        {row.chip === "TURN" ? (
+        <ExecutionSpan
+          offset={timingOffset}
+          duration={timingDuration}
+          label={duration}
+          title={`${t("trajectory.timingHint")} · ${time} · ${duration}`}
+          pending={pending}
+          className={chipDotClass(row.chip, row.tone)}
+        />
+        {turn ? (
           <span />
         ) : (
           <ChevronRight
             aria-hidden="true"
             className={cn(
-              "size-3 text-muted-foreground/40 group-hover:text-foreground",
+              "size-3 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground motion-reduce:transition-none",
               selected && "text-primary",
             )}
           />
         )}
-      </Button>
+      </CallCardRow>
     </li>
   );
 });

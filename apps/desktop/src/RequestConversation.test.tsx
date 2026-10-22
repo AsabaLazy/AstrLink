@@ -360,6 +360,69 @@ describe("RequestConversation", () => {
     expect(bridgeMocks.getRequestAuditContent).toHaveBeenCalledTimes(5);
   });
 
+  it("groups tools with readable summaries without inventing execution state", async () => {
+    const call = record({ id: "req_tools", turn_index: 1 });
+    bridgeMocks.getRequestAuditContent.mockResolvedValue(
+      content(
+        call.id,
+        anthropicRequest("检查代码"),
+        anthropicResponse([
+          {
+            type: "tool_use",
+            id: "read",
+            name: "Read",
+            input: { file_path: "src/main.ts", limit: 200 },
+          },
+          {
+            type: "tool_use",
+            id: "grep",
+            name: "Grep",
+            input: { pattern: "useState", path: "src" },
+          },
+          {
+            type: "tool_use",
+            id: "custom",
+            name: "custom_lookup",
+            input: { key: "example" },
+          },
+        ]),
+      ),
+    );
+    render({
+      turns: [call],
+      session: { ...session, turn_count: 1, call_count: 1 },
+    });
+    await flush();
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('[data-slot="tool-call-group"]'),
+      ).not.toBeNull();
+    });
+    const group = container.querySelector('[data-slot="tool-call-group"]')!;
+    expect(group.querySelector('[data-testid="conversation-tool"]')).toBeNull();
+    await act(async () =>
+      group.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    const tools = group.querySelectorAll('[data-testid="conversation-tool"]');
+    expect(tools.length).toBe(3);
+    expect(tools[0]!.querySelector("button")?.textContent).toContain(
+      "src/main.ts",
+    );
+    expect(tools[0]!.textContent).not.toContain("file_path");
+    expect(tools[1]!.textContent).toContain("useState");
+    expect(tools[2]!.textContent).toContain('{ "key": "example" }');
+    for (const tool of tools)
+      expect(tool.getAttribute("data-status")).toBe("unavailable");
+    await act(async () =>
+      tools[0]!.querySelector<HTMLButtonElement>("button")!.click(),
+    );
+    await vi.waitFor(() =>
+      expect(tools[0]!.textContent).toContain("file_path"),
+    );
+    expect(tools[0]!.textContent).toContain("当前记录中没有可读取的工具结果");
+    expect(tools[0]!.querySelector('[data-status="running"]')).toBeNull();
+  });
+
   // Painting the turns before their bodies made the user text, reply and
   // tool rows pop in a moment after the view opened.
   it("paints a session once the turn on screen has been read", async () => {

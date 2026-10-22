@@ -31,10 +31,18 @@ import { DataRow } from "@/components/DataRow";
 import { EmptyState } from "@/components/EmptyState";
 import { ScrollWorkspace } from "@/components/ScrollWorkspace";
 import { FilterSelect } from "@/components/FilterSelect";
+import {
+  FilterChips,
+  FilterMenu,
+  type FilterChip,
+} from "@/components/FilterMenu";
 import { ServiceSelect } from "@/components/ServiceSelect";
 import { FormMessage } from "@/components/FormMessage";
 import { MultiFilterSelect } from "@/components/MultiFilterSelect";
-import { UsageRangePicker } from "@/components/UsageRangePicker";
+import {
+  customRangeLabel,
+  UsageRangePicker,
+} from "@/components/UsageRangePicker";
 import { HelpPopover } from "@/components/HelpPopover";
 import { IconButton } from "@/components/IconButton";
 import { ModelLabel } from "@/components/ModelLabel";
@@ -61,7 +69,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -157,6 +169,7 @@ import {
 } from "./session-live-model";
 import { protocolEntryPath } from "./service-presets";
 import {
+  isCustomUsageRange,
   resolveUsageWindow,
   usageRangeKey,
   USAGE_RANGE_PRESETS,
@@ -366,6 +379,7 @@ export function RequestRecords({
     [accessTokens],
   );
   const [view, setView] = useState<RecordsView>("monitor");
+  const moreFiltersTriggerRef = useRef<HTMLButtonElement>(null);
   const [kind, setKind] = useState<RecordsKind>("inference");
   const [filters, setFilters] = useState<RecordFilters>(() =>
     targetFilters(target),
@@ -1667,6 +1681,89 @@ export function RequestRecords({
     }
   };
 
+  const clearFilters = () => {
+    setFilters(EMPTY_FILTERS);
+    setModels([]);
+    setDateRange(null);
+    setCallStatus(null);
+  };
+  const advancedFilterCount =
+    Number(Boolean(filters.serviceId)) +
+    models.length +
+    Number(Boolean(filters.protocol)) +
+    filters.localAccessTokenIds.length;
+  const activeChips: FilterChip[] = [];
+  const addChip = (
+    id: string,
+    label: string,
+    value: string,
+    onRemove: () => void,
+  ) => {
+    const text = `${label}: ${value}`;
+    activeChips.push({
+      id,
+      label: text,
+      removeLabel: t("records.clearFilterNamed", { label: text }),
+      onRemove,
+    });
+  };
+  if (filters.clientType)
+    addChip(
+      "client",
+      t("records.client"),
+      clientTypeName(filters.clientType),
+      () => setFilters((current) => ({ ...current, clientType: "" })),
+    );
+  if (dateRange !== null)
+    addChip(
+      "time",
+      t("records.time"),
+      isCustomUsageRange(dateRange)
+        ? customRangeLabel(dateRange, t("usageRange.today"))
+        : t(`overview.range.${dateRange}`),
+      () => setDateRange(null),
+    );
+  if (filters.status)
+    addChip("status", t("records.status"), statusLabel(filters.status), () =>
+      setFilters((current) => ({ ...current, status: "" })),
+    );
+  if (filters.serviceId)
+    addChip(
+      "service",
+      t("records.providerFilter"),
+      serviceLabel(filters.serviceId, services) ?? filters.serviceId,
+      () => setFilters((current) => ({ ...current, serviceId: "" })),
+    );
+  if (models.length > 0)
+    addChip(
+      "models",
+      t("records.model"),
+      models.length === 1
+        ? models[0]
+        : t("records.selectedModels", { count: models.length }),
+      () => setModels([]),
+    );
+  if (filters.protocol)
+    addChip(
+      "protocol",
+      t("records.protocol"),
+      protocolEntryPath(filters.protocol),
+      () => setFilters((current) => ({ ...current, protocol: "" })),
+    );
+  if (filters.localAccessTokenIds.length > 0)
+    addChip(
+      "tokens",
+      t("records.accessToken"),
+      filters.localAccessTokenIds.length === 1
+        ? (accessTokenOptions.find(
+            (option) => option.value === filters.localAccessTokenIds[0],
+          )?.label ?? t("records.selectedTokens", { count: 1 }))
+        : t("records.selectedTokens", {
+            count: filters.localAccessTokenIds.length,
+          }),
+      () => setFilters((current) => ({ ...current, localAccessTokenIds: [] })),
+    );
+
   return (
     <>
       <div className="flex h-full min-h-0 min-w-0 flex-1">
@@ -1918,10 +2015,8 @@ export function RequestRecords({
                   </FormMessage>
                 ) : null}
                 <div className="w-full min-w-0 border-b bg-background py-2">
-                  {/* One grid for every filter: a single line where the list is
-                      wide enough, else rows of four that keep their columns. */}
-                  <div className="grid min-w-0 grid-cols-2 gap-2 @[560px]:grid-cols-4 @[900px]:grid-cols-[minmax(0,1.2fr)_auto_repeat(6,minmax(0,1fr))]">
-                    {/* The client scopes the list, so it leads and stands apart from the attribute filters. */}
+                  <div className="grid min-w-0 grid-cols-2 gap-2 @[560px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                    {/* Keep the common scopes available while secondary filters live in the menu. */}
                     <FilterSelect
                       ariaLabel={t("records.filter", {
                         label: t("records.client"),
@@ -1956,10 +2051,6 @@ export function RequestRecords({
                       value={filters.clientType}
                       variant="filled"
                     />
-                    <Separator
-                      className="mx-1 hidden self-center data-[orientation=vertical]:h-5 @[900px]:block"
-                      orientation="vertical"
-                    />
                     <UsageRangePicker
                       align="start"
                       ariaLabel={t("records.filter", {
@@ -1993,80 +2084,178 @@ export function RequestRecords({
                       ]}
                       value={filters.status}
                     />
-                    <ServiceSelect
-                      ariaLabel={t("records.filter", {
-                        label: t("records.providerFilter"),
-                      })}
-                      className="w-full"
-                      label={t("records.providerFilter")}
-                      onChange={(serviceId) =>
-                        setFilters((current) => ({ ...current, serviceId }))
-                      }
-                      allLabel={t("common.all")}
-                      services={services}
-                      value={filters.serviceId}
-                    />
-                    <MultiFilterSelect
-                      allLabel={t("common.all")}
-                      ariaLabel={t("records.filter", {
-                        label: t("records.model"),
-                      })}
-                      className="w-full"
-                      clearLabel={t("records.clearModelFilter")}
-                      disabled={!isReady || kind === "discovery"}
-                      emptyMessage={t("records.noModelResults")}
-                      label={t("records.model")}
-                      onChange={setModels}
-                      options={modelOptions}
-                      searchPlaceholder={t("records.searchModels")}
-                      selectedCountLabel={(count) =>
-                        t("records.selectedModels", { count })
-                      }
-                      value={models}
-                    />
-                    <FilterSelect
-                      ariaLabel={t("records.filter", {
-                        label: t("records.protocol"),
-                      })}
-                      className="w-full"
-                      label={t("records.protocol")}
-                      onChange={(protocol) =>
-                        setFilters((current) => ({ ...current, protocol }))
-                      }
-                      options={[
-                        { label: t("common.all"), value: "" },
-                        ...protocolOptions.map((protocol) => ({
-                          label: protocolEntryPath(protocol),
-                          value: protocol,
-                        })),
-                      ]}
-                      value={filters.protocol}
-                    />
-                    <MultiFilterSelect
-                      allLabel={t("common.all")}
-                      ariaLabel={t("records.filter", {
-                        label: t("records.accessToken"),
-                      })}
-                      className="w-full"
-                      clearLabel={t("records.clearTokenFilter")}
-                      disabled={!isReady || !accessTokensReady}
-                      emptyMessage={t("records.noAccessTokenResults")}
-                      label={t("records.accessToken")}
-                      onChange={(localAccessTokenIds) =>
-                        setFilters((current) => ({
-                          ...current,
-                          localAccessTokenIds,
-                        }))
-                      }
-                      options={accessTokenOptions}
-                      searchPlaceholder={t("records.searchAccessTokens")}
-                      selectAllLabel={t("records.selectAllTokens")}
-                      selectedCountLabel={(count) =>
-                        t("records.selectedTokens", { count })
-                      }
-                      value={filters.localAccessTokenIds}
-                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          aria-label={t("records.moreFilters")}
+                          className="h-8 min-w-0"
+                          ref={moreFiltersTriggerRef}
+                          size="sm"
+                          type="button"
+                          variant={
+                            advancedFilterCount > 0 ? "secondary" : "outline"
+                          }
+                        >
+                          <ListFilter aria-hidden="true" />
+                          {t("records.moreFilters")}
+                          {advancedFilterCount > 0 ? (
+                            <Badge
+                              variant="secondary"
+                              className="px-1 text-micro tabular-nums"
+                            >
+                              {advancedFilterCount}
+                            </Badge>
+                          ) : null}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="end"
+                        aria-label={t("records.moreFilters")}
+                        className="w-80 p-0"
+                      >
+                        <FilterMenu
+                          activeCount={advancedFilterCount}
+                          clearLabel={t("records.clearFilters")}
+                          onClear={() => {
+                            setFilters((current) => ({
+                              ...current,
+                              serviceId: "",
+                              protocol: "",
+                              localAccessTokenIds: [],
+                            }));
+                            setModels([]);
+                          }}
+                          selectedCountLabel={(count) =>
+                            t("records.filterCount", { count })
+                          }
+                          title={t("records.moreFilters")}
+                          groups={[
+                            {
+                              id: "service",
+                              label: t("records.providerFilter"),
+                              count: Number(Boolean(filters.serviceId)),
+                              content: (
+                                <ServiceSelect
+                                  ariaLabel={t("records.filter", {
+                                    label: t("records.providerFilter"),
+                                  })}
+                                  className="w-full"
+                                  label=""
+                                  onChange={(serviceId) =>
+                                    setFilters((current) => ({
+                                      ...current,
+                                      serviceId,
+                                    }))
+                                  }
+                                  allLabel={t("common.all")}
+                                  services={services}
+                                  value={filters.serviceId}
+                                />
+                              ),
+                            },
+                            {
+                              id: "models",
+                              label: t("records.model"),
+                              count: models.length,
+                              content: (
+                                <MultiFilterSelect
+                                  allLabel={t("common.all")}
+                                  ariaLabel={t("records.filter", {
+                                    label: t("records.model"),
+                                  })}
+                                  className="w-full"
+                                  clearLabel={t("records.clearModelFilter")}
+                                  disabled={!isReady || kind === "discovery"}
+                                  emptyMessage={t("records.noModelResults")}
+                                  label=""
+                                  onChange={setModels}
+                                  options={modelOptions}
+                                  searchPlaceholder={t("records.searchModels")}
+                                  selectedCountLabel={(count) =>
+                                    t("records.selectedModels", { count })
+                                  }
+                                  value={models}
+                                />
+                              ),
+                            },
+                            {
+                              id: "protocol",
+                              label: t("records.protocol"),
+                              count: Number(Boolean(filters.protocol)),
+                              content: (
+                                <FilterSelect
+                                  ariaLabel={t("records.filter", {
+                                    label: t("records.protocol"),
+                                  })}
+                                  className="w-full"
+                                  label=""
+                                  onChange={(protocol) =>
+                                    setFilters((current) => ({
+                                      ...current,
+                                      protocol,
+                                    }))
+                                  }
+                                  options={[
+                                    { label: t("common.all"), value: "" },
+                                    ...protocolOptions.map((protocol) => ({
+                                      label: protocolEntryPath(protocol),
+                                      value: protocol,
+                                    })),
+                                  ]}
+                                  value={filters.protocol}
+                                />
+                              ),
+                            },
+                            {
+                              id: "tokens",
+                              label: t("records.accessToken"),
+                              count: filters.localAccessTokenIds.length,
+                              content: (
+                                <MultiFilterSelect
+                                  allLabel={t("common.all")}
+                                  ariaLabel={t("records.filter", {
+                                    label: t("records.accessToken"),
+                                  })}
+                                  className="w-full"
+                                  clearLabel={t("records.clearTokenFilter")}
+                                  disabled={!isReady || !accessTokensReady}
+                                  emptyMessage={t(
+                                    "records.noAccessTokenResults",
+                                  )}
+                                  label=""
+                                  onChange={(localAccessTokenIds) =>
+                                    setFilters((current) => ({
+                                      ...current,
+                                      localAccessTokenIds,
+                                    }))
+                                  }
+                                  options={accessTokenOptions}
+                                  searchPlaceholder={t(
+                                    "records.searchAccessTokens",
+                                  )}
+                                  selectAllLabel={t("records.selectAllTokens")}
+                                  selectedCountLabel={(count) =>
+                                    t("records.selectedTokens", { count })
+                                  }
+                                  value={filters.localAccessTokenIds}
+                                />
+                              ),
+                            },
+                          ]}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
+                  <FilterChips
+                    chips={activeChips}
+                    clearLabel={t("records.clearFilters")}
+                    fallbackFocusRef={moreFiltersTriggerRef}
+                    label={t("records.activeFilters")}
+                    onClear={clearFilters}
+                    overflowLabel={(count) =>
+                      t("records.moreActiveFilters", { count })
+                    }
+                  />
                 </div>
               </>
             }
@@ -2123,23 +2312,11 @@ export function RequestRecords({
                         : "records.empty",
                   )}
                   action={
-                    callStatus ||
-                    dateRange !== null ||
-                    models.length ||
-                    filters.status ||
-                    filters.serviceId ||
-                    filters.protocol ||
-                    filters.clientType ||
-                    filters.localAccessTokenIds.length ? (
+                    callStatus && activeChips.length === 0 ? (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => {
-                          setFilters(EMPTY_FILTERS);
-                          setModels([]);
-                          setDateRange(null);
-                          setCallStatus(null);
-                        }}
+                        onClick={clearFilters}
                       >
                         {" "}
                         {t("records.clearFilters")}

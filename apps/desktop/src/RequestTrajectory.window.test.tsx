@@ -130,19 +130,24 @@ describe("RequestTrajectory in a window host", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     delete (window as { __ASTRLINK_DESKTOP_PLATFORM__?: string })
       .__ASTRLINK_DESKTOP_PLATFORM__;
   });
 
-  const renderTrajectory = async (turns: RequestRecord[] = [record]) => {
+  const renderTrajectory = async (
+    turns: RequestRecord[] = [record],
+    childrenByRoot: Record<string, RequestRecord[]> = {},
+  ) => {
     await act(async () => {
       root.render(
         <RequestTrajectory
           auditContent={null}
           auditError={null}
           auditLoading={false}
-          childrenByRoot={{}}
+          childrenByRoot={childrenByRoot}
           copyFeedback={copyFeedback}
           onSelectRequest={() => {}}
           selectedRequestId={record.id}
@@ -197,6 +202,275 @@ describe("RequestTrajectory in a window host", () => {
     ).toBeNull();
   });
 
+  it("starts compact viewports with a folded timeline while keeping rows selectable across toggles", async () => {
+    const media = new EventTarget() as MediaQueryList;
+    Object.defineProperties(media, {
+      matches: { value: true },
+      media: { value: "(max-height: 680px), (max-width: 760px)" },
+    });
+    vi.spyOn(window, "matchMedia").mockReturnValue(media);
+    await renderTrajectory();
+
+    const timeline = container.querySelector<HTMLElement>(
+      '[data-testid="trajectory-timeline"]',
+    )!;
+    const panel = timeline.closest<HTMLElement>(
+      '[data-slot="collapsible-content"]',
+    )!;
+    const toggle = container.querySelector<HTMLButtonElement>(
+      'button[data-slot="collapsible-trigger"]',
+    )!;
+    const rowCount = () =>
+      container.querySelectorAll('[data-testid="trajectory-row"]').length;
+    const selectedChip = () =>
+      container
+        .querySelector('[data-testid="trajectory-row"][aria-current="true"]')
+        ?.getAttribute("data-chip");
+    const clientPhase = timeline.querySelector<HTMLElement>(
+      '[data-testid="trajectory-phase"][data-chip="CLIENT"]',
+    )!;
+    const visibleRect = (left: number, width: number) =>
+      panel.getAttribute("data-state") === "open"
+        ? new DOMRect(left, 0, width, 12)
+        : new DOMRect();
+    vi.spyOn(timeline, "getBoundingClientRect").mockImplementation(() =>
+      visibleRect(0, 100),
+    );
+    vi.spyOn(clientPhase, "getBoundingClientRect").mockImplementation(() =>
+      visibleRect(140, 10),
+    );
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(panel.getAttribute("data-state")).toBe("closed");
+    expect(rowCount()).toBe(3);
+    await clickRow("CLIENT");
+    expect(selectedChip()).toBe("CLIENT");
+    expect(timeline.scrollLeft).toBe(0);
+
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-controls")).toBe(panel.id);
+    expect(panel.getAttribute("data-state")).toBe("open");
+    expect(rowCount()).toBe(3);
+    expect(selectedChip()).toBe("CLIENT");
+    // Selection while hidden must wait for real geometry, then reveal the
+    // phase whose right edge is 50 px beyond the reopened strip.
+    expect(timeline.scrollLeft).toBe(50);
+    await clickRow("UPSTREAM");
+
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(panel.getAttribute("data-state")).toBe("closed");
+    expect(rowCount()).toBe(3);
+    expect(selectedChip()).toBe("UPSTREAM");
+    expect(container.querySelector('[data-testid="trajectory-timeline"]')).toBe(
+      timeline,
+    );
+    await clickRow("RESULT");
+    expect(selectedChip()).toBe("RESULT");
+    expect(routedChips("show_trajectory_inspector")).toEqual([
+      "CLIENT",
+      "UPSTREAM",
+      "RESULT",
+    ]);
+  });
+
+  it("names the provider and full outcome in upstream and retry row accessible names", async () => {
+    const fullSummary = "Full upstream diagnostic · HTTP 200";
+    const detailedRecord = {
+      ...record,
+      events: record.events.map((event) =>
+        event.kind === "upstream" || event.kind === "completed"
+          ? { ...event, summary: fullSummary }
+          : event,
+      ),
+    };
+    await renderTrajectory([detailedRecord], {
+      [record.id]: [
+        {
+          ...detailedRecord,
+          id: "request_retry",
+          parent_request_id: record.id,
+          attempt_index: 2,
+        },
+      ],
+    });
+
+    for (const chip of ["UPSTREAM", "RETRY"]) {
+      const row = container.querySelector<HTMLElement>(
+        `[data-testid="trajectory-row"][data-chip="${chip}"]`,
+      )!;
+      // The compact list removes repeated diagnostics, but the explicit
+      // accessible name retains them along with information hidden on narrow screens.
+      expect(row.textContent).not.toContain("Full upstream diagnostic");
+      expect(row.getAttribute("aria-label")).toContain("Configured gateway");
+      expect(row.getAttribute("aria-label")).toContain(fullSummary);
+      expect(row.getAttribute("aria-label")).toContain("耗时 1.0 s");
+    }
+  });
+
+  it("draws phase intervals within each request while retaining root and retry call numbers", async () => {
+    const origin = Date.parse(record.started_at);
+    const at = (ms: number) => new Date(origin + ms).toISOString();
+    const call = (
+      id: string,
+      start: number,
+      upstream: number,
+      end: number,
+    ): RequestRecord => ({
+      ...record,
+      id,
+      turn_index: 1,
+      started_at: at(start),
+      completed_at: at(end),
+      events: record.events.map((event) => ({
+        ...event,
+        started_at: at(
+          event.kind === "accepted"
+            ? start
+            : event.kind === "upstream"
+              ? upstream
+              : end,
+        ),
+        ended_at: at(event.kind === "accepted" ? start : end),
+      })),
+    });
+    const first = call("request_first", 0, 250, 1000);
+    const retry = {
+      ...call("request_retry", 1000, 1100, 1500),
+      parent_request_id: first.id,
+    };
+    const second = call("request_second", 2000, 2100, 2500);
+    await renderTrajectory([first, second], { [first.id]: [retry] });
+
+    for (const [id, callNumber, width] of [
+      [first.id, "1", "75%"],
+      [retry.id, "1", "80%"],
+      [second.id, "2", "80%"],
+    ]) {
+      const phases = [
+        ...container.querySelectorAll<HTMLElement>(
+          `[data-testid="trajectory-row"][data-request-id="${id}"]:not([data-chip="TURN"])`,
+        ),
+      ];
+      expect(phases).toHaveLength(3);
+      expect(
+        phases.map((phase) => phase.getAttribute("data-call-number")),
+      ).toEqual([callNumber, callNumber, callNumber]);
+      const bars = phases.map(
+        (phase) =>
+          phase.querySelector<HTMLElement>('[data-slot="execution-span"]')!,
+      );
+      expect(bars[0].style.width).toBe("0%");
+      expect(bars[1].style.width).toBe(width);
+      expect(bars[2].style.width).toBe("0%");
+      expect(
+        phases.some((phase) => phase.querySelector(".thinking-loader")),
+      ).toBe(false);
+    }
+    expect(
+      container.querySelector(
+        '[data-chip="TURN"] [data-slot="execution-span"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps pending timing and animation tied to the observed phase and stops them on completion", async () => {
+    vi.useFakeTimers();
+    const origin = Date.parse(record.started_at);
+    const at = (ms: number) => new Date(origin + ms).toISOString();
+    vi.setSystemTime(origin + 1000);
+    const pending: RequestRecord = {
+      ...record,
+      completed_at: null,
+      status: "pending",
+      http_status: null,
+      events: [
+        { ...record.events[0], ended_at: at(100) },
+        {
+          ...record.events[1],
+          started_at: at(500),
+          ended_at: null,
+          status: "pending",
+          summary: "Waiting for upstream",
+        },
+      ],
+    };
+    await renderTrajectory([pending]);
+    const phase = (chip: string) =>
+      container.querySelector<HTMLElement>(
+        `[data-testid="trajectory-row"][data-chip="${chip}"]`,
+      )!;
+    const bar = (chip: string) =>
+      phase(chip).querySelector<HTMLElement>('[data-slot="execution-span"]')!;
+    expect(phase("UPSTREAM").getAttribute("data-tone")).toBe("pending");
+    expect(phase("UPSTREAM").getAttribute("aria-label")).toContain(
+      "耗时 500 ms",
+    );
+    expect(phase("UPSTREAM").querySelector(".thinking-loader")).not.toBeNull();
+    expect(bar("UPSTREAM").className).toContain("execution-span-pending");
+    expect(bar("UPSTREAM").style.width).toBe("50%");
+    expect(phase("CLIENT").querySelector(".thinking-loader")).toBeNull();
+    expect(bar("CLIENT").style.width).toBe("10%");
+
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(phase("UPSTREAM").getAttribute("aria-label")).toContain(
+      "耗时 1.5 s",
+    );
+    expect(bar("UPSTREAM").style.width).toBe("75%");
+    // A finished phase in the active call keeps its duration while its share
+    // of the expanding request window shrinks on that same clock.
+    expect(phase("CLIENT").getAttribute("aria-label")).toContain("耗时 100 ms");
+    expect(bar("CLIENT").style.width).toBe("5%");
+
+    const completed: RequestRecord = {
+      ...pending,
+      completed_at: at(1800),
+      status: "succeeded",
+      http_status: 200,
+      events: pending.events.map((event) =>
+        event.kind === "upstream"
+          ? {
+              ...event,
+              ended_at: at(1800),
+              status: "succeeded",
+              summary: "HTTP 200",
+            }
+          : event,
+      ),
+    };
+    await renderTrajectory([completed]);
+    expect(phase("UPSTREAM").getAttribute("data-tone")).toBe("ok");
+    expect(phase("UPSTREAM").getAttribute("aria-label")).toContain(
+      "耗时 1.3 s",
+    );
+    expect(phase("UPSTREAM").querySelector(".thinking-loader")).toBeNull();
+    expect(bar("UPSTREAM").className).not.toContain("execution-span-pending");
+    const stopped = {
+      label: phase("UPSTREAM").getAttribute("aria-label"),
+      style: bar("UPSTREAM").getAttribute("style"),
+    };
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(phase("UPSTREAM").getAttribute("aria-label")).toBe(stopped.label);
+    expect(bar("UPSTREAM").getAttribute("style")).toBe(stopped.style);
+
+    await renderTrajectory([
+      {
+        ...completed,
+        events: completed.events.map((event) =>
+          event.kind === "upstream" ? { ...event, ended_at: null } : event,
+        ),
+      },
+    ]);
+    // A missing end timestamp on a settled phase is unknown timing, not an
+    // in-flight phase inferred from missing data.
+    expect(phase("UPSTREAM").querySelector(".thinking-loader")).toBeNull();
+    expect(
+      phase("UPSTREAM").querySelector('[data-slot="execution-span"]'),
+    ).toBeNull();
+    expect(phase("UPSTREAM").getAttribute("aria-label")).toContain("耗时 —");
+  });
+
   it.each(["explicit", "echo_id", "fingerprint"] as const)(
     "shows the same continuation icon for %s without changing row navigation",
     async (kind) => {
@@ -210,6 +484,7 @@ describe("RequestTrajectory in a window host", () => {
         '[data-conversation-indicator="continuation"]',
       );
       expect(mark?.getAttribute("aria-label")).toBe("对话延续：会话粘性");
+      expect(row?.getAttribute("aria-label")).toContain("对话延续：会话粘性");
       expect(mark?.getAttribute("title")).toBe("");
       expect(mark?.querySelector('[data-animated-icon="link"]')).not.toBeNull();
       expect(row?.textContent).not.toContain("对话");
@@ -263,6 +538,11 @@ describe("RequestTrajectory in a window host", () => {
       expect(
         container.querySelector("[data-conversation-indicator]"),
       ).toBeNull();
+      expect(
+        container
+          .querySelector('[data-testid="trajectory-row"][data-chip="CLIENT"]')
+          ?.getAttribute("aria-label"),
+      ).not.toContain("对话延续：会话粘性");
     },
   );
 

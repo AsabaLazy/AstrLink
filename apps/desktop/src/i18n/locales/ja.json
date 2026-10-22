@@ -2352,7 +2352,11 @@
     "timeRange": "{{from}} → {{to}}",
     "moreActions": "その他の操作",
     "copySessionId": "セッションIDをコピー",
-    "ttft": "TTFT"
+    "ttft": "TTFT",
+    "moreFilters": "その他のフィルター",
+    "activeFilters": "適用中のフィルター",
+    "moreActiveFilters": "+{{count}} 件",
+    "filterCount": "{{count}} 件選択"
   },
   "conversation": {
     "tab": "要約",
@@ -2401,7 +2405,10 @@
     "callList": "リクエスト一覧",
     "expand": "展開",
     "collapse": "折りたたむ",
-    "tokens": "{{input}} / {{output}} トークン"
+    "tokens": "{{input}} / {{output}} トークン",
+    "toolResultReceived": "結果受信済み",
+    "toolResultUnavailable": "結果なし",
+    "toolResultUnavailableHint": "この記録に読み取り可能なツール結果はありません。未返却、未取得、またはロック中の可能性があります。"
   },
   "audit": {
     "requestHeaders": "リクエストヘッダー",
@@ -2543,6 +2550,8 @@
   },
   "trajectory": {
     "timeline": "呼び出しタイムライン",
+    "timingHint": "この呼び出し内のフェーズの時間位置。呼び出しごとに個別のスケールを使用",
+    "timingLabel": "呼び出し内の時間",
     "eventList": "イベント",
     "eventCount": "{{count}} 件のイベント",
     "phase": "段階",

@@ -15,9 +15,12 @@ import {
 import {
   ArrowDown,
   ArrowUpRight,
+  Boxes,
   ChevronRight,
   Copy,
   LockKeyhole,
+  ScanText,
+  Search,
 } from "@/components/icons";
 import { ClientTypeIcon } from "@/components/ClientTypeIcon";
 import { FadeLine } from "@/components/FadeLine";
@@ -43,10 +46,10 @@ import {
   TraceCollapsible,
   TraceCollapsibleContent,
   TraceCollapsibleTrigger,
-  TraceDescription,
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace";
+import { ToolCallCard, ToolCallGroup } from "@/components/ui/tool-call-card";
 import { useHighlightedCode } from "@/hooks/use-highlighted-code";
 import { cn } from "@/lib/utils";
 
@@ -93,6 +96,7 @@ import {
 import { TrajectoryInspector } from "./TrajectoryInspector";
 import { useDetachedInspector } from "./trajectory-inspector-window";
 import { useConversationContent } from "./use-conversation-content";
+import { toolCallSummary, type ToolSummaryKind } from "./tool-call-summary";
 
 const NO_SERVICES: RequestServiceMap = {};
 /** How far from the end the reader may drift and still count as following. */
@@ -615,7 +619,7 @@ function Dots({ children }: { children: ReactNode[] }) {
       {items.map((child, index) => (
         <span
           className={cn(
-            "inline-flex min-w-0 items-center",
+            "inline-flex min-w-0 max-w-full items-center [&>span:last-child]:truncate",
             isValidElement<{ "data-wide"?: boolean }>(child) &&
               child.props["data-wide"] &&
               "hidden @min-[720px]/conversation:inline-flex",
@@ -720,20 +724,20 @@ const TurnView = memo(function TurnView({
       <UserBlock turn={turn} />
 
       <div className="my-3.5" data-testid="conversation-process">
-        <div className="flex min-h-7 items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex min-h-7 flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <Button
             aria-expanded={open}
-            className="h-auto min-h-7 min-w-0 flex-1 flex-col items-stretch gap-0.5 px-2 py-1 font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+            className="h-auto min-h-7 min-w-0 flex-1 basis-64 flex-col items-stretch gap-0.5 px-2 py-1 font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
             onClick={() => onToggle(turn)}
             size="sm"
             type="button"
             variant="ghost"
           >
-            <span className="flex min-w-0 items-center gap-1.5">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
               <ChevronRight
                 aria-hidden="true"
                 className={cn(
-                  "size-3 transition-transform",
+                  "size-3 shrink-0 transition-transform",
                   open && "rotate-90",
                 )}
               />
@@ -837,7 +841,7 @@ const TurnView = memo(function TurnView({
           </Button>
           {open && turn.segments.some((segment) => segment.kind === "run") ? (
             <Button
-              className="h-6 px-1.5"
+              className="ml-auto h-6 px-1.5"
               onClick={() => onToggleShowAll(turn.id)}
               size="xs"
               type="button"
@@ -1030,7 +1034,7 @@ function UserBlock({ turn }: { turn: ConversationTurn }) {
 }
 
 const ROW_CLASS =
-  "grid h-7 min-w-0 flex-1 grid-cols-[8px_minmax(0,1fr)_auto_auto_12px] items-center gap-x-2.5 rounded-sm px-1.5 text-left text-xs font-normal text-foreground hover:bg-muted hover:text-foreground";
+  "grid h-7 min-w-0 flex-1 grid-cols-[8px_minmax(0,1fr)_auto_12px] items-center gap-x-2.5 rounded-sm px-1.5 text-left text-xs font-normal text-foreground hover:bg-muted hover:text-foreground @min-[560px]/conversation:grid-cols-[8px_minmax(0,1fr)_auto_auto_12px]";
 
 const RunRow = memo(function RunRow({
   segment,
@@ -1066,25 +1070,25 @@ const RunRow = memo(function RunRow({
             className="size-2 rounded-full border border-input"
           />
           <span className="flex min-w-0 items-baseline gap-2 whitespace-nowrap">
-            <span className="font-medium text-text-secondary">
+            <span className="shrink-0 font-medium text-text-secondary">
               {t("conversation.callRange", {
                 from: first.index,
                 to: last.index,
               })}
             </span>
             {segment.toolCounts.length > 0 ? (
-              <span className="truncate font-mono text-micro">
+              <span className="hidden truncate font-mono text-micro @min-[560px]/conversation:inline">
                 {toolCountLabel(segment.toolCounts)}
               </span>
             ) : segment.toolTotal === 0 ? null : (
-              <span className="truncate text-micro">
+              <span className="hidden truncate text-micro @min-[560px]/conversation:inline">
                 {segment.toolTotal === null
                   ? ""
                   : t("conversation.toolsCount", { count: segment.toolTotal })}
               </span>
             )}
           </span>
-          <span className="tabular-nums text-micro text-muted-foreground">
+          <span className="hidden tabular-nums text-micro text-muted-foreground @min-[560px]/conversation:block">
             {tokenLabel(segment.tokens)}
           </span>
           <span className="tabular-nums text-micro text-muted-foreground">
@@ -1176,13 +1180,15 @@ const CallRow = memo(function CallRow({
             {/* A call still in flight shimmers like a running trace step. */}
             <span
               className={cn(
-                "font-medium",
+                "shrink-0 font-medium",
                 call.tone === "pending" && "shimmer motion-reduce:shimmer-none",
               )}
             >
               {t("conversation.callNumber", { index: call.index })}
             </span>
-            <span className="text-muted-foreground">{service.name}</span>
+            <span className="hidden truncate text-muted-foreground @min-[560px]/conversation:inline">
+              {service.name}
+            </span>
             {call.reason ? (
               <span
                 className={cn(
@@ -1197,7 +1203,7 @@ const CallRow = memo(function CallRow({
               </span>
             ) : null}
           </span>
-          <span className="tabular-nums text-micro text-muted-foreground">
+          <span className="hidden tabular-nums text-micro text-muted-foreground @min-[560px]/conversation:block">
             {tokenLabel(call.tokens)}
           </span>
           <span
@@ -1248,9 +1254,7 @@ const CallRow = memo(function CallRow({
                   texts={call.reasoning}
                 />
               ) : null}
-              {call.toolCalls.map((tool, index) => (
-                <ToolRow key={`${tool.id ?? index}`} tool={tool} />
-              ))}
+              <ToolCalls tools={call.toolCalls} />
             </Trace>
           ) : null}
           {call.gapMs !== null && call.gapMs >= 500 ? (
@@ -1367,79 +1371,119 @@ function ToolCode({
   );
 }
 
+function ToolIcon({ kind }: { kind: ToolSummaryKind }) {
+  const Icon =
+    kind === "file"
+      ? ScanText
+      : kind === "search"
+        ? Search
+        : kind === "command"
+          ? ChevronRight
+          : Boxes;
+  return <Icon aria-hidden="true" />;
+}
+
+function ToolCalls({ tools }: { tools: ConversationToolCall[] }) {
+  const t = useT();
+  if (tools.length === 0) return null;
+  const cards = tools.map((tool, index) => (
+    <ToolRow key={tool.id ?? index} tool={tool} />
+  ));
+  if (tools.length === 1) return <div className="my-1">{cards}</div>;
+  const failed = tools.filter((tool) => tool.isError).length;
+  return (
+    <ToolCallGroup
+      label={t("conversation.toolCalls", { count: tools.length })}
+      summary={[...new Set(tools.map((tool) => tool.name))].join(" · ")}
+      errorLabel={
+        failed ? t("conversation.failures", { count: failed }) : undefined
+      }
+      icons={tools.slice(0, 3).map((tool, index) => (
+        <ToolIcon
+          key={tool.id ?? index}
+          kind={toolCallSummary(tool.name, tool.args).kind}
+        />
+      ))}
+    >
+      {cards}
+    </ToolCallGroup>
+  );
+}
+
 function ToolRow({ tool }: { tool: ConversationToolCall }) {
   const t = useT();
   const [fullResult, setFullResult] = useState(false);
   const resultId = useId();
   const args = useMemo(() => prettyJson(tool.args), [tool.args]);
+  const summary = useMemo(
+    () => toolCallSummary(tool.name, tool.args),
+    [tool.name, tool.args],
+  );
+  const status = tool.isError
+    ? "error"
+    : tool.result !== null
+      ? "received"
+      : "unavailable";
   const clipped =
     tool.args.length >= TOOL_TEXT_LIMIT ||
     (tool.result?.length ?? 0) >= TOOL_TEXT_LIMIT;
   return (
-    <TraceCollapsible
+    <ToolCallCard
       data-testid="conversation-tool"
-      defaultOpen={tool.isError}
+      name={tool.name}
+      summary={summary.text}
+      icon={<ToolIcon kind={summary.kind} />}
+      status={status}
+      statusLabel={t(
+        status === "error"
+          ? "conversation.toolFailed"
+          : status === "received"
+            ? "conversation.toolResultReceived"
+            : "conversation.toolResultUnavailable",
+      )}
     >
-      <TraceCollapsibleTrigger className="h-7">
-        <TraceLine
-          className="text-micro text-foreground"
-          status={tool.isError ? "error" : undefined}
-        >
-          <TraceTitle className="shrink-0 font-mono font-semibold">
-            {tool.name}
-          </TraceTitle>
-          <span className="min-w-0 truncate font-mono text-muted-foreground">
-            {tool.args.replace(/\s+/g, " ")}
-          </span>
-          {/* A missing result is often just a body that was not captured or
-              is locked, so only a failure earns a label. */}
-          {tool.isError ? (
-            <TraceDescription className="font-medium text-danger-foreground">
-              {t("conversation.toolFailed")}
-            </TraceDescription>
-          ) : null}
-        </TraceLine>
-      </TraceCollapsibleTrigger>
-      <TraceCollapsibleContent className="mt-0.5 mb-2 space-y-1.5 pl-3">
-        {tool.args ? (
-          <ToolCode
-            className="max-h-48"
-            label={t("conversation.toolArgs")}
-            text={args}
-          />
-        ) : null}
-        {tool.result !== null ? (
-          <ToolCode
-            actions={
-              tool.result.split("\n").length > 6 || tool.result.length > 400 ? (
-                <Button
-                  aria-controls={resultId}
-                  aria-expanded={fullResult}
-                  onClick={() => setFullResult((current) => !current)}
-                  size="xs"
-                  type="button"
-                  variant="ghost"
-                >
-                  {fullResult
-                    ? t("conversation.collapse")
-                    : t("conversation.expand")}
-                </Button>
-              ) : null
-            }
-            className={cn(!fullResult && "max-h-28")}
-            failed={tool.isError}
-            id={resultId}
-            label={t("conversation.toolOutput")}
-            text={tool.result}
-          />
-        ) : null}
-        {clipped ? (
-          <p className="text-micro text-muted-foreground">
-            {t("conversation.toolTextClipped", { limit: "16 KiB" })}
-          </p>
-        ) : null}
-      </TraceCollapsibleContent>
-    </TraceCollapsible>
+      {tool.args ? (
+        <ToolCode
+          className="max-h-48"
+          label={t("conversation.toolArgs")}
+          text={args}
+        />
+      ) : null}
+      {tool.result !== null ? (
+        <ToolCode
+          actions={
+            tool.result.split("\n").length > 6 || tool.result.length > 400 ? (
+              <Button
+                aria-controls={resultId}
+                aria-expanded={fullResult}
+                onClick={() => setFullResult((current) => !current)}
+                size="xs"
+                type="button"
+                variant="ghost"
+              >
+                {fullResult
+                  ? t("conversation.collapse")
+                  : t("conversation.expand")}
+              </Button>
+            ) : null
+          }
+          className={cn(!fullResult && "max-h-28")}
+          failed={tool.isError}
+          id={resultId}
+          label={t("conversation.toolOutput")}
+          text={tool.result}
+        />
+      ) : (
+        <p className="text-micro text-muted-foreground">
+          {t("conversation.toolResultUnavailableHint")}
+        </p>
+      )}
+      {clipped ? (
+        <p className="text-micro text-muted-foreground">
+          {t("conversation.toolTextClipped", { limit: "16 KiB" })}
+        </p>
+      ) : null}
+    </ToolCallCard>
   );
 }
 

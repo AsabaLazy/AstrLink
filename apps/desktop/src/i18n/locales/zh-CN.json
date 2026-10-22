@@ -2352,7 +2352,11 @@
     "timeRange": "{{from}} → {{to}}",
     "moreActions": "更多操作",
     "copySessionId": "复制会话 ID",
-    "ttft": "TTFT"
+    "ttft": "TTFT",
+    "moreFilters": "更多筛选",
+    "activeFilters": "已启用筛选",
+    "moreActiveFilters": "+{{count}} 项",
+    "filterCount": "{{count}} 项"
   },
   "conversation": {
     "tab": "摘要",
@@ -2401,7 +2405,10 @@
     "callList": "调用列表",
     "expand": "展开",
     "collapse": "收起",
-    "tokens": "{{input}} / {{output}} Token"
+    "tokens": "{{input}} / {{output}} Token",
+    "toolResultReceived": "已收到结果",
+    "toolResultUnavailable": "结果不可用",
+    "toolResultUnavailableHint": "当前记录中没有可读取的工具结果；可能尚未回传、未采集或已锁定。"
   },
   "audit": {
     "requestHeaders": "请求头",
@@ -2543,6 +2550,8 @@
   },
   "trajectory": {
     "timeline": "调用时间线",
+    "timingHint": "阶段在本次调用内的时间位置，每次调用独立计时",
+    "timingLabel": "单次调用内耗时",
     "eventList": "事件明细",
     "eventCount": "{{count}} 条事件",
     "phase": "阶段",
@@ -2553,7 +2562,7 @@
       "TURN": "轮次",
       "CLIENT": "客户端",
       "REDIRECT": "重定向",
-      "POLICY": "策略",
+      "POLICY": "安全策略",
       "COMPRESS": "压缩",
       "ROUTE": "路由",
       "UPSTREAM": "上游",

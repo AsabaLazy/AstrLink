@@ -70,6 +70,7 @@ import {
 import type { RoutableService } from "./service-model";
 import type { RequestService } from "./request-service-model";
 import { applyLocale, i18n } from "./i18n";
+import { settleClosedLayer } from "./lib/test-layer-settle";
 
 const service: RoutableService & RequestService = {
   id: "service_01",
@@ -363,6 +364,28 @@ async function chooseOption(label: string, option: string): Promise<void> {
     item.click();
     await Promise.resolve();
   });
+}
+
+async function settleFilterLayer(): Promise<void> {
+  const settling = settleClosedLayer();
+  if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
+  await settling;
+}
+
+async function openMoreFilters(): Promise<void> {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    'button[aria-label="更多筛选"]',
+  )!;
+  await act(async () => trigger.click());
+}
+
+async function escapeFilterLayer(): Promise<void> {
+  await act(async () =>
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+    ),
+  );
+  await settleFilterLayer();
 }
 
 describe("RequestRecords", () => {
@@ -3853,9 +3876,12 @@ describe("RequestRecords", () => {
     const trigger = (label: string) =>
       document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
     expect(trigger("时间筛选").textContent).toBe("时间近 7 天");
+    expect(document.querySelector('[aria-label="模型筛选"]')).toBeNull();
+    await openMoreFilters();
     expect(trigger("模型筛选").textContent).toContain("gpt-4.1");
     expect(trigger("提供商筛选").textContent).toContain("Primary gateway");
     expect(trigger("令牌筛选").textContent).toContain("VS Code");
+    await escapeFilterLayer();
 
     // Every time range, from all of history down to a day.
     await act(async () => trigger("时间筛选").click());
@@ -3875,6 +3901,7 @@ describe("RequestRecords", () => {
       "近一年",
     ]);
     await act(async () => exactButton("全部", picker).click());
+    await settleFilterLayer();
     expect(bridgeMocks.listRequestSessions).toHaveBeenCalledWith({
       limit: 50,
       kind: "inference",
@@ -3883,6 +3910,7 @@ describe("RequestRecords", () => {
     });
 
     // Models only clear: selecting every listed name would read no differently.
+    await openMoreFilters();
     await act(async () => trigger("模型筛选").click());
     expect(() => exactButton("全选")).toThrow();
     const modelOption = () =>
@@ -3896,20 +3924,220 @@ describe("RequestRecords", () => {
       local_access_token_ids: ["token_01"],
     });
     await act(async () => modelOption().click());
-    await act(async () => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
-      );
-    });
+    await escapeFilterLayer();
+    expect(document.querySelector('[data-slot="filter-menu"]')).not.toBeNull();
+    expect(document.activeElement).toBe(trigger("模型筛选"));
+    await escapeFilterLayer();
 
     // Model discovery names no model, so its tab drops the model filter.
     await act(async () => exactButton("模型获取").focus());
+    await openMoreFilters();
     expect(trigger("模型筛选").disabled).toBe(true);
     expect(bridgeMocks.listRequestSessions).toHaveBeenCalledWith({
       limit: 50,
       kind: "discovery",
       local_access_token_ids: ["token_01"],
     });
+  });
+
+  it("summarizes extra active categories and clears only the chosen category", async () => {
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [sessionFromRecord(firstRecord)],
+      next_cursor: null,
+    });
+    await act(async () => {
+      reactRoot.render(
+        <RequestRecords
+          accessTokens={[
+            {
+              id: "token_01",
+              name: "VS Code",
+              hint: "astr_…K8Q2",
+              created_at: "2026-07-24T10:30:00Z",
+            },
+          ]}
+          accessTokensReady
+          coreSessionKey="session-1"
+          services={[service]}
+          isReady
+          target={{
+            tokenId: "token_01",
+            serviceId: "service_01",
+            models: ["gpt-4.1", "gpt-4.1-mini"],
+            range: "7d",
+          }}
+        />,
+      );
+    });
+    await flush();
+    const chips = container.querySelector<HTMLElement>(
+      '[data-slot="filter-chips"]',
+    )!;
+    expect(
+      chips.querySelectorAll('button[aria-label^="清除筛选："]'),
+    ).toHaveLength(2);
+    expect(chips.textContent).toContain("+2 项");
+    expect(chips.textContent).not.toContain("gpt-4.1");
+    await act(async () => exactButton("+2 项", chips).click());
+    const clearModels = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="清除筛选：模型: 已选 2 个"]',
+    );
+    expect(clearModels).not.toBeNull();
+    await act(async () => clearModels!.click());
+    const week = resolveUsageWindow("7d", new Date());
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      local_access_token_ids: ["token_01"],
+      from: week.from,
+      to: week.to,
+    });
+    expect(chips.textContent).toContain("Primary gateway");
+    expect(chips.textContent).toContain("+1 项");
+    await escapeFilterLayer();
+    await act(async () => exactButton("清除筛选", chips).click());
+    expect(container.querySelector('[data-slot="filter-chips"]')).toBeNull();
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+    });
+  });
+
+  it("keeps keyboard focus when the final overflow chip and final active chip are removed", async () => {
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [sessionFromRecord(firstRecord)],
+      next_cursor: null,
+    });
+    await act(async () => {
+      reactRoot.render(
+        <RequestRecords
+          accessTokens={[
+            {
+              id: "token_01",
+              name: "VS Code",
+              hint: "astr_…K8Q2",
+              created_at: "2026-07-24T10:30:00Z",
+            },
+          ]}
+          accessTokensReady
+          coreSessionKey="session-1"
+          services={[service]}
+          isReady
+          target={{
+            tokenId: "token_01",
+            serviceId: "service_01",
+            models: ["gpt-4.1"],
+          }}
+        />,
+      );
+    });
+    await flush();
+    const chip = (label: string) =>
+      document.querySelector<HTMLButtonElement>(
+        `button[aria-label="清除筛选：${label}"]`,
+      )!;
+    await act(async () => exactButton("+1 项").click());
+    const token = chip("令牌: VS Code");
+    await act(async () => {
+      token.focus();
+      token.click();
+    });
+    await settleFilterLayer();
+    expect(document.querySelector('[data-slot="popover-content"]')).toBeNull();
+    expect(document.activeElement).toBe(chip("模型: gpt-4.1"));
+    await act(async () => chip("模型: gpt-4.1").click());
+    expect(document.activeElement).toBe(chip("提供商: Primary gateway"));
+    await act(async () => chip("提供商: Primary gateway").click());
+    expect(container.querySelector('[data-slot="filter-chips"]')).toBeNull();
+    expect(document.activeElement).toBe(
+      container.querySelector('button[aria-label="更多筛选"]'),
+    );
+  });
+
+  it("keeps token search and multi-selection inside keyboard-accessible filter groups", async () => {
+    await act(async () => {
+      reactRoot.render(
+        <RequestRecords
+          accessTokens={[
+            {
+              id: "token_01",
+              name: "VS Code",
+              hint: "astr_…K8Q2",
+              created_at: "2026-07-24T10:30:00Z",
+            },
+            {
+              id: "token_02",
+              name: "Terminal",
+              hint: "astr_…H5Z8",
+              created_at: "2026-07-24T10:30:00Z",
+            },
+          ]}
+          accessTokensReady
+          coreSessionKey="session-1"
+          services={[service]}
+          isReady
+          target={{ tokenId: "token_01" }}
+        />,
+      );
+    });
+    await flush();
+    await openMoreFilters();
+    const header = document.querySelector<HTMLButtonElement>(
+      '[data-filter-group="service"]',
+    )!;
+    await act(async () => {
+      header.focus();
+      header.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "End", bubbles: true }),
+      );
+    });
+    const tokenHeader = document.querySelector<HTMLButtonElement>(
+      '[data-filter-group="tokens"]',
+    )!;
+    expect(document.activeElement).toBe(tokenHeader);
+    await act(async () =>
+      tokenHeader.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+      ),
+    );
+    expect(document.querySelector('[aria-label="令牌筛选"]')).toBeNull();
+    await act(async () =>
+      tokenHeader.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    );
+    const tokenTrigger = document.querySelector<HTMLButtonElement>(
+      '[aria-label="令牌筛选"]',
+    )!;
+    await act(async () => tokenTrigger.click());
+    const search = document.querySelector<HTMLInputElement>(
+      '[aria-label="令牌筛选 search"]',
+    )!;
+    expect(document.activeElement).toBe(search);
+    await typeInto(search, "Terminal");
+    expect(
+      document.querySelector('[role="listbox"] [aria-label="VS Code"]'),
+    ).toBeNull();
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '[role="listbox"] [aria-label="Terminal"]',
+        )!
+        .click(),
+    );
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      local_access_token_ids: ["token_01", "token_02"],
+    });
+    await escapeFilterLayer();
+    expect(document.querySelector('[data-slot="filter-menu"]')).not.toBeNull();
+    expect(document.activeElement).toBe(tokenTrigger);
+    await escapeFilterLayer();
+    expect(document.querySelector('[data-slot="filter-menu"]')).toBeNull();
+    expect(document.activeElement).toBe(
+      container.querySelector('button[aria-label="更多筛选"]'),
+    );
   });
 
   it("keeps the model menu in place while a chosen model narrows the list", async () => {
@@ -3926,6 +4154,7 @@ describe("RequestRecords", () => {
       }),
     );
     await renderRecords();
+    await openMoreFilters();
 
     await act(async () =>
       document
