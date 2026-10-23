@@ -18,6 +18,7 @@ struct DevBundle {
     identifier: &'static str,
     name: &'static str,
     link_scheme: &'static str,
+    icon: &'static [u8],
 }
 
 #[cfg(any(dev, test))]
@@ -26,6 +27,7 @@ const DEV_BUNDLE: DevBundle = DevBundle {
     identifier: "com.astrlink.desktop.dev",
     name: "AstrLink",
     link_scheme: crate::instance::LINK_SCHEME,
+    icon: include_bytes!("../icons/icon.icns"),
 };
 
 #[cfg(any(dev, test))]
@@ -34,6 +36,7 @@ const ISOLATED_BUNDLE: DevBundle = DevBundle {
     identifier: crate::instance::ISOLATED_IDENTIFIER,
     name: crate::instance::ISOLATED_NAME,
     link_scheme: crate::instance::ISOLATED_LINK_SCHEME,
+    icon: include_bytes!("../icons/dev/icon.icns"),
 };
 
 #[link(name = "CoreServices", kind = "framework")]
@@ -176,10 +179,7 @@ fn stage_dev_bundle(
         apple_events = APPLE_EVENTS_USAGE,
     );
     fs::write(contents.join("Info.plist"), plist)?;
-    fs::write(
-        resources.join("icon.icns"),
-        include_bytes!("../icons/icon.icns"),
-    )?;
+    fs::write(resources.join("icon.icns"), target.icon)?;
 
     // A symlink for the main executable gets canonicalized back to Cargo's bare
     // binary. Copy it atomically so both Cocoa and Tauri see the bundle path.
@@ -292,6 +292,10 @@ mod tests {
         let isolated = stage_dev_bundle(&executable, &frameworks, &ISOLATED_BUNDLE).unwrap();
         assert_ne!(isolated, bundled);
         let isolated_bundle = bundle_for_executable(&isolated).unwrap();
+        assert_eq!(
+            fs::read(isolated_bundle.join("Contents/Resources/icon.icns")).unwrap(),
+            include_bytes!("../icons/dev/icon.icns")
+        );
         let info = CFBundle::new(CFURL::from_path(isolated_bundle, true).unwrap())
             .unwrap()
             .info_dictionary();
