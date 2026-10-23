@@ -3265,10 +3265,13 @@ paths:
       summary: List the spans of model calls that overlap a recent window.
       description: |
         Returns root model calls still running or ended at or after since, so a
-        client can chart how many conversations ran at once. Calls that started
-        more than an hour before since, model discovery, and calls a Core
-        restart interrupted are left out. Retries stay inside their root's span.
-        Does not return request or response content.
+        client can chart how many conversations ran at once. A call that ended
+        earlier on tool calls it asked for is returned too while its
+        conversation has made no later call before since, because the client
+        may still be running those tools. Calls that started more than an hour
+        before since, model discovery, and calls a Core restart interrupted are
+        left out. Retries stay inside their root's span. Does not return
+        request or response content.
       parameters:
         - name: since
           in: query
@@ -3279,7 +3282,9 @@ paths:
             format: date-time
       responses:
         "200":
-          description: Calls overlapping the window, newest first.
+          description: >
+            Calls overlapping the window and earlier calls whose tools may
+            still be running, newest first.
           headers:
             Cache-Control:
               $ref: "#/components/headers/NoStore"

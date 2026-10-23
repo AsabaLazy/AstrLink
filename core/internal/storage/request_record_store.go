@@ -121,6 +121,9 @@ type RequestRecordStore interface {
 	ListRequestSessions(context.Context, RequestSessionListOptions) (RequestSessionPage, error)
 	GetRequestSession(context.Context, string) (contract.RequestSessionDetail, error)
 	// ListRequestActivity returns the root model calls still running or
-	// ended at or after since, oldest first. Model discovery is left out.
+	// ended at or after since, newest first, plus earlier calls whose tools
+	// the client may still be running: they ended on tool calls and their
+	// conversation made no later call before since. Model discovery is left
+	// out.
 	ListRequestActivity(ctx context.Context, since time.Time) ([]contract.RequestActivityCall, error)
 }

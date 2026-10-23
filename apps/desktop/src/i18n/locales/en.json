@@ -2161,7 +2161,7 @@
     "activityTitle": "Live activity",
     "activityInProgress": "In progress",
     "activityInProgressHelp": "What counts as in progress",
-    "activityInProgressHint": "Conversations that are calling a model or called one in the last minute. Agents running tools between two calls count too.",
+    "activityInProgressHint": "Conversations that are calling a model or called one in the last minute. While an agent runs tools the model asked for, its conversation counts until the results reach the model, for up to 30 minutes.",
     "activityConversations_one": "conversation",
     "activityConversations_other": "conversations",
     "activityCalls": "Calls running",

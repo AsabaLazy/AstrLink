@@ -2618,7 +2618,7 @@ function SessionStream({
   // The live board's read of the last few minutes tells each lane its steps.
   const recentCalls = useRequestActivityFeed(coreSessionKey)?.calls ?? NO_CALLS;
   // Conversations in progress lead the list. One waiting between calls moves
-  // down into its day once the grace runs out, so the list re-reads the clock
+  // down into its day once its wait runs out, so the list re-reads the clock
   // every second while any is in progress, even if no poll brings news.
   const { active, rest } = splitActiveSessions(sessions, Date.now());
   useLiveClock(active.length > 0, 1000);
@@ -3080,7 +3080,7 @@ const SessionLane = memo(function SessionLane({
                 {statusLabel(outcome)}
               </StatusBadge>
               {t("records.laneIdle", {
-                duration: `${Math.max(0, Math.floor((nowMs - since) / 1000))} s`,
+                duration: formatWait(nowMs - since),
               })}
             </span>
           )}
@@ -3193,6 +3193,14 @@ function LaneTrail({
   );
 }
 
+/** A wait between calls in whole seconds, as minutes once tools run longer. */
+function formatWait(elapsedMs: number): string {
+  const waited = Math.max(0, elapsedMs);
+  return waited < 60_000
+    ? `${Math.floor(waited / 1000)} s`
+    : formatDuration(waited);
+}
+
 /**
  * What a lane says its conversation is doing and for how long: a running
  * call counts tenths of a second, a wait between calls whole seconds.
@@ -3214,7 +3222,7 @@ function LaneActionLabel({
     action.kind === "calling";
   const duration = running
     ? formatDuration(Math.max(0, elapsedMs))
-    : `${Math.max(0, Math.floor(elapsedMs / 1000))} s`;
+    : formatWait(elapsedMs);
   const iconClass = "size-3.5 shrink-0";
   let icon: ReactNode = null;
   let label: string;

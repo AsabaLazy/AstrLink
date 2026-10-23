@@ -2161,7 +2161,7 @@
     "activityTitle": "实时概况",
     "activityInProgress": "进行中",
     "activityInProgressHelp": "进行中怎么算",
-    "activityInProgressHint": "正在调用模型，或 1 分钟内调用过模型的对话。Agent 在两次调用之间运行工具时也算在内。",
+    "activityInProgressHint": "正在调用模型，或 1 分钟内调用过模型的对话。Agent 运行模型要求的工具时，对话会一直算在内，直到结果送回模型，最多 30 分钟。",
     "activityConversations_one": "个对话",
     "activityConversations_other": "个对话",
     "activityCalls": "调用中",

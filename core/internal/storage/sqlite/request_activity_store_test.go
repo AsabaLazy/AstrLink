@@ -88,3 +88,78 @@ func TestListRequestActivityReadsCallsOverlappingTheWindow(t *testing.T) {
 		}
 	}
 }
+
+func TestListRequestActivityKeepsCallsWhoseToolsMayStillRun(t *testing.T) {
+	store := openTestStore(t, filepath.Join(t.TempDir(), "activity.db"))
+	defer store.Close()
+	ctx := context.Background()
+	since := time.Date(2026, 10, 23, 6, 0, 0, 0, time.UTC)
+	tool := &contract.OutputActivity{Kind: contract.OutputKindTool, Tools: []string{"Bash"}}
+	call := func(session, id string, started, completed time.Duration, output *contract.OutputActivity) contract.RequestRecord {
+		sessionID := contract.SessionID(session)
+		return contract.RequestRecord{
+			ID: contract.RequestID(id), SessionID: &sessionID,
+			StartedAt: since.Add(started), CompletedAt: ptrTime(since.Add(completed)),
+			Status: contract.RequestStatusSucceeded, InputProtocol: contract.ProtocolOpenAIResponses,
+			Output: output, Audit: contract.NotCapturedAuditSummary(),
+		}
+	}
+	waiting := call("session_waiting", "request_waiting", -10*time.Minute, -9*time.Minute, tool)
+	// The client brought the results back and the conversation answered.
+	answeredTools := call("session_answered", "request_answered_tools", -10*time.Minute, -9*time.Minute, tool)
+	answer := call("session_answered", "request_answer", -8*time.Minute, -7*time.Minute,
+		&contract.OutputActivity{Kind: contract.OutputKindText})
+	// The results come back inside the window, so the wait before it counts.
+	resumedTools := call("session_resumed", "request_resumed_tools", -10*time.Minute, -9*time.Minute, tool)
+	resumed := call("session_resumed", "request_resumed", time.Minute, 2*time.Minute, tool)
+	failed := call("session_failed", "request_failed", -10*time.Minute, -9*time.Minute, tool)
+	failed.Status = contract.RequestStatusFailed
+	rejected := call("session_rejected", "request_rejected", -10*time.Minute, -9*time.Minute, tool)
+	rejected.HTTPStatus = ptrInt(502)
+	unnamed := call("session_unnamed", "request_unnamed", -10*time.Minute, -9*time.Minute,
+		&contract.OutputActivity{Kind: contract.OutputKindTool})
+	tooOld := call("session_old", "request_old", -2*time.Hour, -119*time.Minute, tool)
+	// The activity read leaves interrupted calls out, so one does not end the wait.
+	interruptedTools := call("session_interrupted", "request_interrupted_tools", -10*time.Minute, -9*time.Minute, tool)
+	interrupted := call("session_interrupted", "request_interrupted", -8*time.Minute, -time.Minute, nil)
+	interrupted.Status = contract.RequestStatusFailed
+	interrupted.Error = &contract.ErrorSummary{Category: "core", Code: "core_interrupted", Message: "core restarted"}
+	for _, record := range []contract.RequestRecord{
+		waiting, answeredTools, answer, resumedTools, resumed, failed, rejected, unnamed, tooOld, interruptedTools, interrupted,
+	} {
+		if err := store.InsertRequestRecord(ctx, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	calls, err := store.ListRequestActivity(ctx, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type span struct {
+		session contract.SessionID
+		started time.Time
+	}
+	got := make([]span, 0, len(calls))
+	for _, item := range calls {
+		got = append(got, span{item.SessionID, item.StartedAt.UTC()})
+	}
+	// Newest first; equal starts order by descending id.
+	want := []span{
+		{"session_resumed", resumed.StartedAt},
+		{"session_waiting", waiting.StartedAt},
+		{"session_resumed", resumedTools.StartedAt},
+		{"session_interrupted", interruptedTools.StartedAt},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("calls = %+v, want %+v", got, want)
+	}
+	for index := range want {
+		if got[index].session != want[index].session || !got[index].started.Equal(want[index].started) {
+			t.Fatalf("calls = %+v, want %+v", got, want)
+		}
+	}
+	if output := calls[1].Output; output == nil || output.Kind != contract.OutputKindTool || len(output.Tools) != 1 {
+		t.Fatalf("waiting call output = %+v", output)
+	}
+}

@@ -2161,7 +2161,7 @@
     "activityTitle": "ライブ状況",
     "activityInProgress": "進行中",
     "activityInProgressHelp": "進行中の数え方",
-    "activityInProgressHint": "モデルを呼び出し中か、1 分以内に呼び出した会話です。Agent が呼び出しの合間にツールを実行している間も含みます。",
+    "activityInProgressHint": "モデルを呼び出し中か、1 分以内に呼び出した会話です。モデルが求めたツールを Agent が実行している間は、結果がモデルに届くまで最長 30 分含みます。",
     "activityConversations_one": "件の会話",
     "activityConversations_other": "件の会話",
     "activityCalls": "呼び出し中",

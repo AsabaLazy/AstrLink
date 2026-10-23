@@ -2,18 +2,28 @@ import {
   CLIENT_TYPES,
   isModelDiscoveryProtocol,
   type ClientType,
+  type OutputActivity,
   type RequestActivity,
   type RequestActivityCall,
   type RequestSession,
+  type SessionStatus,
 } from "./request-record-model";
 import { sessionRunning } from "./session-live-model";
 
 /**
  * How long a conversation still counts as in progress after its last call
- * ended. Agents run their tools between two calls, so a conversation in the
- * middle of a loop stays on the board instead of dropping out and back.
+ * ended with nothing for the client to run, such as an answer or a failure.
+ * A quick reply keeps it on the board instead of dropping out and back.
  */
 export const ACTIVE_GRACE_MS = 60_000;
+
+/**
+ * How long a conversation still counts as in progress after a call that asked
+ * the client to run tools. Commands, tests and subagents can take minutes; the
+ * next call brings their results and ends the wait sooner. The bound lets a
+ * client that quit mid-tool drop off the board.
+ */
+export const TOOL_WAIT_MS = 30 * 60_000;
 
 /** The span the live board charts and counts recent failures over. */
 export const ACTIVITY_WINDOW_MS = 5 * 60_000;
@@ -38,10 +48,32 @@ function parseTime(value: string | null | undefined): number {
   return value ? Date.parse(value) : Number.NaN;
 }
 
+/** Whether a call that ended left the client running the tools it asked for. */
+function awaitsTools(
+  status: SessionStatus,
+  output: OutputActivity | undefined,
+): boolean {
+  return (
+    status === "succeeded" && output?.kind === "tool" && output.tools.length > 0
+  );
+}
+
+/** The first other call in `own`, oldest first, to start once `call` ended. */
+function nextCall(
+  own: readonly RequestActivityCall[],
+  call: RequestActivityCall,
+): RequestActivityCall | undefined {
+  const ended = Date.parse(call.completed_at ?? "");
+  return own.find(
+    (other) => other !== call && Date.parse(other.started_at) >= ended,
+  );
+}
+
 /**
  * What a conversation is doing at `nowMs`: running a call, or waiting between
- * calls within the grace. Null once it no longer counts as in progress, and
- * for model discovery, which is a single lookup rather than a conversation.
+ * calls, for the grace or while the client runs its tools. Null once it no
+ * longer counts as in progress, and for model discovery, which is a single
+ * lookup rather than a conversation.
  */
 export function conversationActivity(
   session: RequestSession,
@@ -66,8 +98,29 @@ export function conversationActivity(
     };
   }
   const ended = parseTime(session.completed_at);
-  if (!Number.isFinite(ended) || nowMs - ended >= ACTIVE_GRACE_MS) return null;
+  const wait = awaitsTools(session.status, session.output)
+    ? TOOL_WAIT_MS
+    : ACTIVE_GRACE_MS;
+  if (!Number.isFinite(ended) || nowMs - ended >= wait) return null;
   return { state: "idle", since: Math.min(ended, nowMs) };
+}
+
+/**
+ * Until when a call keeps its conversation in progress: while it runs, then
+ * until the conversation's next call while the client runs the tools it asked
+ * for, at most `TOOL_WAIT_MS`, or for the grace. `own` is the conversation's
+ * calls, oldest first.
+ */
+function busyUntil(
+  call: RequestActivityCall,
+  own: readonly RequestActivityCall[],
+): number {
+  if (call.completed_at === null) return Number.POSITIVE_INFINITY;
+  const ended = Date.parse(call.completed_at);
+  if (!awaitsTools(call.status, call.output)) return ended + ACTIVE_GRACE_MS;
+  const next = nextCall(own, call);
+  const bound = ended + TOOL_WAIT_MS;
+  return next ? Math.min(Date.parse(next.started_at), bound) : bound;
 }
 
 /** How many of the conversations in progress one client runs. */
@@ -101,16 +154,22 @@ export interface ActivitySample {
   clients: readonly ActivityClient[];
 }
 
-/** Where a poll starts reading: the window plus the grace before it. */
+/**
+ * Where a poll starts reading: the window plus the grace before it. The
+ * gateway adds the earlier calls whose tools may still be running.
+ */
 export function activitySince(nowMs: number): string {
   return new Date(nowMs - ACTIVITY_WINDOW_MS - ACTIVE_GRACE_MS).toISOString();
 }
 
+const byStart = (left: RequestActivityCall, right: RequestActivityCall) =>
+  Date.parse(left.started_at) - Date.parse(right.started_at);
+
 /**
  * The board's numbers and chart from the calls the gateway listed, on its
- * clock. A conversation is in progress from a call's start until the grace
- * after it ends, and while a call runs; it counts once under its latest
- * call's client, however many calls overlap.
+ * clock. A conversation is in progress while a call runs and after it ends,
+ * as `busyUntil` says; it counts once under its latest call's client, however
+ * many calls overlap.
  */
 export function summarizeActivity(
   activity: RequestActivity,
@@ -118,15 +177,19 @@ export function summarizeActivity(
   stepMs: number = ACTIVITY_STEP_MS,
 ): { now: number; snapshot: ActivitySnapshot; points: ActivitySample[] } {
   const now = Date.parse(activity.now);
+  const bySession = new Map<string, RequestActivityCall[]>();
+  for (const call of activity.calls) {
+    const own = bySession.get(call.session_id);
+    if (own) own.push(call);
+    else bySession.set(call.session_id, [call]);
+  }
+  for (const own of bySession.values()) own.sort(byStart);
   const spans = activity.calls
     .map((call) => ({
       session: call.session_id,
       client: call.client_type ?? "unknown",
       start: Date.parse(call.started_at),
-      end:
-        call.completed_at === null
-          ? Number.POSITIVE_INFINITY
-          : Date.parse(call.completed_at) + ACTIVE_GRACE_MS,
+      end: busyUntil(call, bySession.get(call.session_id) ?? []),
     }))
     .filter((span) => Number.isFinite(span.start))
     .sort((left, right) => right.start - left.start);
@@ -242,10 +305,7 @@ export function laneTrail(
 ): LaneStep[] {
   const own = calls
     .filter((call) => call.session_id === session.id)
-    .sort(
-      (left, right) =>
-        Date.parse(left.started_at) - Date.parse(right.started_at),
-    );
+    .sort(byStart);
   const finished = own.filter((call) => call.completed_at !== null);
   const earlier = sessionRunning(session) ? finished : finished.slice(0, -1);
   const steps: LaneStep[] = [];
@@ -272,7 +332,7 @@ export function laneTrail(
     }
     // The gap before the conversation's next call is the client running them.
     const ended = Date.parse(call.completed_at ?? "");
-    const next = own.find((other) => Date.parse(other.started_at) >= ended);
+    const next = nextCall(own, call);
     const ranMs = next ? Date.parse(next.started_at) - ended : null;
     output.tools.forEach((tool, index) =>
       add({

@@ -9,6 +9,7 @@ import {
   LANE_TRAIL_STEPS,
   splitActiveSessions,
   summarizeActivity,
+  TOOL_WAIT_MS,
 } from "./request-activity-model";
 import type {
   RequestActivityCall,
@@ -70,6 +71,25 @@ describe("conversationActivity", () => {
     const ended = session({ completed_at: at(-ACTIVE_GRACE_MS) });
     expect(conversationActivity(ended, NOW)).toBeNull();
     expect(conversationActivity(ended, NOW - 1)).not.toBeNull();
+  });
+
+  it("keeps a conversation while its client runs tools, until the wait runs out", () => {
+    const tools = { kind: "tool" as const, tools: ["Bash"] };
+    const longCommand = session({ output: tools, completed_at: at(-180_000) });
+    expect(conversationActivity(longCommand, NOW)).toEqual({
+      state: "idle",
+      since: NOW - 180_000,
+    });
+    const quit = session({ output: tools, completed_at: at(-TOOL_WAIT_MS) });
+    expect(conversationActivity(quit, NOW)).toBeNull();
+    expect(conversationActivity(quit, NOW - 1)).not.toBeNull();
+    // A failed call leaves nothing for the client to run.
+    const failed = session({
+      output: tools,
+      status: "failed",
+      completed_at: at(-ACTIVE_GRACE_MS),
+    });
+    expect(conversationActivity(failed, NOW)).toBeNull();
   });
 
   it("leaves out model discovery and conversations without an end", () => {
@@ -148,6 +168,38 @@ describe("summarizeActivity", () => {
     expect(value(-180_000)).toBe(0);
     expect(value(-100_000)).toBe(1);
     expect(value(0)).toBe(1);
+  });
+
+  it("keeps a conversation in progress until its tools' results come back", () => {
+    const tools = { kind: "tool" as const, tools: ["Bash"] };
+    const { points, snapshot } = summarizeActivity(
+      {
+        now: at(0),
+        calls: [
+          // A long command, then its results and an answer.
+          call("a", -290_000, -280_000, { output: tools }),
+          call("a", -100_000, -95_000, { output: { kind: "text", tools: [] } }),
+          // Still running a tool the model asked for twenty minutes ago.
+          call("b", -1_200_000, -1_190_000, { output: tools }),
+          // Its wait runs out inside the window.
+          call("c", -TOOL_WAIT_MS - 130_000, -TOOL_WAIT_MS - 120_000, {
+            output: tools,
+          }),
+          // A failed call keeps only the grace.
+          call("d", -250_000, -240_000, { output: tools, status: "failed" }),
+        ],
+      },
+      300_000,
+      10_000,
+    );
+    const value = (offset: number) =>
+      points.find((point) => point.at === NOW + offset)?.value;
+    expect(value(-200_000)).toBe(4);
+    expect(value(-150_000)).toBe(3);
+    // The results arrive with the next call, which takes over the span.
+    expect(value(-100_000)).toBe(2);
+    expect(value(-30_000)).toBe(1);
+    expect(snapshot.conversations).toBe(1);
   });
 
   it("names the clients behind each moment, busiest first", () => {

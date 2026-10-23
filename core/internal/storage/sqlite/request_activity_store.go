@@ -16,26 +16,46 @@ import (
 const maxActivityCallSpan = time.Hour
 
 // ListRequestActivity reads the spans of root model calls running at or after
-// since, newest first. A call the core interrupted is left out: recovery
-// stamps when the core came back, not when the call stopped, so its span
-// would cover the downtime.
+// since, newest first. A call that ended before since on the tool calls it
+// asked for is read too while its conversation has made no later call before
+// since: the client may still be running those tools. A call the core
+// interrupted is left out: recovery stamps when the core came back, not when
+// the call stopped, so its span would cover the downtime.
 func (store *Store) ListRequestActivity(
 	ctx context.Context,
 	since time.Time,
 ) ([]contract.RequestActivityCall, error) {
+	sinceText := since.UTC().Format(time.RFC3339Nano)
+	models, googleModels := string(contract.ProtocolOpenAIModels), string(contract.ProtocolGoogleModels)
+	// The later-call lookup applies the outer filters, so a call counts as the
+	// next one only when this read could list it.
 	rows, err := store.db.QueryContext(ctx, `
-SELECT COALESCE(session_id, id), client_type, started_at, completed_at, status, http_status, output_json
-FROM request_records INDEXED BY request_records_root_started_idx
-WHERE parent_request_id IS NULL
-  AND started_at >= ?
-  AND (completed_at IS NULL OR completed_at >= ?)
-  AND input_protocol NOT IN (?, ?)
-  AND COALESCE(json_extract(error_json, '$.code'), '') <> 'core_interrupted'
-ORDER BY started_at DESC, id DESC`,
+SELECT COALESCE(root.session_id, root.id), root.client_type, root.started_at, root.completed_at,
+       root.status, root.http_status, root.output_json
+FROM request_records AS root INDEXED BY request_records_root_started_idx
+WHERE root.parent_request_id IS NULL
+  AND root.started_at >= ?
+  AND root.input_protocol NOT IN (?, ?)
+  AND COALESCE(json_extract(root.error_json, '$.code'), '') <> 'core_interrupted'
+  AND (root.completed_at IS NULL OR root.completed_at >= ?
+    OR (root.status = 'succeeded' AND COALESCE(root.http_status, 0) < 400
+      AND json_extract(root.output_json, '$.kind') = 'tool'
+      AND json_array_length(root.output_json, '$.tools') > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM request_records AS later INDEXED BY request_records_session_turns_idx
+        WHERE COALESCE(later.session_id, later.id) = COALESCE(root.session_id, root.id)
+          AND later.parent_request_id IS NULL
+          AND later.id <> root.id
+          AND later.started_at >= root.completed_at
+          AND later.started_at < ?
+          AND later.input_protocol NOT IN (?, ?)
+          AND COALESCE(json_extract(later.error_json, '$.code'), '') <> 'core_interrupted')))
+ORDER BY root.started_at DESC, root.id DESC`,
 		since.Add(-maxActivityCallSpan).UTC().Format(time.RFC3339Nano),
-		since.UTC().Format(time.RFC3339Nano),
-		string(contract.ProtocolOpenAIModels),
-		string(contract.ProtocolGoogleModels),
+		models, googleModels,
+		sinceText,
+		sinceText,
+		models, googleModels,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list request activity: %w", err)

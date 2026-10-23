@@ -1013,6 +1013,14 @@ describe("RequestRecords", () => {
           last_started_at: "2026-07-28T12:00:01Z",
           completed_at: "2026-07-28T12:00:05Z",
         }),
+        sessionFromRecord(firstRecord, {
+          id: "tools",
+          title: "conversation running a command",
+          started_at: "2026-07-28T11:52:00Z",
+          last_started_at: "2026-07-28T12:00:02Z",
+          completed_at: "2026-07-28T12:00:04Z",
+          output: { kind: "tool", tools: ["Bash"] },
+        }),
         sessionFromRecord(secondRecord),
       ],
       next_cursor: null,
@@ -1030,23 +1038,35 @@ describe("RequestRecords", () => {
       ]);
     expect(lanes()).toEqual([
       ["waiting", "idle", "空闲 5 s"],
+      ["tools", "idle", "运行 Bash 6 s"],
       ["calling", "calling", "等待模型 10.0 s"],
     ]);
     expect(
       container
         .querySelector('[data-testid="active-sessions"]')
         ?.querySelector('[data-slot="badge"]')?.textContent,
-    ).toBe("2 条");
+    ).toBe("3 条");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
-    expect(lanes()).toEqual([["calling", "calling", "等待模型 1m 10s"]]);
+    // A long command keeps its conversation in progress past the grace.
+    expect(lanes()).toEqual([
+      ["tools", "idle", "运行 Bash 1m 06s"],
+      ["calling", "calling", "等待模型 1m 10s"],
+    ]);
     const settled = container.querySelector('[data-session-id="waiting"]');
     expect(settled?.closest('[data-testid="active-sessions"]')).toBeNull();
     expect(settled?.closest("section")?.textContent).toContain(
       "conversation between calls",
     );
+
+    // A client that quit mid-command drops off once the wait runs out.
+    vi.setSystemTime(new Date("2026-07-28T12:30:04Z"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(lanes()).toEqual([["calling", "calling", "等待模型 30m 05s"]]);
   });
 
   it("says what each conversation in progress is doing", async () => {
