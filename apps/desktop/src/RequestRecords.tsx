@@ -3027,6 +3027,7 @@ const SessionLane = memo(function SessionLane({
             fallback={t("records.unspecifiedModel")}
             model={session.requested_model}
             reasoningEffort={session.reasoning_effort}
+            redirectDisplay="target"
             redirectedTo={session.model_redirect?.to}
           />
           <RequestServiceLabel
