@@ -140,6 +140,38 @@ fn identifies_npm_and_brew_without_confusing_native_installations() {
 }
 
 #[test]
+fn recognizes_a_standalone_codex_package_by_its_entrypoint() {
+    let fixture = Fixture::new();
+    // The Windows package names bin/codex.exe.
+    fixture.write(
+        "release/codex-package.json",
+        r#"{"variant":"codex","layoutVersion":1,"entrypoint":"bin/codex.exe"}"#,
+    );
+    let binary = fixture.write("release/bin/codex.exe", "");
+    let environment = fixture.environment();
+    assert_eq!(
+        installation_method(&environment, ClientId::Codex, &binary),
+        InstallMethod::Native
+    );
+    let other = fixture.write("release/bin/codex", "");
+    assert_eq!(
+        installation_method(&environment, ClientId::Codex, &other),
+        InstallMethod::Unknown
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn reads_the_saved_windows_path() {
+    let path = saved_path().unwrap();
+    // The system Path holds System32, usually as %SystemRoot%\system32.
+    assert!(
+        std::env::split_paths(&path).any(|d| d.join("cmd.exe").is_file()),
+        "{path:?}"
+    );
+}
+
+#[test]
 fn excludes_other_package_managers_and_project_node_modules() {
     let fixture = Fixture::new();
     let package = fixture.write(
