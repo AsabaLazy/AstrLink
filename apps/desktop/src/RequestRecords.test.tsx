@@ -19,6 +19,10 @@ const bridgeMocks = vi.hoisted(() => ({
   listRequestRecordChildren: vi.fn(),
   listRequestRecords: vi.fn(),
   listRequestSessions: vi.fn(),
+  listLiveRequestSessions: vi.fn(async () => ({
+    items: [] as RequestSession[],
+    next_cursor: null as string | null,
+  })),
   listenRawSealingChanged: vi.fn(async () => () => {}),
   lockRaw: vi.fn(),
   purgeRequestRecords: vi.fn(),
@@ -918,6 +922,115 @@ describe("RequestRecords", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(runtime()).toContain("23.0 s");
+  });
+
+  it("counts conversations in progress across every model call, whatever the list shows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T12:00:10Z"));
+    bridgeMocks.listLiveRequestSessions.mockResolvedValue({
+      items: [
+        sessionFromRecord(firstRecord, {
+          id: "live_running",
+          status: "pending",
+          completed_at: null,
+          active_request_starts: [
+            "2026-07-28T11:59:40Z",
+            "2026-07-28T12:00:05Z",
+          ],
+        }),
+        sessionFromRecord(firstRecord, {
+          id: "live_waiting",
+          completed_at: "2026-07-28T12:00:00Z",
+        }),
+        sessionFromRecord(firstRecord, {
+          id: "live_failed",
+          status: "failed",
+          completed_at: "2026-07-28T11:58:00Z",
+        }),
+      ],
+      next_cursor: null,
+    });
+    await renderRecords();
+    await flush();
+    const board = container.querySelector('[data-testid="request-activity"]')!;
+    const text = (testId: string) =>
+      board.querySelector(`[data-testid="${testId}"]`)?.textContent;
+    expect(text("activity-conversations")).toBe("2个对话");
+    expect(text("activity-calls")).toBe("2");
+    expect(text("activity-longest")).toBe("30.0 s");
+    expect(
+      board.querySelector('[role="img"]')?.getAttribute("aria-label"),
+    ).toBe("近 5 分钟同时进行的对话，最多 2 个，现在 2 个");
+    // The list below holds none of these; the board does not follow it.
+    expect(
+      container.querySelector('[data-testid="active-sessions"]'),
+    ).toBeNull();
+
+    await act(async () =>
+      board
+        .querySelector<HTMLButtonElement>('[data-testid="activity-failures"]')!
+        .click(),
+    );
+    expect(
+      container.querySelector('button[aria-label="清除筛选：状态: 失败"]'),
+    ).not.toBeNull();
+  });
+
+  it("leads the list with conversations in progress until their wait runs out", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T12:00:10Z"));
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [
+        sessionFromRecord(firstRecord, {
+          id: "calling",
+          title: "running conversation",
+          status: "pending",
+          completed_at: null,
+          started_at: "2026-07-28T11:50:00Z",
+          last_started_at: "2026-07-28T12:00:00Z",
+          active_request_starts: ["2026-07-28T12:00:00Z"],
+        }),
+        sessionFromRecord(firstRecord, {
+          id: "waiting",
+          title: "conversation between calls",
+          started_at: "2026-07-28T11:55:00Z",
+          last_started_at: "2026-07-28T12:00:01Z",
+          completed_at: "2026-07-28T12:00:05Z",
+        }),
+        sessionFromRecord(secondRecord),
+      ],
+      next_cursor: null,
+    });
+    await renderRecords();
+    const lanes = () =>
+      [
+        ...container.querySelectorAll<HTMLElement>(
+          '[data-testid="active-sessions"] [data-testid="request-session-row"]',
+        ),
+      ].map((row) => [
+        row.dataset.sessionId,
+        row.dataset.activity,
+        row.querySelector('[data-testid="lane-state"]')?.textContent,
+      ]);
+    expect(lanes()).toEqual([
+      ["waiting", "idle", "空闲 5 s"],
+      ["calling", "calling", "调用中 10.0 s"],
+    ]);
+    expect(
+      container
+        .querySelector('[data-testid="active-sessions"]')
+        ?.querySelector('[data-slot="badge"]')?.textContent,
+    ).toBe("2 条");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(lanes()).toEqual([["calling", "calling", "调用中 1m 10s"]]);
+    const settled = container.querySelector('[data-session-id="waiting"]');
+    expect(settled?.closest('[data-testid="active-sessions"]')).toBeNull();
+    expect(settled?.closest("section")?.textContent).toContain(
+      "conversation between calls",
+    );
   });
 
   it("opens a session trajectory and shows retry children as RETRY rows", async () => {

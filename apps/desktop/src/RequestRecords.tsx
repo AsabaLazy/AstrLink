@@ -76,6 +76,7 @@ import {
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ActivitySlot } from "@/components/ui/activity-slot";
 import { cn } from "@/lib/utils";
 
 import { AuditPartSection, HTTPMetaSection } from "./AuditReviewer";
@@ -106,7 +107,7 @@ import { copyButtonLabel, useCopyFeedback } from "./copy-feedback";
 import { compactTitle } from "./file-path-spans";
 import { formatCompactNumber } from "./format-compact-number";
 import { currentLocale, i18n, useT } from "./i18n";
-import { useLiveClock } from "./live-clock";
+import { LIVE_CLOCK_INTERVAL_MS, useLiveClock } from "./live-clock";
 import { notify } from "./notify";
 import { PageHeader } from "./PageHeader";
 import {
@@ -152,6 +153,11 @@ import {
   type RequestStatus,
   type SessionStatus,
 } from "./request-record-model";
+import { RequestActivityBoard } from "./RequestActivityBoard";
+import {
+  conversationActivity,
+  splitActiveSessions,
+} from "./request-activity-model";
 import { RequestConversation } from "./RequestConversation";
 import { RequestPrivacyAudit } from "./RequestPrivacyAudit";
 import { RequestTrajectory } from "./RequestTrajectory";
@@ -1954,6 +1960,18 @@ export function RequestRecords({
                     }
                   />
                 ) : null}
+                <div className="py-3 [@media(max-height:680px)]:py-2">
+                  <RequestActivityBoard
+                    coreSessionKey={coreSessionKey}
+                    isReady={isReady}
+                    onShowFailures={() =>
+                      setFilters((current) => ({
+                        ...current,
+                        status: "failed",
+                      }))
+                    }
+                  />
+                </div>
                 {/* The list's own actions share the tab line, so the filters
                     below keep a full row of equal columns. */}
                 <div className="flex min-w-0 shrink-0 items-center gap-2 border-b">
@@ -2578,9 +2596,14 @@ function SessionStream({
   onOpen: (sessionId: string) => void;
 }) {
   const t = i18n.t.bind(i18n);
+  // Conversations in progress lead the list. One waiting between calls moves
+  // down into its day once the grace runs out, so the list re-reads the clock
+  // every second while any is in progress, even if no poll brings news.
+  const { active, rest } = splitActiveSessions(sessions, Date.now());
+  useLiveClock(active.length > 0, 1000);
   // Only the date buckets need "now", and those turn over once a day.
-  const groups = groupSessionsByDate(sessions);
-  let remaining = useProgressiveRowCount(sessions.length);
+  const groups = groupSessionsByDate(rest);
+  let remaining = useProgressiveRowCount(sessions.length) - active.length;
   const statusColumn = useStatusColumnWidth();
   return (
     <div
@@ -2610,6 +2633,30 @@ function SessionStream({
           </StatusBadge>
         ))}
       </span>
+      {active.length > 0 ? (
+        <section
+          className="mt-3 first:mt-0"
+          data-testid="active-sessions"
+          key="active"
+        >
+          <div className="flex items-center gap-2 px-3 pt-4 pb-2 text-xs font-medium text-muted-foreground">
+            <span>{t("records.activityInProgress")}</span>
+            <Badge className="font-normal tabular-nums" variant="secondary">
+              {t("records.countItems", { count: active.length })}
+            </Badge>
+          </div>
+          {active.map((session) => (
+            <SessionLane
+              checked={checkedIds?.has(session.id)}
+              key={session.id}
+              onOpen={onOpen}
+              selected={session.id === selectedId}
+              services={services}
+              session={session}
+            />
+          ))}
+        </section>
+      ) : null}
       {groups.map((group) => {
         const rows = group.sessions.slice(0, remaining);
         remaining -= rows.length;
@@ -2882,6 +2929,161 @@ const SessionRow = memo(function SessionRow({
           reasoningEffort={session.reasoning_effort}
           redirectedTo={session.model_redirect?.to}
         />
+      </Button>
+    </DataRow>
+  );
+});
+
+/**
+ * A conversation in progress, drawn like a worker on a job board: the model
+ * serving it on the left and the conversation in its slot. The slot sweeps
+ * while a call runs; between calls it shows how long the conversation has
+ * waited and how its last call ended.
+ */
+const SessionLane = memo(function SessionLane({
+  session,
+  services,
+  selected,
+  checked,
+  onOpen,
+}: {
+  session: RequestSession;
+  services: RequestServiceMap;
+  selected: boolean;
+  /** Set in selection mode, where the lane is a checkbox. */
+  checked: boolean | undefined;
+  onOpen: (sessionId: string) => void;
+}) {
+  const t = useT();
+  const calling = sessionRunning(session);
+  // A running call shows tenths of a second; a wait counts whole seconds.
+  const nowMs = useLiveClock(true, calling ? LIVE_CLOCK_INTERVAL_MS : 1000);
+  const since = conversationActivity(session, nowMs)?.since ?? nowMs;
+  const calls = Math.max(1, session.active_request_starts.length);
+  const service = requestServiceIdentity(session, services);
+  const behavior = rowBehavior(session, checked, selected, onOpen, t);
+  const title = compactTitle(session.title) || t("records.untitledSession");
+  const selecting = checked !== undefined;
+  const outcome =
+    !calling && session.status !== "succeeded" ? session.status : null;
+  return (
+    <DataRow
+      asChild
+      className={cn(
+        "grid items-center gap-x-3 gap-y-2 px-3 py-2.5",
+        selecting
+          ? "grid-cols-[1.25rem_minmax(0,1fr)] @[560px]/request-list:grid-cols-[1.25rem_minmax(0,11rem)_minmax(0,1fr)]"
+          : "grid-cols-1 @[560px]/request-list:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]",
+      )}
+    >
+      <Button
+        {...behavior.props}
+        className="h-auto w-full rounded-none bg-transparent text-left font-normal whitespace-normal text-foreground hover:bg-muted/60 focus-visible:bg-accent focus-visible:ring-inset aria-checked:bg-accent aria-[current=true]:bg-accent"
+        data-activity={calling ? "calling" : "idle"}
+        data-session-id={session.id}
+        data-testid="request-session-row"
+        type="button"
+        variant="ghost"
+      >
+        {selecting ? (
+          <CheckboxMark
+            checked={checked}
+            className="row-span-2 justify-self-center @[560px]/request-list:row-span-1"
+            disabled={behavior.locked}
+          />
+        ) : null}
+        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 @[560px]/request-list:flex-col @[560px]/request-list:items-start">
+          <ModelLabel
+            className="text-xs font-medium text-text-secondary"
+            fallback={t("records.unspecifiedModel")}
+            model={session.requested_model}
+            reasoningEffort={session.reasoning_effort}
+            redirectedTo={session.model_redirect?.to}
+          />
+          <RequestServiceLabel
+            className="max-w-full text-micro text-muted-foreground"
+            label={
+              session.call_count > 1 ? t("records.latestProvider") : undefined
+            }
+            labelClassName="sr-only"
+            service={service}
+          />
+        </span>
+        <ActivitySlot
+          className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-2.5 py-1.5"
+          state={calling ? "running" : "idle"}
+        >
+          <ClientTypeIcon clientType={session.client_type} />
+          <span className="flex min-w-0 items-center gap-2">
+            <strong
+              className="min-w-0 truncate text-sm font-medium"
+              title={session.title || title}
+            >
+              {title}
+            </strong>
+            {session.privacy_warned ? (
+              <StatusBadge
+                className="shrink-0"
+                data-testid="privacy-warned-marker"
+                title={t("records.privacyWarnedHint")}
+                tone="pending"
+              >
+                {t("records.privacyWarned")}
+              </StatusBadge>
+            ) : null}
+          </span>
+          {calling ? (
+            <span
+              className="justify-self-end text-xs font-medium whitespace-nowrap tabular-nums text-primary shimmer motion-reduce:shimmer-none"
+              data-testid="lane-state"
+            >
+              {t(
+                calls > 1 ? "records.laneCallingMany" : "records.laneCalling",
+                {
+                  count: calls,
+                  duration: formatDuration(Math.max(0, nowMs - since)),
+                },
+              )}
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1.5 justify-self-end text-xs whitespace-nowrap tabular-nums text-muted-foreground"
+              data-testid="lane-state"
+              title={t("records.laneIdleHint")}
+            >
+              {outcome ? (
+                <StatusBadge
+                  tone={
+                    outcome === "cancelled" ? "neutral" : statusTone(outcome)
+                  }
+                >
+                  {statusLabel(outcome)}
+                </StatusBadge>
+              ) : null}
+              {t("records.laneIdle", {
+                duration: `${Math.max(0, Math.floor((nowMs - since) / 1000))} s`,
+              })}
+            </span>
+          )}
+          <span className="col-span-2 col-start-2 min-w-0 truncate text-xs leading-5 tabular-nums text-muted-foreground">
+            {t(
+              session.turn_count === session.call_count
+                ? "records.sessionMetaTurns"
+                : "records.sessionMeta",
+              {
+                count: session.turn_count,
+                turns: session.turn_count,
+                calls: session.call_count,
+                duration: formatDuration(sessionRuntimeMs(session, nowMs)),
+              },
+            )}
+            {session.output_tokens_per_second != null ? (
+              <span title={t("records.outputSpeed")}>
+                {` · ${session.output_tokens_per_second.toFixed(1)} tok/s`}
+              </span>
+            ) : null}
+          </span>
+        </ActivitySlot>
       </Button>
     </DataRow>
   );

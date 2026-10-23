@@ -658,6 +658,15 @@ export async function listRequestSessions(
   );
 }
 
+/**
+ * The newest conversations of model calls for the live board, whatever the
+ * request list is filtered to. Running ones are among the newest, since each
+ * call moves its conversation to the front.
+ */
+export async function listLiveRequestSessions(): Promise<RequestSessionPage> {
+  return listRequestSessions({ kind: "inference", limit: 50 });
+}
+
 export async function getRequestSession(
   sessionId: string,
 ): Promise<RequestSessionDetail> {

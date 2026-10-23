@@ -62,6 +62,10 @@ const bridgeMocks = vi.hoisted(() => ({
   listRequestRecords: vi.fn(),
   getUsageSummary: vi.fn(),
   listRequestSessions: vi.fn(),
+  listLiveRequestSessions: vi.fn(async () => ({
+    items: [],
+    next_cursor: null,
+  })),
   getRequestSession: vi.fn(),
   probePrivacyModel: vi.fn(),
   purgeRequestRecords: vi.fn(),

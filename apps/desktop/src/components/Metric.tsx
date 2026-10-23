@@ -20,6 +20,7 @@ export function MetricGroup({
 }
 
 export function Metric({
+  className,
   label,
   value,
   title,
@@ -28,6 +29,7 @@ export function Metric({
   icon,
   detail,
 }: {
+  className?: string;
   label: ReactNode;
   value: ReactNode;
   title?: string;
@@ -46,6 +48,7 @@ export function Metric({
           : size === "sm"
             ? "gap-1 px-3 py-2.5"
             : "gap-2 px-4 py-4",
+        className,
       )}
     >
       <dt className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
