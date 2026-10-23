@@ -3770,7 +3770,8 @@
       "remaining": "残り {{time}}",
       "revoke": "取り消し",
       "revoked": "「{{client}}」は原文を読み取れなくなりました。",
-      "revokeFailed": "取り消せませんでした: {{message}}"
+      "revokeFailed": "取り消せませんでした: {{message}}",
+      "closeKeeps": "このウィンドウを閉じた後も、これらの Agent は原文を読み取れます。トレイからも取り消せます。"
     }
   },
   "rawSealing": {

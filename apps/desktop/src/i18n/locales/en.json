@@ -3770,7 +3770,8 @@
       "remaining": "{{time}} left",
       "revoke": "Revoke",
       "revoked": "“{{client}}” can no longer read raw content",
-      "revokeFailed": "Could not revoke: {{message}}"
+      "revokeFailed": "Could not revoke: {{message}}",
+      "closeKeeps": "These agents can still read raw content after you close this window. You can also revoke access from the tray."
     }
   },
   "rawSealing": {

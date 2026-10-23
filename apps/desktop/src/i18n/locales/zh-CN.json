@@ -3770,7 +3770,8 @@
       "remaining": "剩余 {{time}}",
       "revoke": "撤销",
       "revoked": "「{{client}}」已不能再读取原文",
-      "revokeFailed": "撤销失败：{{message}}"
+      "revokeFailed": "撤销失败：{{message}}",
+      "closeKeeps": "关闭窗口后，这些 Agent 照常可以读取原文。也可以在托盘里撤销。"
     }
   },
   "rawSealing": {

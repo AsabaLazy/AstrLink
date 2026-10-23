@@ -1696,9 +1696,13 @@ async fn decide_raw_access(
         Some(arg) if decision != "deny" => Some(raw_proof(arg)),
         _ => None,
     };
-    manager
+    let outcome = manager
         .decide_raw_access(&grant_id, &decision, proof.as_ref())
-        .await
+        .await;
+    // Read what still waits now, so the approval window stops floating once
+    // the last request is decided rather than at the next observer poll.
+    let _ = manager.poll_observers().await;
+    outcome
 }
 
 /// Ends a running timed agent grant before it expires.
