@@ -658,6 +658,12 @@
   }
 }
 
+/* A header overline uses the space above the title before growing the header.
+   Keep an inset when the card already sits below the native window controls. */
+[data-slot="workspace"]:has([data-slot="page-header-overline"]) {
+  padding-top: max(8px, calc(var(--workspace-top) - 2rem));
+}
+
 /* The tray popover is a transparent window; the panel draws its own surface. */
 :root[data-surface="tray-popover"] {
   --window-chrome-height: 0px;

@@ -3121,20 +3121,22 @@ function RecordDetail({
         }
         titleId="request-detail-heading"
         titlePrefix={<ClientTypeIcon clientType={record.client_type} />}
+        overline={
+          <StatusBadge
+            className="shrink-0"
+            data-testid="record-status"
+            tone={statusTone(session.status)}
+          >
+            {statusLabel(session.status)}
+            {session.status === "pending" ? (
+              <span className="ml-1.5 tabular-nums">
+                <SessionDuration session={session} />
+              </span>
+            ) : null}
+          </StatusBadge>
+        }
         titleSuffix={
           <>
-            <StatusBadge
-              className="shrink-0"
-              data-testid="record-status"
-              tone={statusTone(session.status)}
-            >
-              {statusLabel(session.status)}
-              {session.status === "pending" ? (
-                <span className="ml-1.5 tabular-nums">
-                  <SessionDuration session={session} />
-                </span>
-              ) : null}
-            </StatusBadge>
             <span aria-hidden="true" className="text-border">
               ·
             </span>
