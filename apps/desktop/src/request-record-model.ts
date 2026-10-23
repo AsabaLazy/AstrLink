@@ -361,6 +361,22 @@ export interface RequestSessionDetail extends RequestSession {
   turns: RequestRecord[];
 }
 
+/** One root model call's span. Retries stay inside it. */
+export interface RequestActivityCall {
+  session_id: string;
+  /** Original inbound client; absent on historical records. */
+  client_type?: ClientType;
+  started_at: string;
+  completed_at: string | null;
+  status: RequestStatus;
+}
+
+/** Model calls that overlap a recent window, with the gateway's clock. */
+export interface RequestActivity {
+  now: string;
+  calls: RequestActivityCall[];
+}
+
 export type RequestSessionKind = "inference" | "discovery";
 
 export function isModelDiscoveryProtocol(protocol: string): boolean {
@@ -1360,6 +1376,34 @@ export function parseRequestSessionPage(value: unknown): RequestSessionPage {
       parseRequestSessionAt(item, `$.items[${index}]`),
     ),
     next_cursor: nextCursor,
+  };
+}
+
+export function parseRequestActivity(value: unknown): RequestActivity {
+  const activity = objectAt(value, "$");
+  if (!Array.isArray(activity.calls)) invalid("$.calls", "array");
+  return {
+    now: stringAt(activity.now, "$.now"),
+    calls: activity.calls.map((item, index) => {
+      const path = `$.calls[${index}]`;
+      const call = objectAt(item, path);
+      if (
+        typeof call.status !== "string" ||
+        !statuses.has(call.status as RequestStatus)
+      ) {
+        invalid(`${path}.status`, "unknownStatus");
+      }
+      return {
+        session_id: stringAt(call.session_id, `${path}.session_id`),
+        ...optionalClientType(call.client_type),
+        started_at: stringAt(call.started_at, `${path}.started_at`),
+        completed_at: nullableStringAt(
+          call.completed_at,
+          `${path}.completed_at`,
+        ),
+        status: call.status as RequestStatus,
+      };
+    }),
   };
 }
 

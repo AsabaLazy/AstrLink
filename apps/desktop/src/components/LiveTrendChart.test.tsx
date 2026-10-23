@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { trendSegments, trendValueAt } from "./LiveTrendChart";
+import { trendPointAt, trendSegments } from "./LiveTrendChart";
 
 const NOW = 1_000_000;
 const window = { gapMs: 5_000, nowMs: NOW, windowMs: 60_000 };
@@ -64,7 +64,7 @@ describe("trendSegments", () => {
   });
 });
 
-describe("trendValueAt", () => {
+describe("trendPointAt", () => {
   it("reads the step in force and nothing inside a gap", () => {
     const segments = trendSegments(
       [
@@ -74,9 +74,24 @@ describe("trendValueAt", () => {
       ],
       window,
     );
-    expect(trendValueAt(segments, NOW - 39_000)).toBe(1);
-    expect(trendValueAt(segments, NOW - 38_000)).toBe(2);
-    expect(trendValueAt(segments, NOW - 20_000)).toBeNull();
-    expect(trendValueAt(segments, NOW)).toBe(3);
+    expect(trendPointAt(segments, NOW - 39_000)?.value).toBe(1);
+    expect(trendPointAt(segments, NOW - 38_000)?.value).toBe(2);
+    expect(trendPointAt(segments, NOW - 20_000)).toBeNull();
+    expect(trendPointAt(segments, NOW)?.value).toBe(3);
+  });
+
+  it("keeps a sample's own fields at the window's edge", () => {
+    const segments = trendSegments(
+      [
+        { at: NOW - 62_000, value: 2, who: "early" },
+        { at: NOW - 59_000, value: 1, who: "late" },
+      ],
+      window,
+    );
+    expect(trendPointAt(segments, NOW - 60_000)).toEqual({
+      at: NOW - 60_000,
+      value: 2,
+      who: "early",
+    });
   });
 });

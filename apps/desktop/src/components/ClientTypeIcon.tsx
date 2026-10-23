@@ -1,3 +1,5 @@
+import type { ComponentProps } from "react";
+
 import {
   CherryStudioColor,
   ClaudeCodeColor,
@@ -76,6 +78,48 @@ export function ClientTypeIcons({
           size={size}
         />
       ))}
+    </span>
+  );
+}
+
+/**
+ * Clients with how many of something each one has, in the order given. Past
+ * `limit`, the remaining clients fold into one "+N" that counts them.
+ */
+export function ClientTypeCounts({
+  className,
+  clients,
+  label,
+  limit = 4,
+  size = 14,
+  ...props
+}: Omit<ComponentProps<"span">, "children"> & {
+  clients: readonly { clientType: ClientType; count: number }[];
+  /** Names every client and count, for assistive technology and on hover. */
+  label: string;
+  limit?: number;
+  size?: number;
+}) {
+  const shown = clients.length > limit ? clients.slice(0, limit - 1) : clients;
+  const hidden = clients.length - shown.length;
+  return (
+    <span
+      {...props}
+      aria-label={label}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-2 tabular-nums",
+        className,
+      )}
+      role="img"
+      title={label}
+    >
+      {shown.map(({ clientType, count }) => (
+        <span className="inline-flex items-center gap-0.5" key={clientType}>
+          <ClientTypeIcon clientType={clientType} decorative size={size} />
+          {count > 1 ? count : null}
+        </span>
+      ))}
+      {hidden > 0 ? <span>+{hidden}</span> : null}
     </span>
   );
 }

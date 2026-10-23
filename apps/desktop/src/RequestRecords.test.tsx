@@ -19,9 +19,9 @@ const bridgeMocks = vi.hoisted(() => ({
   listRequestRecordChildren: vi.fn(),
   listRequestRecords: vi.fn(),
   listRequestSessions: vi.fn(),
-  listLiveRequestSessions: vi.fn(async () => ({
-    items: [] as RequestSession[],
-    next_cursor: null as string | null,
+  getRequestActivity: vi.fn(async () => ({
+    now: new Date().toISOString(),
+    calls: [] as RequestActivityCall[],
   })),
   listenRawSealingChanged: vi.fn(async () => () => {}),
   lockRaw: vi.fn(),
@@ -67,6 +67,7 @@ import {
   displayRequestStatus,
   emptyTrajectoryFields,
   type RequestRecord,
+  type RequestActivityCall,
   type RequestSession,
   type RequestSessionPage,
   type SessionStatus,
@@ -927,28 +928,37 @@ describe("RequestRecords", () => {
   it("counts conversations in progress across every model call, whatever the list shows", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-28T12:00:10Z"));
-    bridgeMocks.listLiveRequestSessions.mockResolvedValue({
-      items: [
-        sessionFromRecord(firstRecord, {
-          id: "live_running",
-          status: "pending",
+    bridgeMocks.getRequestActivity.mockResolvedValue({
+      now: "2026-07-28T12:00:10Z",
+      calls: [
+        {
+          session_id: "live_running",
+          client_type: "codex",
+          started_at: "2026-07-28T12:00:05Z",
           completed_at: null,
-          active_request_starts: [
-            "2026-07-28T11:59:40Z",
-            "2026-07-28T12:00:05Z",
-          ],
-        }),
-        sessionFromRecord(firstRecord, {
-          id: "live_waiting",
+          status: "pending",
+        },
+        {
+          session_id: "live_running",
+          client_type: "codex",
+          started_at: "2026-07-28T11:59:40Z",
+          completed_at: null,
+          status: "pending",
+        },
+        {
+          session_id: "live_waiting",
+          client_type: "claude_code",
+          started_at: "2026-07-28T11:59:50Z",
           completed_at: "2026-07-28T12:00:00Z",
-        }),
-        sessionFromRecord(firstRecord, {
-          id: "live_failed",
-          status: "failed",
+          status: "succeeded",
+        },
+        {
+          session_id: "live_failed",
+          started_at: "2026-07-28T11:57:50Z",
           completed_at: "2026-07-28T11:58:00Z",
-        }),
+          status: "failed",
+        },
       ],
-      next_cursor: null,
     });
     await renderRecords();
     await flush();
@@ -957,10 +967,16 @@ describe("RequestRecords", () => {
       board.querySelector(`[data-testid="${testId}"]`)?.textContent;
     expect(text("activity-conversations")).toBe("2个对话");
     expect(text("activity-calls")).toBe("2");
-    expect(text("activity-longest")).toBe("30.0 s");
     expect(
-      board.querySelector('[role="img"]')?.getAttribute("aria-label"),
+      board
+        .querySelector('[data-slot="live-trend-plot"]')
+        ?.getAttribute("aria-label"),
     ).toBe("近 5 分钟同时进行的对话，最多 2 个，现在 2 个");
+    expect(
+      board
+        .querySelector('[data-testid="activity-clients"]')
+        ?.getAttribute("aria-label"),
+    ).toBe("Codex 1 个、Claude Code 1 个");
     // The list below holds none of these; the board does not follow it.
     expect(
       container.querySelector('[data-testid="active-sessions"]'),

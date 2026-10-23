@@ -2532,6 +2532,25 @@ impl CoreManager {
             .map_err(|error| format!("request session list returned invalid JSON: {error}"))
     }
 
+    pub async fn get_request_activity(&self, since: &str) -> Result<serde_json::Value, String> {
+        if !timestamp_query_charset_ok(since) {
+            return Err("request activity since has an invalid timestamp charset".to_string());
+        }
+        let (_, body) = self
+            .authenticated_control(
+                Method::GET,
+                &format!(
+                    "/control/v1/request-activity?since={}",
+                    percent_encode_query(since)
+                ),
+                None,
+                None,
+            )
+            .await?;
+        serde_json::from_slice(&body)
+            .map_err(|error| format!("request activity returned invalid JSON: {error}"))
+    }
+
     pub async fn get_request_session(&self, session_id: &str) -> Result<serde_json::Value, String> {
         validate_resource_id(session_id)?;
         let (_, body) = self

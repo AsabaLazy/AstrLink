@@ -8,8 +8,8 @@ export interface TrendPoint {
 }
 
 /** One run of samples taken back to back, holding its last value until `end`. */
-export interface TrendSegment {
-  points: TrendPoint[];
+export interface TrendSegment<P extends TrendPoint = TrendPoint> {
+  points: P[];
   end: number;
 }
 
@@ -20,17 +20,17 @@ export interface TrendSegment {
  * reaches `nowMs` while its latest sample is fresh. A run that began before
  * the window starts at the window's edge with the value it had there.
  */
-export function trendSegments(
-  points: readonly TrendPoint[],
+export function trendSegments<P extends TrendPoint>(
+  points: readonly P[],
   {
     gapMs,
     nowMs,
     windowMs,
   }: { gapMs: number; nowMs: number; windowMs: number },
-): TrendSegment[] {
+): TrendSegment<P>[] {
   const start = nowMs - windowMs;
-  const runs: TrendSegment[] = [];
-  let run: TrendPoint[] = [];
+  const runs: TrendSegment<P>[] = [];
+  let run: P[] = [];
   points.forEach((point, index) => {
     const previous = points[index - 1];
     if (previous && point.at - previous.at > gapMs) {
@@ -50,27 +50,25 @@ export function trendSegments(
     if (segment.end <= start) return [];
     const inside = segment.points.filter((point) => point.at >= start);
     const before = segment.points.filter((point) => point.at < start).at(-1);
-    const clipped = before
-      ? [{ at: start, value: before.value }, ...inside]
-      : inside;
+    const clipped = before ? [{ ...before, at: start }, ...inside] : inside;
     return clipped.length > 0 ? [{ points: clipped, end: segment.end }] : [];
   });
 }
 
-/** The value the chart shows at `at`, or null where nothing was sampled. */
-export function trendValueAt(
-  segments: readonly TrendSegment[],
+/** The sample the chart shows at `at`, or null where nothing was sampled. */
+export function trendPointAt<P extends TrendPoint>(
+  segments: readonly TrendSegment<P>[],
   at: number,
-): number | null {
+): P | null {
   for (const segment of segments) {
     const first = segment.points[0];
     if (!first || at < first.at || at > segment.end) continue;
-    let value = first.value;
+    let current = first;
     for (const point of segment.points) {
       if (point.at > at) break;
-      value = point.value;
+      current = point;
     }
-    return value;
+    return current;
   }
   return null;
 }
@@ -84,9 +82,12 @@ const TOP_ROOM = 12;
  * A live step chart of a count over a fixed window ending now. The highest
  * step sets a dashed guide labelled with its value, the newest value carries
  * a dot, and hovering reads out any sampled moment in place of `aside`.
+ * `breakdown` shows what makes up the newest value beside the title, and
+ * follows the pointer while it hovers.
  */
-export function LiveTrendChart({
+export function LiveTrendChart<P extends TrendPoint>({
   aside,
+  breakdown,
   className,
   formatReadout,
   gapMs,
@@ -98,13 +99,15 @@ export function LiveTrendChart({
 }: {
   /** Shown opposite the title, typically the span the window covers. */
   aside: ReactNode;
+  /** What makes up a sample's value, such as who contributed to it. */
+  breakdown?: (point: P) => ReactNode;
   className?: string;
   formatReadout: (point: TrendPoint) => ReactNode;
   gapMs: number;
   /** Read by assistive technology in place of the drawing. */
   label: string;
   nowMs: number;
-  points: readonly TrendPoint[];
+  points: readonly P[];
   title: ReactNode;
   windowMs: number;
 }) {
@@ -133,8 +136,8 @@ export function LiveTrendChart({
   const newest = segments.at(-1);
   const live =
     newest && newest.end >= nowMs ? (newest.points.at(-1) ?? null) : null;
-  const hoveredValue =
-    hoverAt === null ? null : trendValueAt(segments, hoverAt);
+  const hovered = hoverAt === null ? null : trendPointAt(segments, hoverAt);
+  const focused = hoverAt === null ? live : hovered;
   const percentY = (value: number) => `${(y(value) / HEIGHT) * 100}%`;
 
   return (
@@ -146,16 +149,19 @@ export function LiveTrendChart({
       data-slot="live-trend-chart"
     >
       <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span className="truncate">{title}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">{title}</span>
+          {focused && breakdown ? breakdown(focused) : null}
+        </span>
         <span
-          aria-hidden={hoveredValue !== null || undefined}
+          aria-hidden={hovered !== null || undefined}
           className={cn(
             "shrink-0 text-micro tabular-nums",
-            hoveredValue !== null && "text-text-secondary",
+            hovered !== null && "text-text-secondary",
           )}
         >
-          {hoverAt !== null && hoveredValue !== null
-            ? formatReadout({ at: hoverAt, value: hoveredValue })
+          {hoverAt !== null && hovered !== null
+            ? formatReadout({ at: hoverAt, value: hovered.value })
             : aside}
         </span>
       </div>
@@ -172,6 +178,7 @@ export function LiveTrendChart({
       <div
         aria-label={label}
         className="relative min-h-0"
+        data-slot="live-trend-plot"
         onPointerLeave={() => setHoverAt(null)}
         onPointerMove={(event) => {
           if (event.pointerType === "touch") return;

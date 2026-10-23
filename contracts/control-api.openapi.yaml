@@ -3253,6 +3253,41 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /control/v1/request-activity:
+    x-astrlink-implementation-status: implemented
+    get:
+      x-astrlink-role: observer
+      tags: [Requests]
+      operationId: getRequestActivity
+      summary: List the spans of model calls that overlap a recent window.
+      description: |
+        Returns root model calls still running or ended at or after since, so a
+        client can chart how many conversations ran at once. Calls that started
+        more than an hour before since, model discovery, and calls a Core
+        restart interrupted are left out. Retries stay inside their root's span.
+        Does not return request or response content.
+      parameters:
+        - name: since
+          in: query
+          required: true
+          description: Start of the window. It must lie within the last hour.
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Calls overlapping the window, newest first.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestActivity"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /control/v1/request-sessions:
     x-astrlink-implementation-status: implemented
     get:
@@ -7002,6 +7037,37 @@ components:
         attempt_index:
           type: integer
           minimum: 0
+      additionalProperties: false
+    RequestActivity:
+      type: object
+      required: [now, calls]
+      properties:
+        now:
+          type: string
+          format: date-time
+          description: The gateway's clock when the calls were read; chart the window against it.
+        calls:
+          type: array
+          items:
+            $ref: "#/components/schemas/RequestActivityCall"
+      additionalProperties: false
+    RequestActivityCall:
+      type: object
+      required: [session_id, started_at, completed_at, status]
+      properties:
+        session_id:
+          $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
+        client_type:
+          $ref: "#/components/schemas/ClientType"
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+          description: Null while the call is running.
+        status:
+          $ref: "#/components/schemas/RequestStatus"
       additionalProperties: false
     RequestSession:
       type: object

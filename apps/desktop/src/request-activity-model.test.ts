@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   ACTIVE_GRACE_MS,
-  activitySnapshot,
-  appendActivitySample,
+  activitySince,
   conversationActivity,
   splitActiveSessions,
+  summarizeActivity,
 } from "./request-activity-model";
-import type { RequestSession } from "./request-record-model";
+import type {
+  RequestActivityCall,
+  RequestSession,
+} from "./request-record-model";
 
 const NOW = Date.parse("2026-10-23T01:00:00Z");
 const at = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
@@ -76,61 +79,101 @@ describe("conversationActivity", () => {
   });
 });
 
-describe("activitySnapshot", () => {
-  it("counts conversations, running calls, the oldest call and recent failures", () => {
-    const sessions = [
-      running({ id: "a", active_request_starts: [at(-40_000), at(-5_000)] }),
-      running({ id: "b", active_request_starts: [at(-8_000)] }),
-      session({ id: "c" }),
-      session({ id: "d", completed_at: at(-90_000) }),
-      session({ id: "e", status: "failed", completed_at: at(-120_000) }),
-      session({ id: "f", status: "failed", completed_at: at(-301_000) }),
-      session({
-        id: "g",
-        status: "failed",
-        input_protocol: "google.models",
-        completed_at: at(-1_000),
-      }),
-    ];
-    expect(activitySnapshot(sessions, NOW)).toEqual({
-      conversations: 3,
+function call(
+  session_id: string,
+  startedOffset: number,
+  completedOffset: number | null,
+  overrides: Partial<RequestActivityCall> = {},
+): RequestActivityCall {
+  return {
+    session_id,
+    started_at: at(startedOffset),
+    completed_at: completedOffset === null ? null : at(completedOffset),
+    status: completedOffset === null ? "pending" : "succeeded",
+    ...overrides,
+  };
+}
+
+describe("summarizeActivity", () => {
+  it("counts conversations, running calls and recent failures at the gateway's now", () => {
+    const { now, snapshot } = summarizeActivity({
+      now: at(0),
+      calls: [
+        call("a", -5_000, null),
+        call("a", -40_000, null),
+        call("b", -8_000, null),
+        call("c", -30_000, -20_000),
+        call("d", -100_000, -90_000),
+        call("e", -125_000, -120_000, { status: "failed" }),
+        call("f", -305_000, -301_000, { status: "failed" }),
+        call("g", -200_000, -190_000, { status: "failed" }),
+        call("g", -10_000, -9_000),
+      ],
+    });
+    expect(now).toBe(NOW);
+    // g recovered after its failure, so it counts as in progress, not failed.
+    expect(snapshot).toEqual({
+      conversations: 4,
       calls: 3,
-      oldestCallStart: NOW - 40_000,
       failures: 1,
+      clients: [{ clientType: "unknown", count: 4 }],
     });
   });
 
-  it("reports no oldest call while nothing runs", () => {
-    expect(activitySnapshot([session()], NOW)).toEqual({
-      conversations: 1,
-      calls: 0,
-      oldestCallStart: null,
-      failures: 0,
-    });
+  it("charts every step of the window, a session once per moment", () => {
+    const { points } = summarizeActivity(
+      {
+        now: at(0),
+        calls: [
+          call("a", -250_000, -240_000),
+          call("a", -245_000, -241_000),
+          call("b", -100_000, null),
+        ],
+      },
+      300_000,
+      10_000,
+    );
+    expect(points).toHaveLength(31);
+    expect(points[0].at).toBe(NOW - 300_000);
+    expect(points.at(-1)?.at).toBe(NOW);
+    const value = (offset: number) =>
+      points.find((point) => point.at === NOW + offset)?.value;
+    expect(value(-260_000)).toBe(0);
+    expect(value(-240_000)).toBe(1);
+    // Waiting between calls still counts until the grace after the call.
+    expect(value(-190_000)).toBe(1);
+    expect(value(-180_000)).toBe(0);
+    expect(value(-100_000)).toBe(1);
+    expect(value(0)).toBe(1);
   });
-});
 
-describe("appendActivitySample", () => {
-  it("keeps the window plus the sample holding its left edge", () => {
-    const samples = [
-      { at: NOW - 400_000, value: 1 },
-      { at: NOW - 350_000, value: 2 },
-      { at: NOW - 200_000, value: 3 },
-    ];
-    expect(appendActivitySample(samples, { at: NOW, value: 4 })).toEqual([
-      { at: NOW - 350_000, value: 2 },
-      { at: NOW - 200_000, value: 3 },
-      { at: NOW, value: 4 },
+  it("names the clients behind each moment, busiest first", () => {
+    const { snapshot, points } = summarizeActivity({
+      now: at(0),
+      calls: [
+        call("a", -20_000, -10_000, { client_type: "codex" }),
+        call("b", -12_000, null, { client_type: "claude_code" }),
+        call("c", -15_000, -14_000),
+        call("d", -9_000, null, { client_type: "claude_code" }),
+        call("e", -30_000, -25_000, { client_type: "cursor" }),
+        call("f", -200_000, -150_000, { client_type: "pi" }),
+        // A conversation counts under the client of its latest call.
+        call("e", -2_000, null, { client_type: "pi" }),
+      ],
+    });
+    expect(snapshot.clients).toEqual([
+      { clientType: "claude_code", count: 2 },
+      { clientType: "codex", count: 1 },
+      { clientType: "pi", count: 1 },
+      { clientType: "unknown", count: 1 },
     ]);
+    expect(points.find((point) => point.at === NOW - 160_000)?.clients).toEqual(
+      [{ clientType: "pi", count: 1 }],
+    );
   });
 
-  it("drops samples a clock set back left in the future", () => {
-    expect(
-      appendActivitySample([{ at: NOW + 5_000, value: 9 }], {
-        at: NOW,
-        value: 1,
-      }),
-    ).toEqual([{ at: NOW, value: 1 }]);
+  it("reads from the window plus the grace before it", () => {
+    expect(activitySince(NOW)).toBe(at(-360_000));
   });
 });
 

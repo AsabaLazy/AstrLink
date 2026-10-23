@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
+import { ClientTypeCounts, clientTypeName } from "@/components/ClientTypeIcon";
 import { HelpPopover } from "@/components/HelpPopover";
 import { LiveTrendChart } from "@/components/LiveTrendChart";
 import { Metric, MetricGroup } from "@/components/Metric";
@@ -8,39 +9,28 @@ import { ValueTransition } from "@/components/ValueTransition";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { listLiveRequestSessions } from "./bridge";
+import { getRequestActivity } from "./bridge";
 import { currentLocale, useT } from "./i18n";
-import { useLiveClock } from "./live-clock";
 import {
-  ACTIVITY_SAMPLE_GAP_MS,
+  ACTIVITY_STEP_MS,
   ACTIVITY_WINDOW_MS,
-  activitySnapshot,
-  appendActivitySample,
-  sameActivitySnapshot,
-  type ActivitySample,
-  type ActivitySnapshot,
+  activitySince,
+  summarizeActivity,
 } from "./request-activity-model";
-import { formatDuration } from "./request-live-model";
+import type { RequestActivity } from "./request-record-model";
 import { useWorkspaceSnapshot } from "./workspace-snapshots";
 
 const POLL_INTERVAL_MS = 1000;
 
-interface LiveActivity {
-  snapshot: ActivitySnapshot | null;
-  samples: readonly ActivitySample[];
-  /** When the newest snapshot was read. */
-  at: number;
-}
-
 /**
- * Polls the newest conversations once a second and keeps five minutes of
- * samples. They live in the workspace snapshot, so leaving the page and coming
- * back keeps the chart; the time in between stays empty.
+ * Reads the calls of the last few minutes once a second. The gateway keeps
+ * them, so the chart is whole however long the page was away; the last read
+ * stays in the workspace snapshot so coming back paints it at once.
  */
 function useLiveActivity(coreSessionKey: string | null, isReady: boolean) {
-  const [live, setLive] = useWorkspaceSnapshot<LiveActivity>(
+  const [activity, setActivity] = useWorkspaceSnapshot<RequestActivity | null>(
     `request-activity:${coreSessionKey}`,
-    () => ({ snapshot: null, samples: [], at: Date.now() }),
+    null,
   );
   useEffect(() => {
     if (!isReady) return;
@@ -50,22 +40,10 @@ function useLiveActivity(coreSessionKey: string | null, isReady: boolean) {
       if (inFlight || document.visibilityState === "hidden") return;
       inFlight = true;
       try {
-        const page = await listLiveRequestSessions();
-        if (cancelled) return;
-        const at = Date.now();
-        const next = activitySnapshot(page.items, at);
-        setLive((current) => ({
-          snapshot: sameActivitySnapshot(current.snapshot, next)
-            ? current.snapshot
-            : next,
-          samples: appendActivitySample(current.samples, {
-            at,
-            value: next.conversations,
-          }),
-          at,
-        }));
+        const next = await getRequestActivity(activitySince(Date.now()));
+        if (!cancelled) setActivity(next);
       } catch {
-        // The list below reports sync trouble; the chart shows the gap.
+        // The list below reports sync trouble; the board keeps its last read.
       } finally {
         inFlight = false;
       }
@@ -76,15 +54,10 @@ function useLiveActivity(coreSessionKey: string | null, isReady: boolean) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [isReady, setLive]);
-  return live;
-}
-
-/** How long the oldest running call has run; its own clock ticks the label. */
-function LongestCall({ since }: { since: number | null }) {
-  const nowMs = useLiveClock(since !== null);
-  return (
-    <>{since === null ? "—" : formatDuration(Math.max(0, nowMs - since))}</>
+  }, [isReady, setActivity]);
+  return useMemo(
+    () => (activity ? summarizeActivity(activity) : null),
+    [activity],
   );
 }
 
@@ -98,8 +71,8 @@ function Unit({ children }: { children: string }) {
 
 /**
  * The live band above the request list: how many conversations are going on
- * right now, how many calls they run, the longest one, recent failures, and
- * how the count moved over the last five minutes. It covers every model call,
+ * right now, how many calls they run, recent failures, and how the count
+ * moved over the last five minutes. It covers every model call,
  * whatever the list below is filtered to.
  */
 export function RequestActivityBoard({
@@ -113,16 +86,18 @@ export function RequestActivityBoard({
 }) {
   const t = useT();
   const live = useLiveActivity(coreSessionKey, isReady);
-  const snapshot = isReady ? live.snapshot : null;
+  const snapshot = isReady ? (live?.snapshot ?? null) : null;
+  const points = live?.points ?? [];
   const conversations = snapshot?.conversations ?? null;
   const failures = snapshot?.failures ?? 0;
-  const peak = Math.max(0, ...live.samples.map((sample) => sample.value));
+  const peak = Math.max(0, ...points.map((sample) => sample.value));
   const timeFormat = new Intl.DateTimeFormat(currentLocale(), {
     hour: "numeric",
     minute: "numeric",
     second: "numeric",
     hour12: false,
   });
+  const clientList = new Intl.ListFormat(currentLocale(), { style: "narrow" });
 
   return (
     <Panel
@@ -131,7 +106,7 @@ export function RequestActivityBoard({
       data-testid="request-activity"
       role="region"
     >
-      <MetricGroup className="grid-cols-[repeat(2,minmax(6.5rem,auto))] border-r @min-[640px]/workspace-surface:grid-cols-[repeat(4,minmax(6.5rem,auto))]">
+      <MetricGroup className="grid-cols-[repeat(2,minmax(6.5rem,auto))] border-r @min-[640px]/workspace-surface:grid-cols-[repeat(3,minmax(6.5rem,auto))]">
         <Metric
           label={
             <span className="inline-flex items-center gap-0.5">
@@ -174,16 +149,6 @@ export function RequestActivityBoard({
         />
         <Metric
           className="@max-[639px]/workspace-surface:hidden"
-          label={t("records.activityLongest")}
-          size="sm"
-          value={
-            <span data-testid="activity-longest">
-              <LongestCall since={snapshot?.oldestCallStart ?? null} />
-            </span>
-          }
-        />
-        <Metric
-          className="@max-[639px]/workspace-surface:hidden"
           label={t("records.activityFailures")}
           size="sm"
           value={
@@ -208,6 +173,22 @@ export function RequestActivityBoard({
       </MetricGroup>
       <LiveTrendChart
         aside={t("records.activityWindow")}
+        breakdown={(sample) =>
+          sample.clients.length > 0 ? (
+            <ClientTypeCounts
+              clients={sample.clients}
+              data-testid="activity-clients"
+              label={clientList.format(
+                sample.clients.map(({ clientType, count }) =>
+                  t("records.activityClient", {
+                    client: clientTypeName(clientType),
+                    count,
+                  }),
+                ),
+              )}
+            />
+          ) : null
+        }
         className={cn("px-3 pt-2.5 pb-1.5", !isReady && "opacity-60")}
         formatReadout={(point) =>
           t("records.activityReadout", {
@@ -215,13 +196,14 @@ export function RequestActivityBoard({
             time: timeFormat.format(point.at),
           })
         }
-        gapMs={ACTIVITY_SAMPLE_GAP_MS}
+        // Points sit one step apart across the window, so the line is whole.
+        gapMs={2 * ACTIVITY_STEP_MS}
         label={t("records.activityChart", {
           current: conversations ?? 0,
           peak,
         })}
-        nowMs={live.at}
-        points={live.samples}
+        nowMs={live?.now ?? Date.now()}
+        points={points}
         title={t("records.activityChartTitle")}
         windowMs={ACTIVITY_WINDOW_MS}
       />

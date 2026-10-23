@@ -1596,6 +1596,14 @@ async fn list_request_sessions(
 }
 
 #[tauri::command]
+async fn get_request_activity(
+    since: String,
+    manager: State<'_, Arc<CoreManager>>,
+) -> Result<serde_json::Value, String> {
+    manager.get_request_activity(&since).await
+}
+
+#[tauri::command]
 async fn get_request_session(
     session_id: String,
     manager: State<'_, Arc<CoreManager>>,
@@ -2481,6 +2489,7 @@ pub fn run() {
             list_service_risk_events,
             list_request_records,
             list_request_sessions,
+            get_request_activity,
             get_request_session,
             get_session_channel_bindings,
             release_session_channel_bindings,
