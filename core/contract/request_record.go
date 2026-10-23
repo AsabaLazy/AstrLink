@@ -402,11 +402,16 @@ const (
 	PrivacyIgnoreKindDisabled  PrivacyIgnoreReason = "kind_disabled"
 	PrivacyIgnoreLowConfidence PrivacyIgnoreReason = "low_confidence"
 	PrivacyIgnoreAllowlisted   PrivacyIgnoreReason = "allowlisted"
+	// PrivacyIgnoreAstrLinkIdentifier is an identifier AstrLink generated
+	// itself, such as a local access token id or a request id. It names a
+	// record without granting access to anything.
+	PrivacyIgnoreAstrLinkIdentifier PrivacyIgnoreReason = "astrlink_identifier"
 )
 
 func (reason PrivacyIgnoreReason) Valid() bool {
 	switch reason {
-	case PrivacyIgnoreKindDisabled, PrivacyIgnoreLowConfidence, PrivacyIgnoreAllowlisted:
+	case PrivacyIgnoreKindDisabled, PrivacyIgnoreLowConfidence, PrivacyIgnoreAllowlisted,
+		PrivacyIgnoreAstrLinkIdentifier:
 		return true
 	default:
 		return false
