@@ -3,6 +3,7 @@ import {
   isModelDiscoveryProtocol,
   type ClientType,
   type RequestActivity,
+  type RequestActivityCall,
   type RequestSession,
 } from "./request-record-model";
 import { sessionRunning } from "./session-live-model";
@@ -212,6 +213,77 @@ export function laneAction(session: RequestSession): LaneAction {
     return { kind: "running", tools: [...new Set(output.tools)] };
   }
   return output ? { kind: "replied" } : { kind: "idle" };
+}
+
+/** One earlier step of a conversation, as its lane draws it. */
+export interface LaneStep {
+  /** A tool the client ran, or what the model did without one. */
+  kind: "tool" | "reasoning" | "answer";
+  /** The tool's name; empty for reasoning and answers. */
+  tool: string;
+  /** Steps in a row with the same kind and tool fold into one. */
+  count: number;
+  /** How long the client took over the tools before the next call. */
+  ranMs: number | null;
+}
+
+/** The most steps a lane shows; older ones drop off its start. */
+export const LANE_TRAIL_STEPS = 5;
+
+/**
+ * What a conversation did before what its lane says it does now, oldest
+ * first, from the calls of the last few minutes. The call behind the current
+ * action is left out: a running call is that action, and between calls the
+ * last call's tools or answer are.
+ */
+export function laneTrail(
+  calls: readonly RequestActivityCall[],
+  session: RequestSession,
+): LaneStep[] {
+  const own = calls
+    .filter((call) => call.session_id === session.id)
+    .sort(
+      (left, right) =>
+        Date.parse(left.started_at) - Date.parse(right.started_at),
+    );
+  const finished = own.filter((call) => call.completed_at !== null);
+  const earlier = sessionRunning(session) ? finished : finished.slice(0, -1);
+  const steps: LaneStep[] = [];
+  const add = (step: LaneStep) => {
+    const last = steps.at(-1);
+    if (last && last.kind === step.kind && last.tool === step.tool) {
+      last.count += step.count;
+      if (step.ranMs !== null) last.ranMs = (last.ranMs ?? 0) + step.ranMs;
+    } else {
+      steps.push(step);
+    }
+  };
+  for (const call of earlier) {
+    const output = call.output;
+    if (!output) continue;
+    if (output.kind !== "tool" || output.tools.length === 0) {
+      add({
+        kind: output.kind === "reasoning" ? "reasoning" : "answer",
+        tool: "",
+        count: 1,
+        ranMs: null,
+      });
+      continue;
+    }
+    // The gap before the conversation's next call is the client running them.
+    const ended = Date.parse(call.completed_at ?? "");
+    const next = own.find((other) => Date.parse(other.started_at) >= ended);
+    const ranMs = next ? Date.parse(next.started_at) - ended : null;
+    output.tools.forEach((tool, index) =>
+      add({
+        kind: "tool",
+        tool,
+        count: 1,
+        ranMs: index === output.tools.length - 1 ? ranMs : null,
+      }),
+    );
+  }
+  return steps.slice(-LANE_TRAIL_STEPS);
 }
 
 /**

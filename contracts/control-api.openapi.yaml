@@ -7106,6 +7106,8 @@ components:
           description: Null while the call is running.
         status:
           $ref: "#/components/schemas/RequestStatus"
+        output:
+          $ref: "#/components/schemas/OutputActivity"
       additionalProperties: false
     RequestSession:
       type: object

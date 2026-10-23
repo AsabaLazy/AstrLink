@@ -385,6 +385,8 @@ export interface RequestActivityCall {
   started_at: string;
   completed_at: string | null;
   status: RequestStatus;
+  /** What the call produced; absent before any output and on old records. */
+  output?: OutputActivity;
 }
 
 /** Model calls that overlap a recent window, with the gateway's clock. */
@@ -1445,6 +1447,7 @@ export function parseRequestActivity(value: unknown): RequestActivity {
           `${path}.completed_at`,
         ),
         status: call.status as RequestStatus,
+        ...optionalOutput(call.output, `${path}.output`),
       };
     }),
   };

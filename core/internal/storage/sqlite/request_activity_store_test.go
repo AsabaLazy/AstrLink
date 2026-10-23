@@ -30,6 +30,7 @@ func TestListRequestActivityReadsCallsOverlappingTheWindow(t *testing.T) {
 	endedInside := call("request_inside", since.Add(-time.Minute), ptrTime(since.Add(10*time.Second)))
 	rejected := call("request_rejected", since.Add(time.Minute), ptrTime(since.Add(61*time.Second)))
 	rejected.HTTPStatus = ptrInt(502)
+	running.Output = &contract.OutputActivity{Kind: contract.OutputKindTool, Tools: []string{"Bash"}}
 	endedInside.ClientType = ""
 	endedBefore := call("request_before", since.Add(-2*time.Minute), ptrTime(since.Add(-time.Second)))
 	tooOld := call("request_too_old", since.Add(-2*time.Hour), nil)
@@ -73,6 +74,12 @@ func TestListRequestActivityReadsCallsOverlappingTheWindow(t *testing.T) {
 	}
 	if len(got) != len(want) {
 		t.Fatalf("calls = %+v, want %+v", got, want)
+	}
+	if output := calls[2].Output; output == nil || output.Kind != contract.OutputKindTool || len(output.Tools) != 1 || output.Tools[0] != "Bash" {
+		t.Fatalf("running call output = %+v", output)
+	}
+	if calls[0].Output != nil {
+		t.Fatalf("call without output = %+v", calls[0].Output)
 	}
 	for index := range want {
 		if !got[index].started.Equal(want[index].started) || got[index].ended != want[index].ended ||

@@ -22,6 +22,22 @@ import { useWorkspaceSnapshot } from "./workspace-snapshots";
 
 const POLL_INTERVAL_MS = 1000;
 
+const activityKey = (coreSessionKey: string | null) =>
+  `request-activity:${coreSessionKey}`;
+
+/**
+ * The calls of the last few minutes as the board last read them, for the
+ * request list's lanes. Only the board polls; readers share its snapshot.
+ */
+export function useRequestActivityFeed(
+  coreSessionKey: string | null,
+): RequestActivity | null {
+  return useWorkspaceSnapshot<RequestActivity | null>(
+    activityKey(coreSessionKey),
+    null,
+  )[0];
+}
+
 /**
  * Reads the calls of the last few minutes once a second. The gateway keeps
  * them, so the chart is whole however long the page was away; the last read
@@ -29,7 +45,7 @@ const POLL_INTERVAL_MS = 1000;
  */
 function useLiveActivity(coreSessionKey: string | null, isReady: boolean) {
   const [activity, setActivity] = useWorkspaceSnapshot<RequestActivity | null>(
-    `request-activity:${coreSessionKey}`,
+    activityKey(coreSessionKey),
     null,
   );
   useEffect(() => {

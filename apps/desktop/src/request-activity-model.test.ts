@@ -5,6 +5,8 @@ import {
   activitySince,
   conversationActivity,
   laneAction,
+  laneTrail,
+  LANE_TRAIL_STEPS,
   splitActiveSessions,
   summarizeActivity,
 } from "./request-activity-model";
@@ -204,6 +206,56 @@ describe("laneAction", () => {
       laneAction(session({ output: { kind: "text", tools: ["Read"] } })),
     ).toEqual({ kind: "replied" });
     expect(laneAction(session())).toEqual({ kind: "idle" });
+  });
+});
+
+describe("laneTrail", () => {
+  const tools = (...names: string[]) => ({
+    kind: "tool" as const,
+    tools: names,
+  });
+  const answer = { kind: "text" as const, tools: [] };
+
+  it("folds repeated steps and times the tools between calls", () => {
+    const calls = [
+      call("session_a", -60_000, -55_000, { output: tools("Read") }),
+      call("session_a", -54_000, -50_000, { output: tools("Read") }),
+      call("session_a", -49_500, -40_000, { output: tools("Grep", "Bash") }),
+      call("session_a", -28_000, null),
+      call("other", -30_000, -20_000, { output: tools("Edit") }),
+    ];
+    expect(laneTrail(calls, running({ id: "session_a" }))).toEqual([
+      { kind: "tool", tool: "Read", count: 2, ranMs: 1_500 },
+      { kind: "tool", tool: "Grep", count: 1, ranMs: null },
+      { kind: "tool", tool: "Bash", count: 1, ranMs: 12_000 },
+    ]);
+  });
+
+  it("leaves the last call to the lane's action between calls", () => {
+    const calls = [
+      call("session_a", -60_000, -50_000, {
+        output: { kind: "reasoning", tools: [] },
+      }),
+      call("session_a", -45_000, -40_000, { output: answer }),
+      call("session_a", -30_000, -25_000, { output: tools("Read") }),
+      call("session_a", -20_000, -10_000),
+    ];
+    expect(laneTrail(calls, session({ id: "session_a" }))).toEqual([
+      { kind: "reasoning", tool: "", count: 1, ranMs: null },
+      { kind: "answer", tool: "", count: 1, ranMs: null },
+      { kind: "tool", tool: "Read", count: 1, ranMs: 5_000 },
+    ]);
+  });
+
+  it("keeps only the newest steps", () => {
+    const calls = Array.from({ length: LANE_TRAIL_STEPS + 3 }, (_, index) =>
+      call("session_a", -100_000 + index * 5_000, -98_000 + index * 5_000, {
+        output: tools(`tool_${index}`),
+      }),
+    );
+    const trail = laneTrail(calls, running({ id: "session_a" }));
+    expect(trail).toHaveLength(LANE_TRAIL_STEPS);
+    expect(trail.at(-1)?.tool).toBe(`tool_${LANE_TRAIL_STEPS + 2}`);
   });
 });
 

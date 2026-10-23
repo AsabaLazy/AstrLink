@@ -3,10 +3,12 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/QuantumNous/astrlink/core/contract"
+	storagecontract "github.com/QuantumNous/astrlink/core/internal/storage"
 )
 
 // maxActivityCallSpan bounds how long before the window a call may have
@@ -22,7 +24,7 @@ func (store *Store) ListRequestActivity(
 	since time.Time,
 ) ([]contract.RequestActivityCall, error) {
 	rows, err := store.db.QueryContext(ctx, `
-SELECT COALESCE(session_id, id), client_type, started_at, completed_at, status, http_status
+SELECT COALESCE(session_id, id), client_type, started_at, completed_at, status, http_status, output_json
 FROM request_records INDEXED BY request_records_root_started_idx
 WHERE parent_request_id IS NULL
   AND started_at >= ?
@@ -42,9 +44,9 @@ ORDER BY started_at DESC, id DESC`,
 	calls := make([]contract.RequestActivityCall, 0)
 	for rows.Next() {
 		var sessionID, startedAt, status string
-		var clientType, completedAt sql.NullString
+		var clientType, completedAt, output sql.NullString
 		var httpStatus sql.NullInt64
-		if err := rows.Scan(&sessionID, &clientType, &startedAt, &completedAt, &status, &httpStatus); err != nil {
+		if err := rows.Scan(&sessionID, &clientType, &startedAt, &completedAt, &status, &httpStatus, &output); err != nil {
 			return nil, fmt.Errorf("scan request activity: %w", err)
 		}
 		call := contract.RequestActivityCall{
@@ -67,6 +69,12 @@ ORDER BY started_at DESC, id DESC`,
 			record.HTTPStatus = &value
 		}
 		call.Status = record.EffectiveStatus()
+		if output.Valid && output.String != "" {
+			call.Output = &contract.OutputActivity{}
+			if err := json.Unmarshal([]byte(output.String), call.Output); err != nil {
+				return nil, fmt.Errorf("%w: request activity output", storagecontract.ErrInvalidRecord)
+			}
+		}
 		calls = append(calls, call)
 	}
 	if err := rows.Err(); err != nil {

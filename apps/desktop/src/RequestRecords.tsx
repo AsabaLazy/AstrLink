@@ -149,6 +149,7 @@ import {
   statusTone,
   type AuditContent,
   type ClientType,
+  type RequestActivityCall,
   type RequestRecord,
   type RequestSession,
   type RequestSessionDetail,
@@ -157,12 +158,17 @@ import {
   type RequestStatus,
   type SessionStatus,
 } from "./request-record-model";
-import { RequestActivityBoard } from "./RequestActivityBoard";
+import {
+  RequestActivityBoard,
+  useRequestActivityFeed,
+} from "./RequestActivityBoard";
 import {
   conversationActivity,
   laneAction,
+  laneTrail,
   splitActiveSessions,
   type LaneAction,
+  type LaneStep,
 } from "./request-activity-model";
 import { RequestConversation } from "./RequestConversation";
 import { RequestPrivacyAudit } from "./RequestPrivacyAudit";
@@ -2352,6 +2358,7 @@ export function RequestRecords({
               ) : (
                 <SessionStream
                   checkedIds={selecting ? checkedIds : null}
+                  coreSessionKey={coreSessionKey}
                   onOpen={selecting ? toggleChecked : openDetail}
                   selectedId={openingId ?? selectedId}
                   services={servicesById}
@@ -2589,13 +2596,17 @@ function useStatusColumnWidth() {
   return { ref, width };
 }
 
+const NO_CALLS: readonly RequestActivityCall[] = [];
+
 function SessionStream({
+  coreSessionKey,
   sessions,
   services,
   selectedId,
   checkedIds,
   onOpen,
 }: {
+  coreSessionKey: string | null;
   sessions: RequestSession[];
   services: RequestServiceMap;
   selectedId: string | null;
@@ -2604,6 +2615,8 @@ function SessionStream({
   onOpen: (sessionId: string) => void;
 }) {
   const t = i18n.t.bind(i18n);
+  // The live board's read of the last few minutes tells each lane its steps.
+  const recentCalls = useRequestActivityFeed(coreSessionKey)?.calls ?? NO_CALLS;
   // Conversations in progress lead the list. One waiting between calls moves
   // down into its day once the grace runs out, so the list re-reads the clock
   // every second while any is in progress, even if no poll brings news.
@@ -2658,6 +2671,7 @@ function SessionStream({
               checked={checkedIds?.has(session.id)}
               key={session.id}
               onOpen={onOpen}
+              recentCalls={recentCalls}
               selected={session.id === selectedId}
               services={services}
               session={session}
@@ -2954,6 +2968,7 @@ const SessionLane = memo(function SessionLane({
   selected,
   checked,
   onOpen,
+  recentCalls,
 }: {
   session: RequestSession;
   services: RequestServiceMap;
@@ -2961,8 +2976,14 @@ const SessionLane = memo(function SessionLane({
   /** Set in selection mode, where the lane is a checkbox. */
   checked: boolean | undefined;
   onOpen: (sessionId: string) => void;
+  /** Every conversation's calls of the last few minutes. */
+  recentCalls: readonly RequestActivityCall[];
 }) {
   const t = useT();
+  const trail = useMemo(
+    () => laneTrail(recentCalls, session),
+    [recentCalls, session],
+  );
   const calling = sessionRunning(session);
   // A running call shows tenths of a second; a wait counts whole seconds.
   const nowMs = useLiveClock(true, calling ? LIVE_CLOCK_INTERVAL_MS : 1000);
@@ -3062,29 +3083,114 @@ const SessionLane = memo(function SessionLane({
               })}
             </span>
           )}
-          <span className="col-span-2 col-start-2 min-w-0 truncate text-xs leading-5 tabular-nums text-muted-foreground">
-            {t(
-              session.turn_count === session.call_count
-                ? "records.sessionMetaTurns"
-                : "records.sessionMeta",
-              {
-                count: session.turn_count,
-                turns: session.turn_count,
-                calls: session.call_count,
-                duration: formatDuration(sessionRuntimeMs(session, nowMs)),
-              },
-            )}
-            {session.output_tokens_per_second != null ? (
-              <span title={t("records.outputSpeed")}>
-                {` · ${session.output_tokens_per_second.toFixed(1)} tok/s`}
-              </span>
-            ) : null}
+          <span className="col-span-2 col-start-2 flex min-w-0 items-center justify-between gap-3 text-xs leading-5 text-muted-foreground">
+            <LaneTrail firstCall={session.call_count === 1} steps={trail} />
+            <span className="min-w-0 truncate tabular-nums">
+              {t(
+                session.turn_count === session.call_count
+                  ? "records.sessionMetaTurns"
+                  : "records.sessionMeta",
+                {
+                  count: session.turn_count,
+                  turns: session.turn_count,
+                  calls: session.call_count,
+                  duration: formatDuration(sessionRuntimeMs(session, nowMs)),
+                },
+              )}
+              {session.output_tokens_per_second != null ? (
+                <span title={t("records.outputSpeed")}>
+                  {` · ${session.output_tokens_per_second.toFixed(1)} tok/s`}
+                </span>
+              ) : null}
+            </span>
           </span>
         </ActivitySlot>
       </Button>
     </DataRow>
   );
 });
+
+/**
+ * The steps before a lane's current action, one mark each, oldest first.
+ * Names and how long the tools ran are on hover and for screen readers.
+ */
+function LaneTrail({
+  firstCall,
+  steps,
+}: {
+  firstCall: boolean;
+  steps: readonly LaneStep[];
+}) {
+  const t = useT();
+  if (steps.length === 0) {
+    return firstCall ? (
+      <span className="shrink-0">{t("records.laneFirstCall")}</span>
+    ) : (
+      <span />
+    );
+  }
+  return (
+    <span
+      className="flex min-w-0 shrink-0 items-center gap-1.5"
+      data-testid="lane-trail"
+    >
+      {steps.map((step, index) => {
+        const name =
+          step.kind === "tool"
+            ? step.tool
+            : t(
+                step.kind === "reasoning"
+                  ? "records.laneStepThinking"
+                  : "records.laneStepAnswer",
+              );
+        const counted = step.count > 1 ? `${name} ×${step.count}` : name;
+        const label =
+          step.ranMs === null
+            ? counted
+            : t("records.laneStepRan", {
+                step: counted,
+                duration: formatDuration(step.ranMs),
+              });
+        return (
+          <span className="inline-flex items-center gap-1.5" key={index}>
+            {index > 0 ? (
+              <span aria-hidden className="size-1 rounded-full bg-border" />
+            ) : null}
+            <span
+              className="inline-flex items-center gap-0.5 text-text-secondary"
+              title={label}
+            >
+              {step.kind === "tool" ? (
+                <ToolKindIcon className="size-3.5" name={step.tool} />
+              ) : step.kind === "reasoning" ? (
+                <Brain
+                  animateOnHover={false}
+                  aria-hidden="true"
+                  className="size-3.5"
+                />
+              ) : (
+                <MessageSquare
+                  animateOnHover={false}
+                  aria-hidden="true"
+                  className="size-3.5"
+                />
+              )}
+              <span className="sr-only">{label}</span>
+              {step.count > 1 ? (
+                <span
+                  aria-hidden="true"
+                  className="text-micro tabular-nums text-muted-foreground"
+                >
+                  ×{step.count}
+                </span>
+              ) : null}
+            </span>
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 /**
  * What a lane says its conversation is doing and for how long: a running

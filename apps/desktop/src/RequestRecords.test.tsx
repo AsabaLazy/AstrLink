@@ -1097,9 +1097,82 @@ describe("RequestRecords", () => {
     ]);
     expect(state("replied")).toEqual([
       "replied",
-      "等你回复 8 s",
+      "已回答 8 s",
       "模型已经回答。对话在等下一条消息。",
     ]);
+  });
+
+  it("marks the steps a conversation took before its current action", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T12:00:10Z"));
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [
+        sessionFromRecord(firstRecord, {
+          id: "agent",
+          status: "pending",
+          completed_at: null,
+          started_at: "2026-07-28T11:58:00Z",
+          last_started_at: "2026-07-28T12:00:00Z",
+          active_request_starts: ["2026-07-28T12:00:00Z"],
+          call_count: 4,
+          output: { kind: "reasoning", tools: [] },
+        }),
+        sessionFromRecord(firstRecord, {
+          id: "first",
+          started_at: "2026-07-28T11:59:50Z",
+          last_started_at: "2026-07-28T11:59:50Z",
+          completed_at: "2026-07-28T12:00:05Z",
+          output: { kind: "text", tools: [] },
+        }),
+      ],
+      next_cursor: null,
+    });
+    const span = (
+      started: string,
+      completed: string | null,
+      tools: string[],
+    ): RequestActivityCall => ({
+      session_id: "agent",
+      started_at: `2026-07-28T${started}Z`,
+      completed_at: completed ? `2026-07-28T${completed}Z` : null,
+      status: completed ? "succeeded" : "pending",
+      ...(completed ? { output: { kind: "tool" as const, tools } } : {}),
+    });
+    bridgeMocks.getRequestActivity.mockResolvedValue({
+      now: "2026-07-28T12:00:10Z",
+      calls: [
+        span("11:59:00", "11:59:05", ["Read"]),
+        span("11:59:06", "11:59:10", ["Read"]),
+        span("11:59:11", "11:59:20", ["Bash"]),
+        span("12:00:00", null, []),
+      ],
+    });
+    await act(async () => {
+      reactRoot.render(
+        <WorkspaceSnapshotProvider sessionKey="session-1">
+          <RequestRecords
+            accessTokens={[]}
+            accessTokensReady
+            coreSessionKey="session-1"
+            services={[service]}
+            isReady
+          />
+        </WorkspaceSnapshotProvider>,
+      );
+    });
+    await flush();
+    const marks = [
+      ...container.querySelectorAll<HTMLElement>(
+        '[data-session-id="agent"] [data-testid="lane-trail"] [title]',
+      ),
+    ].map((mark) => [mark.title, mark.textContent]);
+    expect(marks).toEqual([
+      ["Read ×2 · 运行 2.0 s", "Read ×2 · 运行 2.0 s×2"],
+      ["Bash · 运行 40.0 s", "Bash · 运行 40.0 s"],
+    ]);
+    expect(
+      container.querySelector('[data-session-id="first"]')?.textContent,
+    ).toContain("第一次调用");
   });
 
   it("opens a session trajectory and shows retry children as RETRY rows", async () => {

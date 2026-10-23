@@ -11,6 +11,8 @@ type RequestActivityCall struct {
 	StartedAt   time.Time     `json:"started_at"`
 	CompletedAt *time.Time    `json:"completed_at"`
 	Status      RequestStatus `json:"status"`
+	// Output is what the call produced, as on its record.
+	Output *OutputActivity `json:"output,omitempty"`
 }
 
 // RequestActivity lists the model calls that overlap a recent window, for the
