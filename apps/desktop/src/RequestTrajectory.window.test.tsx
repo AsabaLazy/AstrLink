@@ -184,6 +184,22 @@ describe("RequestTrajectory in a window host", () => {
     });
   };
 
+  const inspectRow = async (chip: string) => {
+    const opened = routedChips("show_trajectory_inspector").length;
+    await clickRow(chip);
+    expect(routedChips("show_trajectory_inspector")).toHaveLength(opened);
+    const row = container.querySelector<HTMLElement>(
+      `[data-testid="trajectory-row"][data-chip="${chip}"]`,
+    )!;
+    const card = row.closest('[data-testid="trajectory-call-card"]')!;
+    const inspect = card.querySelector<HTMLButtonElement>(
+      `[data-flow-preview-row-id="${row.getAttribute("data-row-id")}"] button`,
+    );
+    expect(inspect).not.toBeNull();
+    expect(inspect?.textContent).toContain("查看调用");
+    await act(async () => inspect!.click());
+  };
+
   const highlightedChips = () =>
     [
       ...container.querySelectorAll(
@@ -243,7 +259,7 @@ describe("RequestTrajectory in a window host", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(panel.getAttribute("data-state")).toBe("closed");
     expect(rowCount()).toBe(3);
-    await clickRow("CLIENT");
+    await inspectRow("CLIENT");
     expect(selectedChip()).toBe("CLIENT");
     expect(timeline.scrollLeft).toBe(0);
 
@@ -256,7 +272,7 @@ describe("RequestTrajectory in a window host", () => {
     // Selection while hidden must wait for real geometry, then reveal the
     // phase whose right edge is 50 px beyond the reopened strip.
     expect(timeline.scrollLeft).toBe(50);
-    await clickRow("UPSTREAM");
+    await inspectRow("UPSTREAM");
 
     await act(async () => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -266,7 +282,7 @@ describe("RequestTrajectory in a window host", () => {
     expect(container.querySelector('[data-testid="trajectory-timeline"]')).toBe(
       timeline,
     );
-    await clickRow("RESULT");
+    await inspectRow("RESULT");
     expect(selectedChip()).toBe("RESULT");
     expect(routedChips("show_trajectory_inspector")).toEqual([
       "CLIENT",
@@ -309,7 +325,7 @@ describe("RequestTrajectory in a window host", () => {
     }
   });
 
-  it("draws phase intervals within each request while retaining root and retry call numbers", async () => {
+  it("lists a retry inside the call it retried, in time order, with the root's number and each phase's own duration", async () => {
     const origin = Date.parse(record.started_at);
     const at = (ms: number) => new Date(origin + ms).toISOString();
     const call = (
@@ -335,44 +351,70 @@ describe("RequestTrajectory in a window host", () => {
         ended_at: at(event.kind === "accepted" ? start : end),
       })),
     });
-    const first = call("request_first", 0, 250, 1000);
+    const first = call("request_first", 0, 1600, 2000);
+    // The failed attempt happened before the root's final one.
     const retry = {
-      ...call("request_retry", 1000, 1100, 1500),
+      ...call("request_retry", 200, 300, 1500),
       parent_request_id: first.id,
     };
-    const second = call("request_second", 2000, 2100, 2500);
+    const second = call("request_second", 3000, 3100, 3500);
     await renderTrajectory([first, second], { [first.id]: [retry] });
 
-    for (const [id, callNumber, width] of [
-      [first.id, "1", "75%"],
-      [retry.id, "1", "80%"],
-      [second.id, "2", "80%"],
-    ]) {
-      const phases = [
-        ...container.querySelectorAll<HTMLElement>(
-          `[data-testid="trajectory-row"][data-request-id="${id}"]:not([data-chip="TURN"])`,
-        ),
-      ];
-      expect(phases).toHaveLength(3);
-      expect(
-        phases.map((phase) => phase.getAttribute("data-call-number")),
-      ).toEqual([callNumber, callNumber, callNumber]);
-      const bars = phases.map(
-        (phase) =>
-          phase.querySelector<HTMLElement>('[data-slot="execution-span"]')!,
+    const card = (id: string) =>
+      container.querySelector<HTMLElement>(
+        `[data-testid="trajectory-call-card"][data-request-id="${id}"]`,
       );
-      expect(bars[0].style.width).toBe("0%");
-      expect(bars[1].style.width).toBe(width);
-      expect(bars[2].style.width).toBe("0%");
-      expect(
-        phases.some((phase) => phase.querySelector(".thinking-loader")),
-      ).toBe(false);
-    }
-    expect(
-      container.querySelector(
-        '[data-chip="TURN"] [data-slot="execution-span"]',
+    expect(card(retry.id)).toBeNull();
+    const stations = (id: string) => [
+      ...card(id)!.querySelectorAll<HTMLElement>(
+        '[data-testid="trajectory-row"]',
       ),
-    ).toBeNull();
+    ];
+    // The root call holds its retry, ordered by when each phase began.
+    expect(
+      stations(first.id).map((station) => [
+        station.getAttribute("data-request-id"),
+        station.getAttribute("data-chip"),
+        station.getAttribute("data-call-number"),
+      ]),
+    ).toEqual([
+      [first.id, "CLIENT", "1"],
+      [retry.id, "CLIENT", "1"],
+      [retry.id, "RETRY", "1"],
+      [retry.id, "RESULT", "1"],
+      [first.id, "UPSTREAM", "1"],
+      [first.id, "RESULT", "1"],
+    ]);
+    expect(
+      stations(second.id).map((station) =>
+        station.getAttribute("data-call-number"),
+      ),
+    ).toEqual(["2", "2", "2"]);
+    // Each phase is timed on its own interval, never the call's window.
+    const durations = (id: string) =>
+      stations(id).map(
+        (station) =>
+          /耗时 ([^·]+)$/.exec(station.getAttribute("aria-label")!)![1],
+      );
+    expect(durations(first.id)).toEqual([
+      "0 ms",
+      "0 ms",
+      "1.2 s",
+      "0 ms",
+      "400 ms",
+      "0 ms",
+    ]);
+    expect(durations(second.id)).toEqual(["0 ms", "400 ms", "0 ms"]);
+    // The folded route spends its width on the phases that took time.
+    expect(
+      stations(first.id).map((station) =>
+        station.style.getPropertyValue("--journey-grow"),
+      ),
+    ).toEqual(["0", "0", "1200", "0", "400", "0"]);
+    expect(card(first.id)!.querySelector(".thinking-loader")).toBeNull();
+    expect(card(first.id)!.querySelector(".journey-retries")?.textContent).toBe(
+      "1",
+    );
   });
 
   it("keeps pending timing and animation tied to the observed phase and stops them on completion", async () => {
@@ -401,27 +443,27 @@ describe("RequestTrajectory in a window host", () => {
       container.querySelector<HTMLElement>(
         `[data-testid="trajectory-row"][data-chip="${chip}"]`,
       )!;
-    const bar = (chip: string) =>
-      phase(chip).querySelector<HTMLElement>('[data-slot="execution-span"]')!;
+    const step = (chip: string) => phase(chip).closest("li")!;
+    const callDuration = () =>
+      container.querySelector(".journey-duration .sr-only")?.textContent;
     expect(phase("UPSTREAM").getAttribute("data-tone")).toBe("pending");
     expect(phase("UPSTREAM").getAttribute("aria-label")).toContain(
       "耗时 500 ms",
     );
     expect(phase("UPSTREAM").querySelector(".thinking-loader")).not.toBeNull();
-    expect(bar("UPSTREAM").className).toContain("execution-span-pending");
-    expect(bar("UPSTREAM").style.width).toBe("50%");
+    expect(phase("UPSTREAM").getAttribute("data-pending")).toBe("true");
+    expect(step("UPSTREAM").querySelector(".journey-step-head")).not.toBeNull();
     expect(phase("CLIENT").querySelector(".thinking-loader")).toBeNull();
-    expect(bar("CLIENT").style.width).toBe("10%");
+    expect(phase("CLIENT").hasAttribute("data-pending")).toBe(false);
+    expect(callDuration()).toBe("1.0 s");
 
     await act(async () => vi.advanceTimersByTimeAsync(1000));
     expect(phase("UPSTREAM").getAttribute("aria-label")).toContain(
       "耗时 1.5 s",
     );
-    expect(bar("UPSTREAM").style.width).toBe("75%");
-    // A finished phase in the active call keeps its duration while its share
-    // of the expanding request window shrinks on that same clock.
+    expect(callDuration()).toBe("2.0 s");
+    // A finished phase in the active call keeps its own duration.
     expect(phase("CLIENT").getAttribute("aria-label")).toContain("耗时 100 ms");
-    expect(bar("CLIENT").style.width).toBe("5%");
 
     const completed: RequestRecord = {
       ...pending,
@@ -445,14 +487,17 @@ describe("RequestTrajectory in a window host", () => {
       "耗时 1.3 s",
     );
     expect(phase("UPSTREAM").querySelector(".thinking-loader")).toBeNull();
-    expect(bar("UPSTREAM").className).not.toContain("execution-span-pending");
+    expect(phase("UPSTREAM").hasAttribute("data-pending")).toBe(false);
+    expect(step("UPSTREAM").querySelector(".journey-step-head")).toBeNull();
     const stopped = {
       label: phase("UPSTREAM").getAttribute("aria-label"),
-      style: bar("UPSTREAM").getAttribute("style"),
+      duration: container.querySelector(".journey-duration")?.textContent,
     };
     await act(async () => vi.advanceTimersByTimeAsync(5000));
     expect(phase("UPSTREAM").getAttribute("aria-label")).toBe(stopped.label);
-    expect(bar("UPSTREAM").getAttribute("style")).toBe(stopped.style);
+    expect(container.querySelector(".journey-duration")?.textContent).toBe(
+      stopped.duration,
+    );
 
     await renderTrajectory([
       {
@@ -465,9 +510,8 @@ describe("RequestTrajectory in a window host", () => {
     // A missing end timestamp on a settled phase is unknown timing, not an
     // in-flight phase inferred from missing data.
     expect(phase("UPSTREAM").querySelector(".thinking-loader")).toBeNull();
-    expect(
-      phase("UPSTREAM").querySelector('[data-slot="execution-span"]'),
-    ).toBeNull();
+    expect(phase("UPSTREAM").hasAttribute("data-pending")).toBe(false);
+    expect(step("UPSTREAM").getAttribute("data-timing")).toBe("unknown");
     expect(phase("UPSTREAM").getAttribute("aria-label")).toContain("耗时 —");
   });
 
@@ -531,7 +575,7 @@ describe("RequestTrajectory in a window host", () => {
         );
       });
       expect(document.querySelector('[role="tooltip"]')).toBeNull();
-      await clickRow("CLIENT");
+      await inspectRow("CLIENT");
       expect(invoked("show_trajectory_inspector")).toBe(true);
 
       await renderTrajectory();
@@ -558,6 +602,205 @@ describe("RequestTrajectory in a window host", () => {
     expect(row?.getAttribute("data-selected")).toBe("true");
     expect(highlightedChips()).toEqual(["CLIENT", "UPSTREAM", "RESULT"]);
   });
+
+  it("reveals the actual timeline phase in the call details rather than its first phase", async () => {
+    await renderTrajectory();
+    const list = container.querySelector<HTMLElement>(
+      '[data-testid="trajectory-list"]',
+    )!;
+    vi.spyOn(list, "clientHeight", "get").mockReturnValue(400);
+
+    for (const chip of ["CLIENT", "UPSTREAM", "RESULT"]) {
+      await clickPhase(chip);
+      const focused = container.querySelector<HTMLElement>(
+        '[data-testid="trajectory-row"][data-selected="true"]',
+      );
+      expect(focused?.getAttribute("data-chip")).toBe(chip);
+      expect(focused?.getAttribute("aria-pressed")).toBe("true");
+      expect(
+        container
+          .querySelector('[data-testid="trajectory-call-card"]')
+          ?.getAttribute("data-state"),
+      ).toBe("open");
+      expect(invoked("show_trajectory_inspector")).toBe(false);
+    }
+  });
+
+  it("does not return to a revealed open call after the user scrolls and a poll arrives", async () => {
+    vi.useFakeTimers();
+    await renderTrajectory();
+    const list = container.querySelector<HTMLElement>(
+      '[data-testid="trajectory-list"]',
+    )!;
+    vi.spyOn(list, "clientHeight", "get").mockReturnValue(400);
+    await clickPhase("UPSTREAM");
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+
+    list.scrollTop = 160;
+    await renderTrajectory([{ ...record, latency_ms: 240 }]);
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(list.scrollTop).toBe(160);
+  });
+
+  it("opens another call on the phase being read and folds the open call from its line", async () => {
+    const earlier = { ...record, turn_index: 1 };
+    const latest = {
+      ...record,
+      id: "req_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      turn_index: 1,
+      started_at: "2026-07-25T10:01:00Z",
+    };
+    await renderTrajectory([earlier, latest]);
+    const card = (id: string) =>
+      container.querySelector<HTMLElement>(
+        `[data-testid="trajectory-call-card"][data-request-id="${id}"]`,
+      )!;
+    const trigger = (id: string) =>
+      card(id).querySelector<HTMLButtonElement>(".journey-trigger")!;
+    const station = (id: string, chip: string) =>
+      card(id).querySelector<HTMLElement>(
+        `[data-testid="trajectory-row"][data-chip="${chip}"]`,
+      )!;
+
+    // The latest call opens on its result; the earlier one is a single line.
+    expect(card(latest.id).getAttribute("data-state")).toBe("open");
+    expect(card(earlier.id).getAttribute("data-state")).toBe("closed");
+    expect(trigger(earlier.id).getAttribute("aria-expanded")).toBe("false");
+    expect(station(latest.id, "RESULT").getAttribute("data-selected")).toBe(
+      "true",
+    );
+
+    await act(async () => station(latest.id, "UPSTREAM").click());
+    await act(async () => trigger(earlier.id).click());
+    expect(card(earlier.id).getAttribute("data-state")).toBe("open");
+    expect(card(latest.id).getAttribute("data-state")).toBe("closed");
+    expect(station(earlier.id, "UPSTREAM").getAttribute("data-selected")).toBe(
+      "true",
+    );
+    expect(station(earlier.id, "UPSTREAM").getAttribute("aria-current")).toBe(
+      "true",
+    );
+
+    // Its line folds it again without dropping the selection.
+    await act(async () => trigger(earlier.id).click());
+    expect(card(earlier.id).getAttribute("data-state")).toBe("closed");
+    expect(trigger(earlier.id).getAttribute("aria-expanded")).toBe("false");
+    expect(station(earlier.id, "UPSTREAM").getAttribute("aria-current")).toBe(
+      "true",
+    );
+    await act(async () => trigger(earlier.id).click());
+    expect(card(earlier.id).getAttribute("data-state")).toBe("open");
+    expect(invoked("show_trajectory_inspector")).toBe(false);
+  });
+
+  it("walks the open call's steps with the arrow keys", async () => {
+    await renderTrajectory();
+    const selected = () =>
+      container.querySelector<HTMLElement>(
+        '[data-testid="trajectory-row"][data-selected="true"]',
+      );
+    expect(selected()?.getAttribute("data-chip")).toBe("RESULT");
+    // Only the selected step takes a tab stop.
+    expect(
+      [
+        ...container.querySelectorAll<HTMLElement>(
+          '.journey-rail [data-testid="trajectory-row"]',
+        ),
+      ].map((step) => step.tabIndex),
+    ).toEqual([-1, -1, 0]);
+    const press = async (key: string) => {
+      const target = selected()!;
+      await act(async () => {
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", { key, bubbles: true }),
+        );
+      });
+    };
+
+    await press("ArrowUp");
+    expect(selected()?.getAttribute("data-chip")).toBe("UPSTREAM");
+    expect(document.activeElement).toBe(selected());
+    await press("Home");
+    expect(selected()?.getAttribute("data-chip")).toBe("CLIENT");
+    await press("ArrowUp");
+    expect(selected()?.getAttribute("data-chip")).toBe("CLIENT");
+    await press("End");
+    expect(selected()?.getAttribute("data-chip")).toBe("RESULT");
+    expect(invoked("show_trajectory_inspector")).toBe(false);
+  });
+
+  it.each([
+    // The call ended inside the list, so what the pick grew follows it in.
+    { listHeight: 400, scrolled: 42 },
+    // The call already ran past the edge; the pick and its detail fit, so
+    // nothing moves under the cursor.
+    { listHeight: 300, scrolled: 0 },
+  ])(
+    "keeps a pick at the end of the list from pushing its call past the edge ($listHeight px)",
+    async ({ listHeight, scrolled }) => {
+      vi.useFakeTimers();
+      await renderTrajectory();
+      const list = container.querySelector<HTMLElement>(
+        '[data-testid="trajectory-list"]',
+      )!;
+      let scrollTop = 0;
+      Object.defineProperty(list, "scrollTop", {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value: number) => {
+          scrollTop = value;
+        },
+      });
+      vi.spyOn(list, "clientHeight", "get").mockReturnValue(listHeight);
+      const upstreamOpen = () =>
+        container.querySelector(
+          '[data-testid="trajectory-row"][data-chip="UPSTREAM"][data-selected="true"]',
+        ) !== null;
+      // Content positions: the call starts at 100 and its upstream step at
+      // 220; the step's detail adds 40 px to the step and to the call.
+      const at = (top: number, height: number) =>
+        new DOMRect(0, top - scrollTop, 800, height);
+      vi.spyOn(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+      ).mockImplementation(function (this: HTMLElement) {
+        const grown = upstreamOpen() ? 40 : 0;
+        if (this === list) return new DOMRect(0, 0, 800, listHeight);
+        if (this.matches("[data-flow-id]")) return at(100, 290 + grown);
+        if (
+          this.matches("li.journey-step") &&
+          this.querySelector('[data-chip="UPSTREAM"]')
+        ) {
+          return at(220, 28 + grown);
+        }
+        if (
+          this.matches('[data-testid="trajectory-row"][data-chip="UPSTREAM"]')
+        ) {
+          return at(220, 28);
+        }
+        return new DOMRect();
+      });
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+        function (this: HTMLElement) {
+          return this.matches('[data-testid="trajectory-row"]') ? 28 : 0;
+        },
+      );
+
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-testid="trajectory-row"][data-chip="UPSTREAM"]',
+          )!
+          .click(),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(1000));
+      expect(upstreamOpen()).toBe(true);
+      // 400 px list: the call ended at 390 and grew to 430, so it scrolls
+      // until its end sits 12 px above the edge.
+      expect(scrollTop).toBe(scrolled);
+      expect(invoked("show_trajectory_inspector")).toBe(false);
+    },
+  );
 
   it("navigates to the first and latest call without opening an inspector", async () => {
     const latest = {
@@ -605,15 +848,15 @@ describe("RequestTrajectory in a window host", () => {
     expect(highlightedChips()).toEqual(["CLIENT", "UPSTREAM", "RESULT"]);
   });
 
-  it("routes each click to the window host carrying the row just clicked", async () => {
+  it("keeps phase clicks local and inspects the phase shown by each view-call action", async () => {
     await renderTrajectory();
 
     // Selecting the last row on mount must not pop a window: that would steal
     // focus from the list the operator is reading.
     expect(invoked("show_trajectory_inspector")).toBe(false);
 
-    await clickRow("CLIENT");
-    await clickRow("UPSTREAM");
+    await inspectRow("CLIENT");
+    await inspectRow("UPSTREAM");
 
     // The payload is the row under the cursor, not the one selected before it.
     // Reading the selection back from state would always be one click behind.
@@ -634,7 +877,7 @@ describe("RequestTrajectory in a window host", () => {
 
   it("follows a poll that replaced the record without opening a window", async () => {
     await renderTrajectory();
-    await clickRow("UPSTREAM");
+    await inspectRow("UPSTREAM");
     hostMocks.invoke.mockClear();
 
     // A poll hands down a fresh record for the same request, so the phase list
@@ -649,7 +892,7 @@ describe("RequestTrajectory in a window host", () => {
 
   it("keeps the window on the clicked call when a new turn lands", async () => {
     await renderTrajectory();
-    await clickRow("UPSTREAM");
+    await inspectRow("UPSTREAM");
     hostMocks.invoke.mockClear();
 
     const latest = {
@@ -717,7 +960,7 @@ describe("RequestTrajectory in a window host", () => {
 
   it("closes the following windows when the conversation is left", async () => {
     await renderTrajectory();
-    await clickRow("CLIENT");
+    await inspectRow("CLIENT");
     hostMocks.invoke.mockClear();
 
     await act(async () => {
@@ -845,5 +1088,65 @@ describe("RequestTrajectory in a window host", () => {
     expect(input.value).toBe("");
     expect(container.querySelector("[data-find-stop]")).toBeNull();
     expect(container.querySelector('[data-testid="find-mark"]')).toBeNull();
+  });
+
+  it("opens a matched call and shows the matching phase detail within a folded turn", async () => {
+    const matched: RequestRecord = {
+      ...record,
+      id: "req_search_match",
+      turn_index: 1,
+      input_preview: "First task",
+      events: record.events.map((event) =>
+        event.kind === "upstream"
+          ? { ...event, summary: "needle: vendor handshake" }
+          : event,
+      ),
+    };
+    const sibling: RequestRecord = {
+      ...record,
+      id: "req_search_sibling",
+      turn_index: 1,
+    };
+    const latest: RequestRecord = {
+      ...record,
+      id: "req_search_latest",
+      turn_index: 2,
+    };
+    await renderTrajectory([matched, sibling, latest]);
+    const list = container.querySelector<HTMLElement>(
+      '[data-testid="trajectory-list"]',
+    )!;
+    vi.spyOn(list, "clientHeight", "get").mockReturnValue(400);
+    const card = () =>
+      container.querySelector<HTMLElement>(
+        `[data-testid="trajectory-call-card"][data-request-id="${matched.id}"]`,
+      );
+    expect(card()).toBeNull();
+    const input = container.querySelector<HTMLInputElement>(
+      '[data-testid="find-input"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "needle");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector('[data-testid="find-count"]')?.textContent,
+    ).toBe("1/1");
+    expect(card()?.getAttribute("data-state")).toBe("open");
+    expect(
+      card()
+        ?.querySelector('[data-testid="trajectory-row"][data-selected="true"]')
+        ?.getAttribute("data-chip"),
+    ).toBe("UPSTREAM");
+    expect(
+      card()?.querySelector(
+        '[data-testid="trajectory-row"][data-selected="true"] [data-testid="find-mark"]',
+      )?.textContent,
+    ).toBe("needle");
+    expect(invoked("show_trajectory_inspector")).toBe(false);
   });
 });

@@ -8,40 +8,16 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowRight,
-  BadgeAlert,
-  Ban,
-  Check,
-  ChevronRight,
-  ImageDown,
-  MessageSquare,
-  RotateCcw,
-  Route,
-  Server,
-  ShieldCheck,
-  type AnimatedIcon,
-} from "@/components/icons";
-import { FindBar, HighlightedText } from "@/components/FindBar";
+import { ArrowDown, ArrowUp, ChevronRight } from "@/components/icons";
+import { FindBar } from "@/components/FindBar";
 import { IconButton } from "@/components/IconButton";
-import { ConversationIndicator } from "@/components/ConversationIndicator";
-import { ModelLabel } from "@/components/ModelLabel";
-import { RequestServiceLabel } from "@/components/RequestServiceLabel";
-import { StatusDot } from "@/components/StatusDot";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { CallCardRow } from "@/components/ui/tool-call-card";
-import { ExecutionNode, ExecutionSpan } from "@/components/ui/execution-flow";
-import { ThinkingLoader } from "@/components/ui/thinking-loader";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 
@@ -68,8 +44,6 @@ import {
   extendPendingTimeline,
   findInTrajectory,
   foldTimelineColumns,
-  listScrollForTimeline,
-  timelineScrollForList,
   timelineWeight,
   trajectoryListLayout,
   trajectoryListSummaries,
@@ -83,13 +57,21 @@ import {
   type TrajectoryTimelineItem,
   type TrajectoryTimelinePhase,
 } from "./request-trajectory-model";
-import { chipDotClass, chipToneClass } from "./trajectory-chip";
+import { chipToneClass } from "./trajectory-chip";
 import { TrajectoryInspector } from "./TrajectoryInspector";
 import { useDetachedInspector } from "./trajectory-inspector-window";
+import { trajectoryCardLayout } from "./trajectory-card-model";
 import {
-  trajectoryCardLayout,
-  type TrajectoryCardRow,
-} from "./trajectory-card-model";
+  TrajectoryFlowList,
+  type TrajectoryFlowListHandle,
+} from "./TrajectoryFlowList";
+import {
+  flowDurationScale,
+  flowListScrollForTimeline,
+  flowTimelineScrollForList,
+  trajectoryFlowEntries,
+  trajectoryTurnDigests,
+} from "./trajectory-flow-model";
 
 const TIMELINE_MIN_CALL_PX = 6;
 const TIMELINE_GAP_PX = 8;
@@ -102,31 +84,6 @@ const TIMELINE_BAR_MIN_PX = 3;
  * so the timeline advances on a coarser grid than the duration labels do.
  */
 const TIMELINE_CLOCK_INTERVAL_MS = 500;
-
-/**
- * Below this the whole list is cheaper to mount than to window, and keeping it
- * whole means a trajectory small enough to read in one sitting stays fully in
- * the DOM for find-in-page. Above it the row count is the problem: a 95-turn
- * conversation is ~1400 rows, and mounting them all is what froze the page.
- */
-const LIST_VIRTUALIZE_MIN_ROWS = 80;
-const LIST_ROW_ESTIMATE_PX = 44;
-const LIST_OVERSCAN_ROWS = 12;
-const ROW_COLUMNS =
-  "grid grid-cols-[1.75rem_minmax(0,1fr)_3.5rem_0.75rem] gap-2 @min-[560px]/trajectory:grid-cols-[2rem_minmax(0,1fr)_minmax(9rem,27%)_0.75rem]";
-
-const phaseIcons: Record<TrajectoryRow["chip"], AnimatedIcon> = {
-  TURN: MessageSquare,
-  CLIENT: ArrowRight,
-  POLICY: ShieldCheck,
-  REDIRECT: Route,
-  COMPRESS: ImageDown,
-  ROUTE: Route,
-  UPSTREAM: Server,
-  RETRY: RotateCcw,
-  RESTORE: ShieldCheck,
-  RESULT: Check,
-};
 
 /**
  * How long a programmatic scroll owns one direction. Writing scrollTop/Left
@@ -174,8 +131,10 @@ export function RequestTrajectory({
   onUnlockRaw?: () => void;
 }) {
   const t = useT();
+  // The strip is the overview; on a short or narrow window the call list
+  // needs that height more, so the strip starts folded there.
   const compactViewport = useMediaQuery(
-    "(max-height: 680px), (max-width: 760px)",
+    "(max-height: 780px), (max-width: 760px)",
   );
   const [timelineOverride, setTimelineOverride] = useState<boolean | null>(
     null,
@@ -227,6 +186,20 @@ export function RequestTrajectory({
   // The strip advances its own open calls, so the settled layout is built once
   // per turn set instead of once per clock tick. See `extendPendingTimeline`.
   const timeline = useMemo(() => trajectoryTimeline(rows, Date.now()), [rows]);
+  // Folded turns still report their calls, and every call is scaled against
+  // the longest one in the session, not only against those listed.
+  const flowEntries = useMemo(
+    () => trajectoryFlowEntries(rows, cardRows),
+    [rows, cardRows],
+  );
+  const turnDigests = useMemo(
+    () => trajectoryTurnDigests(flowEntries),
+    [flowEntries],
+  );
+  const durationScale = useMemo(
+    () => flowDurationScale(flowEntries, timeline.kneeMs, Date.now()),
+    [flowEntries, timeline.kneeMs],
+  );
   const sessionKey = turns[0]?.session_id ?? turns[0]?.id ?? "";
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   // Only the turns the operator opened or closed by hand. Every other turn
@@ -241,16 +214,23 @@ export function RequestTrajectory({
     [rows, turnOverrides, selectedRowId, find.foundTurn],
   );
   const listRows = listLayout.rows;
-  const listPositionById = useMemo(
-    () => new Map(listRows.map((row, position) => [row.id, position])),
-    [listRows],
-  );
   const [overlayOpen, setOverlayOpen] = useState(true);
   const [highlightedRequestId, setHighlightedRequestId] = useState<
     string | null
   >(null);
   const [revealNonce, setRevealNonce] = useState(0);
+  // The call a jump landed on glows once; a click inside the list does not.
+  const [flash, setFlash] = useState<{
+    requestId: string;
+    key: number;
+  } | null>(null);
+  // A pick made after find landed hands the open call back to the selection
+  // until find steps again.
+  const [findDismissedSeq, setFindDismissedSeq] = useState<number | null>(null);
+  const findSeqRef = useRef(find.seq);
+  findSeqRef.current = find.seq;
   const listRef = useRef<HTMLDivElement>(null);
+  const flowRef = useRef<TrajectoryFlowListHandle>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const suppressStripFromListUntilRef = useRef(0);
   const suppressListFromStripUntilRef = useRef(0);
@@ -258,8 +238,6 @@ export function RequestTrajectory({
   const syncFromRef = useRef<"list" | "strip" | null>(null);
   const syncFrameRef = useRef<number | null>(null);
   // The scroll sync maps the rows the list draws, not every row.
-  const rowsRef = useRef(listRows);
-  rowsRef.current = listRows;
   const listLayoutRef = useRef(listLayout);
   listLayoutRef.current = listLayout;
   const selectedRowIdRef = useRef(selectedRowId);
@@ -274,6 +252,8 @@ export function RequestTrajectory({
     setTurnOverrides(new Map());
     setOverlayOpen(true);
     setHighlightedRequestId(null);
+    setFlash(null);
+    setFindDismissedSeq(null);
   }, [sessionKey]);
 
   // Find opens the turn it lands on even where the operator folded it; one
@@ -330,12 +310,19 @@ export function RequestTrajectory({
         ]),
       );
       setSelectedRowId(row.id);
+      setFindDismissedSeq(findSeqRef.current);
       onSelectRequest(row.requestId);
       // The timeline lands on a call. Highlight every phase of that request
       // instead of opening the inspector on the one mark that was clicked.
       if (options?.inspect === false) {
         setHighlightedRequestId(row.requestId);
-        if (options.reveal) setRevealNonce((nonce) => nonce + 1);
+        if (options.reveal) {
+          setRevealNonce((nonce) => nonce + 1);
+          setFlash((current) => ({
+            requestId: row.requestId,
+            key: (current?.key ?? 0) + 1,
+          }));
+        }
         return;
       }
       setHighlightedRequestId(null);
@@ -375,7 +362,7 @@ export function RequestTrajectory({
         return;
       }
       followSelectionOnStripRef.current = true;
-      selectRow(row);
+      selectRow(row, { inspect: false });
     },
     [selectRow, toggleTurn],
   );
@@ -384,20 +371,9 @@ export function RequestTrajectory({
     [selectRow],
   );
 
-  const virtualizer = useVirtualizer({
-    count: listRows.length,
-    estimateSize: () => LIST_ROW_ESTIMATE_PX,
-    getItemKey: (position) => listRows[position]?.id ?? position,
-    getScrollElement: () => listRef.current,
-    overscan: LIST_OVERSCAN_ROWS,
-  });
-  const virtualized = listRows.length >= LIST_VIRTUALIZE_MIN_ROWS;
-  const virtualRows = virtualized ? virtualizer.getVirtualItems() : null;
-  const turnExpanded = (row: TrajectoryRow) =>
-    row.chip === "TURN" ? listLayout.openTurns.has(row.id) : undefined;
-  const virtualizerRef = useRef(virtualizer);
-  virtualizerRef.current = virtualizer;
-
+  // Retries list under their root call, so measured entries already carry
+  // the request id the strip draws its column for.
+  const flowMeasurements = () => flowRef.current?.measurements() ?? [];
   const syncStripFromList = () => {
     const list = listRef.current;
     const scroller = scrollerRef.current;
@@ -406,56 +382,53 @@ export function RequestTrajectory({
       measureTimelineColumns(scroller),
       listLayoutRef.current.anchorByRequestId,
     );
-    const maxScroll = scroller.scrollWidth - scroller.clientWidth;
     const next = Math.round(
-      timelineScrollForList(
-        rowsRef.current,
+      flowTimelineScrollForList(
+        flowMeasurements(),
         columns,
         list.scrollTop,
         list.scrollHeight - list.clientHeight,
-        maxScroll,
+        scroller.scrollWidth - scroller.clientWidth,
       ),
     );
     if (next === Math.round(scroller.scrollLeft)) return;
     suppressListFromStripUntilRef.current = Date.now() + REVEAL_SUPPRESS_MS;
     scroller.scrollLeft = next;
   };
-
   const syncListFromStrip = () => {
     const list = listRef.current;
     const scroller = scrollerRef.current;
     if (!list || !scroller) return;
+    // A resize can remove horizontal overflow. It must not reset the list.
+    const maxScroll = scroller.scrollWidth - scroller.clientWidth;
+    if (maxScroll <= 0) return;
     const columns = foldTimelineColumns(
       measureTimelineColumns(scroller),
       listLayoutRef.current.anchorByRequestId,
     );
-    // A resize can remove horizontal overflow. It must not reset the list.
-    const timelineMaxScroll = scroller.scrollWidth - scroller.clientWidth;
-    if (timelineMaxScroll <= 0) return;
-    const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
-    const next = listScrollForTimeline(
-      rowsRef.current,
-      columns,
-      // Match the integer scrollWidth/clientWidth, including a fractional
-      // last pixel from CSS layout, so the final call reaches the list end.
-      Math.round(scroller.scrollLeft),
-      timelineMaxScroll,
-      maxScroll,
+    const next = Math.round(
+      flowListScrollForTimeline(
+        flowMeasurements(),
+        columns,
+        // Match the integer scrollWidth/clientWidth, including a fractional
+        // last pixel from CSS layout, so the final call reaches the list end.
+        Math.round(scroller.scrollLeft),
+        maxScroll,
+        list.scrollHeight - list.clientHeight,
+      ),
     );
-    const clamped = Math.round(Math.min(maxScroll, Math.max(0, next)));
-    if (clamped === Math.round(list.scrollTop)) return;
+    if (next === Math.round(list.scrollTop)) return;
     suppressStripFromListUntilRef.current = Date.now() + REVEAL_SUPPRESS_MS;
-    if (rowsRef.current.length >= LIST_VIRTUALIZE_MIN_ROWS) {
-      virtualizerRef.current.scrollToOffset(clamped, { align: "start" });
-      return;
-    }
-    list.scrollTop = clamped;
+    flowRef.current?.scrollToOffset(next);
   };
 
   const scheduleSync = (from: "list" | "strip") => {
     if (from === "list" && Date.now() < suppressStripFromListUntilRef.current) {
       return;
     }
+    // A reveal from the strip settles the list over several frames; the
+    // strip the reader just clicked must not follow those scrolls.
+    if (from === "list" && flowRef.current?.revealing()) return;
     if (
       from === "strip" &&
       Date.now() < suppressListFromStripUntilRef.current
@@ -478,42 +451,32 @@ export function RequestTrajectory({
     if (!list || !highlightedRequestId || revealNonce === 0) return;
     if (list.clientHeight === 0) return;
     const first =
-      rowIndex.firstPhaseByRequestId.get(highlightedRequestId) ??
-      rowIndex.byId.get(selectedRowId ?? "");
+      rowIndex.byId.get(selectedRowId ?? "") ??
+      rowIndex.firstPhaseByRequestId.get(highlightedRequestId);
     if (!first) return;
-    if (virtualized) {
-      const position = listPositionById.get(first.id);
-      if (position === undefined) return;
-      suppressStripFromListUntilRef.current = Date.now() + REVEAL_SUPPRESS_MS;
-      virtualizer.scrollToIndex(position, { align: "start" });
-      return;
-    }
-    const target = list.querySelector<HTMLElement>(
-      `[data-testid="trajectory-row"][data-row-id="${first.id}"]`,
-    );
-    if (!target) return;
-    const top = target.offsetTop;
-    if (top === list.scrollTop) return;
     suppressStripFromListUntilRef.current = Date.now() + REVEAL_SUPPRESS_MS;
-    list.scrollTop = top;
+    flowRef.current?.revealRow(first.id, { quiet: true });
   }, [highlightedRequestId, revealNonce]);
 
-  // A find stop goes to the top of the list with its turn open below it. The
-  // strip is left to follow the list, so it shows the same turn.
+  const foundPhaseId = listRows.find(
+    (row) =>
+      row.chip !== "TURN" &&
+      listLayout.turnByRowId.get(row.id) === foundTurn &&
+      find.queryFor(row),
+  )?.id;
+  // Find opens the call holding its hit on that phase, without moving the
+  // selection the inspector follows. A pick made afterwards wins.
+  const findFocusRowId =
+    findStop !== null && findDismissedSeq !== findSeq
+      ? (foundPhaseId ??
+        (rowIndex.byId.get(findStop)?.chip === "TURN" ? null : findStop))
+      : null;
+  // Reveal once the matching phase is visible, including a manually folded turn.
   useEffect(() => {
     const list = listRef.current;
     if (!list || !findStop || list.clientHeight === 0) return;
-    const position = listPositionById.get(findStop);
-    if (position === undefined) return;
-    if (virtualized) {
-      virtualizer.scrollToIndex(position, { align: "start" });
-      return;
-    }
-    const target = list.querySelector<HTMLElement>(
-      `[data-testid="trajectory-row"][data-row-id="${findStop}"]`,
-    );
-    if (target) list.scrollTop = target.offsetTop;
-  }, [findStop, findSeq]);
+    flowRef.current?.revealRow(foundPhaseId ?? findStop);
+  }, [foundPhaseId, findStop, findSeq]);
 
   // ⌘F goes to the search box while the list is on screen; ⌘G steps.
   const findKeys = useRef(find);
@@ -542,27 +505,9 @@ export function RequestTrajectory({
     let cancelled = false;
     let observer: ResizeObserver | undefined;
     const scrollToLatest = () => {
-      const current = rowsRef.current;
-      const last = current[current.length - 1];
-      if (!last || list.clientHeight === 0) return false;
+      if (!flowRef.current || list.clientHeight === 0) return false;
       suppressListFromStripUntilRef.current = Date.now() + REVEAL_SUPPRESS_MS;
-      const latestOffset = Math.max(
-        0,
-        current.length * LIST_ROW_ESTIMATE_PX - list.clientHeight,
-      );
-      list.scrollTop = latestOffset;
-      if (current.length >= LIST_VIRTUALIZE_MIN_ROWS) {
-        virtualizerRef.current.scrollToOffset(latestOffset, { align: "start" });
-      } else {
-        const target = list.querySelector<HTMLElement>(
-          `[data-testid="trajectory-row"][data-row-id="${last.id}"]`,
-        );
-        if (!target) return false;
-        list.scrollTop = Math.max(
-          0,
-          target.offsetTop + target.offsetHeight - list.clientHeight,
-        );
-      }
+      flowRef.current.scrollToLatest();
       list.dispatchEvent(new Event("scroll"));
       syncStripFromList();
       return true;
@@ -700,64 +645,27 @@ export function RequestTrajectory({
         </span>
       </div>
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        <div
-          aria-label={t("trajectory.eventList")}
-          className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
-          data-testid="trajectory-list"
+        <TrajectoryFlowList
+          key={sessionKey}
+          ref={flowRef}
+          scrollRef={listRef}
+          rows={listRows}
+          cards={cardRows}
+          summaries={listSummaries}
+          services={serviceByRequest}
+          selectedRow={selectedRow}
+          focusRowId={findFocusRowId ?? selectedRow?.id ?? null}
+          highlightedRequestId={highlightedRequestId}
+          flash={flash}
+          expandedTurns={listLayout.openTurns}
+          turnDigests={turnDigests}
+          durationScale={durationScale}
+          queryFor={find.queryFor}
+          stopState={find.stopState}
+          onSelect={selectListRow}
+          onInspect={selectRow}
           onScroll={() => scheduleSync("list")}
-          ref={listRef}
-        >
-          <ol
-            className="relative"
-            style={
-              virtualRows ? { height: virtualizer.getTotalSize() } : undefined
-            }
-          >
-            {virtualRows
-              ? virtualRows.map((item) => (
-                  <TrajectoryRowView
-                    key={item.key}
-                    expanded={turnExpanded(listRows[item.index]!)}
-                    findQuery={find.queryFor(listRows[item.index]!)}
-                    findStop={find.stopState(listRows[item.index]!)}
-                    highlighted={chainHighlighted(
-                      listRows[item.index]!,
-                      highlightedRequestId,
-                      selectedRow?.chip === "TURN",
-                    )}
-                    measureRef={virtualizer.measureElement}
-                    offsetPx={item.start}
-                    onSelect={selectListRow}
-                    position={item.index}
-                    row={listRows[item.index]!}
-                    card={cardRows.get(listRows[item.index]!.id)}
-                    summary={listSummaries.get(listRows[item.index]!.id) ?? ""}
-                    service={serviceByRequest[listRows[item.index]!.requestId]}
-                    selected={listRows[item.index]!.id === selectedRow?.id}
-                  />
-                ))
-              : listRows.map((row, position) => (
-                  <TrajectoryRowView
-                    key={row.id}
-                    expanded={turnExpanded(row)}
-                    findQuery={find.queryFor(row)}
-                    findStop={find.stopState(row)}
-                    highlighted={chainHighlighted(
-                      row,
-                      highlightedRequestId,
-                      selectedRow?.chip === "TURN",
-                    )}
-                    onSelect={selectListRow}
-                    position={position}
-                    row={row}
-                    card={cardRows.get(row.id)}
-                    summary={listSummaries.get(row.id) ?? ""}
-                    service={serviceByRequest[row.requestId]}
-                    selected={row.id === selectedRow?.id}
-                  />
-                ))}
-          </ol>
-        </div>
+        />
         {/* Without a window host the pane floats above the list instead of
             splitting the row, so the list keeps its full width either way. */}
         {selection && !inspectorWindow.enabled ? (
@@ -1262,15 +1170,6 @@ const TimelinePhaseSlot = memo(function TimelinePhaseSlot({
   );
 });
 
-function chainHighlighted(
-  row: TrajectoryRow,
-  requestId: string | null,
-  includeTurn: boolean,
-): boolean {
-  if (requestId === null || row.requestId !== requestId) return false;
-  return row.chip !== "TURN" || includeTurn;
-}
-
 /** `current` with each turn opened, or `current` itself if all already were. */
 function withTurnsOpen(
   current: ReadonlyMap<string, boolean>,
@@ -1299,315 +1198,3 @@ function findRecord(
   }
   return null;
 }
-
-/**
- * Memoized and handed a stable `onSelect`, so moving the selection repaints the
- * two rows that changed instead of all 1400 of them.
- */
-const TrajectoryRowView = memo(function TrajectoryRowView({
-  row,
-  card,
-  summary,
-  service,
-  selected,
-  highlighted,
-  expanded,
-  findQuery,
-  findStop,
-  position,
-  offsetPx,
-  measureRef,
-  onSelect,
-}: {
-  row: TrajectoryRow;
-  card?: TrajectoryCardRow;
-  summary: string;
-  service?: RequestServiceIdentity;
-  selected: boolean;
-  highlighted: boolean;
-  /** Set only on a turn header: whether its calls are listed below it. */
-  expanded?: boolean;
-  /** The find query, set only where this row's own text holds it. */
-  findQuery?: string;
-  /** Set where find lands on this row: one of its stops, or the active one. */
-  findStop?: FindStopState;
-  position: number;
-  /** Set only while the list is windowed, where rows are placed by transform. */
-  offsetPx?: number;
-  measureRef?: (node: Element | null) => void;
-  onSelect: (row: TrajectoryRow) => void;
-}) {
-  const t = useT();
-  const pending = row.tone === "pending" && row.endedAt === null;
-  // Only phases in the active call share a moving scale. Historical calls
-  // remain memoized, even in a long session with thousands of events.
-  const nowMs = useLiveClock(
-    pending || Boolean(card?.timingWindow?.open),
-    1000,
-  );
-  const started = new Date(row.startedAt);
-  const ended = pending
-    ? nowMs
-    : row.endedAt === null
-      ? NaN
-      : Date.parse(row.endedAt);
-  const duration =
-    Number.isFinite(ended) &&
-    Number.isFinite(started.getTime()) &&
-    ended >= started.getTime()
-      ? formatDuration(ended - started.getTime())
-      : pending
-        ? t("status.pending")
-        : "—";
-  const time = Number.isFinite(started.getTime())
-    ? started.toLocaleTimeString(i18n.language, { hour12: false })
-    : "—";
-  const timingWindow = card?.timingWindow;
-  const windowDuration = timingWindow
-    ? Math.max(
-        0,
-        (timingWindow.open
-          ? Math.max(timingWindow.endMs, nowMs)
-          : timingWindow.endMs) - timingWindow.startMs,
-      )
-    : 0;
-  const timingOffset =
-    card?.timing && timingWindow
-      ? windowDuration > 0
-        ? Math.min(
-            1,
-            Math.max(
-              0,
-              (started.getTime() - timingWindow.startMs) / windowDuration,
-            ),
-          )
-        : 0
-      : undefined;
-  const timingDuration =
-    timingOffset !== undefined
-      ? windowDuration > 0
-        ? Math.min(
-            1 - timingOffset,
-            Math.max(0, (ended - started.getTime()) / windowDuration),
-          )
-        : 0
-      : undefined;
-  const first = card?.edge === "first" || card?.edge === "only";
-  const last = card?.edge === "last" || card?.edge === "only";
-  const turn = row.chip === "TURN";
-  const PhaseIcon =
-    row.tone === "failed"
-      ? BadgeAlert
-      : row.tone === "blocked" || row.tone === "cancelled"
-        ? Ban
-        : phaseIcons[row.chip];
-  const statusTone =
-    row.tone === "ok"
-      ? "positive"
-      : row.tone === "failed"
-        ? "negative"
-        : row.tone === "cancelled"
-          ? "neutral"
-          : row.tone;
-  const accessibleName = [
-    first && card
-      ? `${t("conversation.callNumber", { index: card.callNumber })}${row.child ? ` · ${t("trajectory.chips.RETRY")}` : ""}`
-      : "",
-    t(`trajectory.chips.${row.chip}`),
-    time,
-    row.chip === "UPSTREAM" || row.chip === "RETRY" ? service?.name : "",
-    row.summary,
-    row.conversationContinued ? t("trajectory.continuation") : "",
-    row.result,
-    `${t("records.duration")} ${duration}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <li
-      className={cn("h-11 px-2", first && "pt-1", last && "pb-1")}
-      data-index={position}
-      ref={measureRef}
-      style={
-        offsetPx === undefined
-          ? undefined
-          : {
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              transform: `translateY(${offsetPx}px)`,
-            }
-      }
-    >
-      <CallCardRow
-        edge={card?.edge}
-        aria-current={selected ? "true" : undefined}
-        aria-expanded={expanded}
-        aria-label={turn ? undefined : accessibleName}
-        className={cn(
-          ROW_COLUMNS,
-          "group relative h-full w-full shrink-0 items-center px-2 py-0 text-left text-xs font-normal text-foreground shadow-none hover:bg-muted/70 focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring focus-visible:ring-0",
-          turn && "rounded-none border-0 border-b bg-muted/40 font-medium",
-          first && "bg-accent/35",
-          row.tone === "failed" && "bg-danger-wash/45 hover:bg-danger-wash",
-          row.tone === "blocked" && "bg-blocked-wash/50 hover:bg-blocked-wash",
-          row.tone === "cancelled" &&
-            "bg-warning-wash/40 hover:bg-warning-wash",
-          pending && "bg-warning-wash/40",
-          (selected || highlighted) && "bg-accent hover:bg-accent",
-          findStop &&
-            "bg-tide-wash after:absolute after:inset-y-0 after:left-0 after:w-0.5 after:bg-tide hover:bg-tide-wash",
-          findStop === "active" && "ring-1 ring-tide ring-inset after:w-1",
-          selected &&
-            "before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
-        )}
-        data-chip={row.chip}
-        data-card-edge={card?.edge}
-        data-call-number={card?.callNumber}
-        data-find-stop={findStop}
-        data-highlighted={highlighted ? "true" : undefined}
-        data-request-id={row.requestId}
-        data-row-id={row.id}
-        data-selected={selected ? "true" : undefined}
-        data-testid="trajectory-row"
-        data-tone={row.tone}
-        onClick={() => onSelect(row)}
-        type="button"
-      >
-        {turn ? (
-          <span className="flex items-center justify-center gap-0.5 text-muted-foreground">
-            <ChevronRight
-              aria-hidden="true"
-              className={cn(
-                "size-3 transition-transform motion-reduce:transition-none",
-                expanded && "rotate-90",
-              )}
-            />
-            <MessageSquare aria-hidden="true" className="size-3.5" />
-          </span>
-        ) : (
-          <ExecutionNode
-            first={first}
-            last={last}
-            pending={pending}
-            label={t("status.pending")}
-            className={chipToneClass(row.chip, row.tone, "subtle")}
-          >
-            {first && card && !row.child ? (
-              card.callNumber
-            ) : (
-              <PhaseIcon animateOnHover={false} />
-            )}
-          </ExecutionNode>
-        )}
-        <span className="flex min-w-0 flex-col justify-center gap-0.5">
-          <span className="flex min-w-0 items-center gap-2 leading-none">
-            <span
-              className={cn("shrink-0 font-medium", first && "text-primary")}
-            >
-              {first && card
-                ? t("conversation.callNumber", { index: card.callNumber })
-                : t(`trajectory.chips.${row.chip}`)}
-            </span>
-            {first ? (
-              <Badge className="h-4 px-1" variant="outline">
-                {t(`trajectory.chips.${row.chip}`)}
-              </Badge>
-            ) : null}
-            <time
-              className="hidden font-mono text-micro text-muted-foreground/70 @min-[760px]/trajectory:block"
-              dateTime={row.startedAt}
-              title={row.startedAt}
-            >
-              {time}
-            </time>
-            <span
-              className={cn(
-                "ml-auto flex min-w-0 items-center gap-1 text-micro text-muted-foreground",
-                row.tone === "failed" && "text-danger-foreground",
-                row.tone === "blocked" && "text-blocked-foreground",
-                row.tone === "cancelled" && "text-warning-foreground",
-              )}
-              title={row.result}
-            >
-              {pending ? (
-                <ThinkingLoader
-                  className="h-4 gap-0 border-0 bg-transparent px-0 text-micro [&_svg]:hidden"
-                  label={row.result || t("status.pending")}
-                />
-              ) : (
-                <>
-                  {!turn ? <StatusDot tone={statusTone} /> : null}
-                  <span className="truncate">
-                    <HighlightedText query={findQuery} text={row.result} />
-                  </span>
-                </>
-              )}
-            </span>
-          </span>
-          <span
-            className="flex min-w-0 items-center gap-2 leading-tight text-muted-foreground"
-            title={row.summary}
-          >
-            {service && (row.chip === "UPSTREAM" || row.chip === "RETRY") ? (
-              <RequestServiceLabel
-                className={cn(
-                  "shrink-0 font-medium text-foreground",
-                  summary ? "max-w-[55%]" : "max-w-full",
-                )}
-                labelClassName="sr-only"
-                service={service}
-              />
-            ) : null}
-            {row.chip === "REDIRECT" && row.redirect ? (
-              <ModelLabel
-                model={row.redirect.from}
-                redirectedTo={row.redirect.to}
-              />
-            ) : (
-              <span
-                className={cn(
-                  "truncate",
-                  first && "font-medium text-foreground",
-                )}
-              >
-                <HighlightedText
-                  query={findQuery}
-                  text={
-                    summary ||
-                    (row.chip === "RESULT"
-                      ? t("trajectory.clientResponse")
-                      : "")
-                  }
-                />
-              </span>
-            )}
-            {row.conversationContinued ? (
-              <ConversationIndicator kind="continuation" />
-            ) : null}
-          </span>
-        </span>
-        <ExecutionSpan
-          offset={timingOffset}
-          duration={timingDuration}
-          label={duration}
-          title={`${t("trajectory.timingHint")} · ${time} · ${duration}`}
-          pending={pending}
-          className={chipDotClass(row.chip, row.tone)}
-        />
-        {turn ? (
-          <span />
-        ) : (
-          <ChevronRight
-            aria-hidden="true"
-            className={cn(
-              "size-3 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground motion-reduce:transition-none",
-              selected && "text-primary",
-            )}
-          />
-        )}
-      </CallCardRow>
-    </li>
-  );
-});
