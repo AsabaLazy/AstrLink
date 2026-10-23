@@ -380,6 +380,9 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		}
 		// Never delay or fail the client response on persistence errors.
 		session.finish(context.Background(), handler.requestRecords, handler.auditBlobs, handler.recordLogger)
+		if mode := builtinInternalFrom(request.Context()); mode != nil {
+			mode.Status, mode.Error = session.status, session.errorSummary
+		}
 	}()
 
 	// One read serves model redirects, channel binding and discovery.
