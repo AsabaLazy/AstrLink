@@ -763,7 +763,6 @@
     "recentCapped": "仅统计最近 {{count}} 条",
     "requests": "请求数",
     "totalTokens": "总 Token",
-    "inputOutput": "输入 / 输出",
     "input": "输入",
     "output": "输出",
     "cache": "缓存",

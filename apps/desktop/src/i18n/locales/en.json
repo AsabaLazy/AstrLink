@@ -763,7 +763,6 @@
     "recentCapped": "Only the most recent {{count}} records",
     "requests": "Requests",
     "totalTokens": "Total tokens",
-    "inputOutput": "Input / output",
     "input": "Input",
     "output": "Output",
     "cache": "Cache",

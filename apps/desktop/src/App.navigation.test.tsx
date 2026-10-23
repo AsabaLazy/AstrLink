@@ -8,6 +8,7 @@ import {
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { emptyUsageSummary, emptyUsageTotals } from "./usage-range";
 
 const bridgeMocks = vi.hoisted(() => ({
   builtinToolAction: vi.fn().mockResolvedValue({ configured: false }),
@@ -1306,7 +1307,8 @@ describe("App workspace navigation", () => {
     ).not.toBeNull();
     expect(container.textContent).toContain("按 API 提供商");
     expect(container.textContent).toContain("按模型");
-    expect(container.textContent).toContain("Primary gateway");
+    expect(container.textContent).not.toContain("Primary gateway");
+    expect(container.textContent).toContain("所选区间没有成功请求");
 
     await act(async () => {
       button("令牌").click();
@@ -1371,6 +1373,23 @@ describe("App workspace navigation", () => {
   });
 
   it("opens a provider's requests from its usage row and its settings from the gear", async () => {
+    bridgeMocks.getUsageSummary.mockImplementation(async (window) => {
+      const summary = emptyUsageSummary(window);
+      const totals = {
+        ...emptyUsageTotals(),
+        requests: 1,
+        input_tokens: 32,
+        output_tokens: 8,
+        total_tokens: 40,
+      };
+      return {
+        ...summary,
+        totals,
+        status_counts: { ...summary.status_counts, succeeded: 1 },
+        by_service: [{ id: "service_gateway_01", ...totals }],
+        scanned_records: 1,
+      };
+    });
     bridgeMocks.getService.mockResolvedValue({
       service: {
         id: "service_gateway_01",

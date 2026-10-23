@@ -78,19 +78,3 @@ export function Metric({
     </div>
   );
 }
-
-/** Paired numbers wrap between values so each number keeps its unit. */
-export function MetricValuePair({
-  first,
-  second,
-}: {
-  first: ReactNode;
-  second: ReactNode;
-}) {
-  return (
-    <span className="inline-flex max-w-full flex-wrap items-baseline">
-      <span className="whitespace-nowrap">{first}</span>
-      <span className="whitespace-nowrap"> / {second}</span>
-    </span>
-  );
-}

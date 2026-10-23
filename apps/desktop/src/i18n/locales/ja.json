@@ -763,7 +763,6 @@
     "recentCapped": "最新 {{count}} 件のみ",
     "requests": "リクエスト",
     "totalTokens": "合計トークン",
-    "inputOutput": "入力 / 出力",
     "input": "入力",
     "output": "出力",
     "cache": "キャッシュ",
