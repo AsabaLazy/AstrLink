@@ -2998,7 +2998,7 @@
       "failover": "Switch to"
     },
     "failoverOnly": "ABC: switch after failure",
-    "onceHint": "ABC skips ordinary retries, so retry counts and backoff do not apply. Request repair works independently; error rules still control switching."
+    "onceHint": "ABC tries the next provider first. When no further provider is available, it retries the last provider called, subject to error rules, retry counts, backoff, and the total attempt limit. Request repair works independently."
   },
   "routingDecision": {
     "title": "Routing steps",

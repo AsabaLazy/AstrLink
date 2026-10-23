@@ -466,12 +466,13 @@ func TestStreamRefusalFromEveryProviderReachesTheClient(t *testing.T) {
 		"/v1/responses", `{"model":"m","input":"hi","stream":true}`,
 		map[string]string{"A.example": overloadedCodexStream, "B.example": overloadedCodexStream})
 	if response.Code != http.StatusOK || response.Body.String() != overloadedCodexStream ||
-		!reflect.DeepEqual(attempts, []string{"A.example", "B.example"}) {
+		!reflect.DeepEqual(attempts, []string{"A.example", "B.example", "B.example"}) {
 		t.Fatalf("response = %d %q after %v", response.Code, response.Body.String(), attempts)
 	}
 	root, children := splitRecords(t, store)
 	if root.Status != contract.RequestStatusFailed || root.Error == nil || root.Error.Code != "upstream_stream_failed" ||
-		len(children) != 1 || children[0].Error == nil || children[0].Error.Code != "upstream_stream_failed" {
+		len(children) != 2 || children[0].Error == nil || children[0].Error.Code != "upstream_stream_failed" ||
+		children[1].Error == nil || children[1].Error.Code != "upstream_stream_failed" {
 		t.Fatalf("root = %s %+v, children = %+v", root.Status, root.Error, children)
 	}
 	if root.Recovery == nil || root.Recovery.StopReason != "targets_exhausted" {
