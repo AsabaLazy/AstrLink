@@ -143,6 +143,8 @@
     "checking": "检查中…"
   },
   "nav": {
+    "collapse": "折叠侧栏",
+    "expand": "展开侧栏",
     "main": "主要导航",
     "workspace": "工作区",
     "system": "系统",

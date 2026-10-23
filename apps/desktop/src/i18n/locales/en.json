@@ -143,6 +143,8 @@
     "checking": "Checking…"
   },
   "nav": {
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
     "main": "Main navigation",
     "workspace": "Workspace",
     "system": "System",
