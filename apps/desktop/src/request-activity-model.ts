@@ -185,6 +185,35 @@ function rankClients(perClient: Map<ClientType, number>): ActivityClient[] {
   );
 }
 
+/** What a conversation in progress is doing, as its lane says it. */
+export type LaneAction =
+  /** A call runs and the model has produced nothing yet. */
+  | { kind: "waiting" }
+  | { kind: "thinking" }
+  | { kind: "writing" }
+  /** The model is writing a call of `tool`; empty before its name arrives. */
+  | { kind: "calling"; tool: string }
+  /** Between calls: the client runs the tools the last call asked for. */
+  | { kind: "running"; tools: string[] }
+  /** Between calls: the model answered and the conversation waits for more. */
+  | { kind: "replied" }
+  /** Between calls, from a call that recorded no output. */
+  | { kind: "idle" };
+
+export function laneAction(session: RequestSession): LaneAction {
+  const output = session.output;
+  if (sessionRunning(session)) {
+    if (!output) return { kind: "waiting" };
+    if (output.kind === "reasoning") return { kind: "thinking" };
+    if (output.kind === "text") return { kind: "writing" };
+    return { kind: "calling", tool: output.tools.at(-1) ?? "" };
+  }
+  if (output?.kind === "tool" && output.tools.length > 0) {
+    return { kind: "running", tools: [...new Set(output.tools)] };
+  }
+  return output ? { kind: "replied" } : { kind: "idle" };
+}
+
 /**
  * The conversations in progress and the rest in their list order. Active ones
  * keep their place while they alternate between calls and tools, so they are

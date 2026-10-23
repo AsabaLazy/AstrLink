@@ -30,32 +30,44 @@ export function toolCallSummary(
     }
     return null;
   };
+  const kind = toolNameKind(name);
+  const keys = TOOL_ARGUMENT_KEYS[kind];
+  if (keys) {
+    const text = pick(...keys);
+    if (text) return { kind, text };
+  }
+  return fallback;
+}
+
+const TOOL_NAME_KINDS: Array<[Exclude<ToolSummaryKind, "generic">, RegExp]> = [
+  [
+    "file",
+    /^(read|write|edit|view_image|read_file|read_text_file|read_file_lines|write_file|edit_file|readfile|writefile)$/,
+  ],
+  [
+    "command",
+    /^(bash|shell|exec|exec_command|shell_command|run_command|run_shell_command|terminal)$/,
+  ],
+  [
+    "search",
+    /^(grep|glob|search|web_search|search_files|find_files|ripgrep|rg)$/,
+  ],
+];
+
+const TOOL_ARGUMENT_KEYS: Partial<Record<ToolSummaryKind, string[]>> = {
+  file: ["file_path", "path", "filename", "file"],
+  command: ["command", "cmd", "script"],
+  search: ["pattern", "query", "q", "search_term", "glob"],
+};
+
+/** What a tool does, judged from its name alone, MCP prefixes included. */
+export function toolNameKind(name: string): ToolSummaryKind {
   const tool =
     name
       .split(/__|[./]/)
       .at(-1)
       ?.toLowerCase() ?? "";
-  const kinds: Array<[ToolSummaryKind, RegExp, string[]]> = [
-    [
-      "file",
-      /^(read|write|edit|view_image|read_file|read_text_file|read_file_lines|write_file|edit_file|readfile|writefile)$/,
-      ["file_path", "path", "filename", "file"],
-    ],
-    [
-      "command",
-      /^(bash|shell|exec|exec_command|shell_command|run_command|run_shell_command|terminal)$/,
-      ["command", "cmd", "script"],
-    ],
-    [
-      "search",
-      /^(grep|glob|search|web_search|search_files|find_files|ripgrep|rg)$/,
-      ["pattern", "query", "q", "search_term", "glob"],
-    ],
-  ];
-  for (const [kind, pattern, keys] of kinds) {
-    if (!pattern.test(tool)) continue;
-    const text = pick(...keys);
-    if (text) return { kind, text };
-  }
-  return fallback;
+  return (
+    TOOL_NAME_KINDS.find(([, pattern]) => pattern.test(tool))?.[0] ?? "generic"
+  );
 }

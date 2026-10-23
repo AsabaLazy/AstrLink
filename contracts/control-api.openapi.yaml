@@ -6643,6 +6643,8 @@ components:
           type: [integer, "null"]
           minimum: 0
           description: Milliseconds from sending the upstream request to the first generated content that is not reasoning (text, a refusal, a tool call, or media). At least first_token_ms; the difference is how long the model thought before answering. Null without first_token_ms, for calls that only reasoned, and on historical rows.
+        output:
+          $ref: "#/components/schemas/OutputActivity"
         usage:
           oneOf:
             - $ref: "#/components/schemas/Usage"
@@ -7038,6 +7040,28 @@ components:
           type: integer
           minimum: 0
       additionalProperties: false
+    OutputActivity:
+      type: object
+      description: >
+        What a call's response produces. While the call streams, kind is the
+        part arriving now and is refreshed at most twice a second; once the
+        call ends, the last part. After a call that ended on a tool call, the
+        client is running the named tools. Absent before any output and on
+        historical records.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [reasoning, text, tool]
+        tools:
+          type: array
+          description: Names of the tool calls the response made, in order.
+          maxItems: 8
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+      additionalProperties: false
     RequestActivity:
       type: object
       required: [now, calls]
@@ -7142,6 +7166,10 @@ components:
           oneOf:
             - $ref: ./protocol-capabilities.schema.json#/$defs/ResourceId
             - type: "null"
+        output:
+          allOf:
+            - $ref: "#/components/schemas/OutputActivity"
+          description: The latest call's output, so a list can tell whether a conversation is thinking, answering, or running tools.
         privacy_warned:
           type: boolean
           description: Present and true when the privacy policy's warn action let at least one call of the session through.

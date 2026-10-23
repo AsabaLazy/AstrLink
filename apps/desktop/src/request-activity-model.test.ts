@@ -4,6 +4,7 @@ import {
   ACTIVE_GRACE_MS,
   activitySince,
   conversationActivity,
+  laneAction,
   splitActiveSessions,
   summarizeActivity,
 } from "./request-activity-model";
@@ -174,6 +175,35 @@ describe("summarizeActivity", () => {
 
   it("reads from the window plus the grace before it", () => {
     expect(activitySince(NOW)).toBe(at(-360_000));
+  });
+});
+
+describe("laneAction", () => {
+  it("follows the running call's output", () => {
+    expect(laneAction(running())).toEqual({ kind: "waiting" });
+    expect(
+      laneAction(running({ output: { kind: "reasoning", tools: [] } })),
+    ).toEqual({ kind: "thinking" });
+    expect(
+      laneAction(running({ output: { kind: "text", tools: [] } })),
+    ).toEqual({ kind: "writing" });
+    expect(
+      laneAction(
+        running({ output: { kind: "tool", tools: ["Read", "Bash"] } }),
+      ),
+    ).toEqual({ kind: "calling", tool: "Bash" });
+  });
+
+  it("tells running tools from a finished answer between calls", () => {
+    expect(
+      laneAction(
+        session({ output: { kind: "tool", tools: ["Read", "Read", "Bash"] } }),
+      ),
+    ).toEqual({ kind: "running", tools: ["Read", "Bash"] });
+    expect(
+      laneAction(session({ output: { kind: "text", tools: ["Read"] } })),
+    ).toEqual({ kind: "replied" });
+    expect(laneAction(session())).toEqual({ kind: "idle" });
   });
 });
 

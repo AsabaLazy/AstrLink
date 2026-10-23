@@ -1030,7 +1030,7 @@ describe("RequestRecords", () => {
       ]);
     expect(lanes()).toEqual([
       ["waiting", "idle", "空闲 5 s"],
-      ["calling", "calling", "调用中 10.0 s"],
+      ["calling", "calling", "等待模型 10.0 s"],
     ]);
     expect(
       container
@@ -1041,12 +1041,65 @@ describe("RequestRecords", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
-    expect(lanes()).toEqual([["calling", "calling", "调用中 1m 10s"]]);
+    expect(lanes()).toEqual([["calling", "calling", "等待模型 1m 10s"]]);
     const settled = container.querySelector('[data-session-id="waiting"]');
     expect(settled?.closest('[data-testid="active-sessions"]')).toBeNull();
     expect(settled?.closest("section")?.textContent).toContain(
       "conversation between calls",
     );
+  });
+
+  it("says what each conversation in progress is doing", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T12:00:10Z"));
+    const running = (id: string, output?: RequestSession["output"]) =>
+      sessionFromRecord(firstRecord, {
+        id,
+        status: "pending",
+        completed_at: null,
+        started_at: "2026-07-28T11:50:00Z",
+        last_started_at: "2026-07-28T12:00:00Z",
+        active_request_starts: ["2026-07-28T12:00:00Z"],
+        ...(output ? { output } : {}),
+      });
+    const between = (id: string, output: RequestSession["output"]) =>
+      sessionFromRecord(firstRecord, {
+        id,
+        started_at: "2026-07-28T11:40:00Z",
+        last_started_at: "2026-07-28T12:00:01Z",
+        completed_at: "2026-07-28T12:00:02Z",
+        output,
+      });
+    bridgeMocks.listRequestSessions.mockResolvedValue({
+      items: [
+        running("thinking", { kind: "reasoning", tools: [] }),
+        running("writing", { kind: "text", tools: [] }),
+        running("calling", { kind: "tool", tools: ["Read", "Bash"] }),
+        between("tools", { kind: "tool", tools: ["Read", "Bash", "Edit"] }),
+        between("replied", { kind: "text", tools: [] }),
+      ],
+      next_cursor: null,
+    });
+    await renderRecords();
+    const state = (id: string) => {
+      const label = container.querySelector<HTMLElement>(
+        `[data-session-id="${id}"] [data-testid="lane-state"]`,
+      );
+      return [label?.dataset.action, label?.textContent, label?.title];
+    };
+    expect(state("thinking")).toEqual(["thinking", "思考中 10.0 s", ""]);
+    expect(state("writing")).toEqual(["writing", "写回答 10.0 s", ""]);
+    expect(state("calling")).toEqual(["calling", "调用 Bash 10.0 s", ""]);
+    expect(state("tools")).toEqual([
+      "running",
+      "运行 Read · Bash +1 8 s",
+      "模型让客户端运行这些工具。下一次调用会带回结果。",
+    ]);
+    expect(state("replied")).toEqual([
+      "replied",
+      "等你回复 8 s",
+      "模型已经回答。对话在等下一条消息。",
+    ]);
   });
 
   it("opens a session trajectory and shows retry children as RETRY rows", async () => {

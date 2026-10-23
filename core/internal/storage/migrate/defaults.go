@@ -1092,5 +1092,10 @@ END`,
     INSERT INTO config_change_log (entity_kind, entity_id, changed_at) VALUES ('access_token', OLD.id, strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now'));
 END`,
 		}},
+		{Version: 55, Name: "request_output_activity", Statements: []string{
+			// What a call's response is producing, refreshed while it streams,
+			// so the request list can show what a conversation is doing.
+			`ALTER TABLE request_records ADD COLUMN output_json TEXT`,
+		}},
 	}
 }

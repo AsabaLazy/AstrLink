@@ -13,19 +13,23 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Brain,
   ChevronDown,
   ChevronUp,
   Copy,
   SlidersHorizontal as ListFilter,
   Ellipsis,
+  LoaderCircle,
   MessageSquare,
   RefreshCw,
+  SquarePen,
   SlidersHorizontal as Settings2,
   Shredder as Trash2,
   X,
 } from "@/components/icons";
 
 import { ConfirmDialog as AppConfirmDialog } from "@/components/ConfirmDialog";
+import { ToolKindIcon } from "@/components/ToolKindIcon";
 import { ClientTypeIcon, clientTypeName } from "@/components/ClientTypeIcon";
 import { DataRow } from "@/components/DataRow";
 import { EmptyState } from "@/components/EmptyState";
@@ -156,7 +160,9 @@ import {
 import { RequestActivityBoard } from "./RequestActivityBoard";
 import {
   conversationActivity,
+  laneAction,
   splitActiveSessions,
+  type LaneAction,
 } from "./request-activity-model";
 import { RequestConversation } from "./RequestConversation";
 import { RequestPrivacyAudit } from "./RequestPrivacyAudit";
@@ -3032,34 +3038,23 @@ const SessionLane = memo(function SessionLane({
               </StatusBadge>
             ) : null}
           </span>
-          {calling ? (
-            <span
-              className="justify-self-end text-xs font-medium whitespace-nowrap tabular-nums text-primary shimmer motion-reduce:shimmer-none"
-              data-testid="lane-state"
-            >
-              {t(
-                calls > 1 ? "records.laneCallingMany" : "records.laneCalling",
-                {
-                  count: calls,
-                  duration: formatDuration(Math.max(0, nowMs - since)),
-                },
-              )}
-            </span>
+          {calling || !outcome ? (
+            <LaneActionLabel
+              action={laneAction(session)}
+              calls={calls}
+              elapsedMs={nowMs - since}
+            />
           ) : (
             <span
               className="inline-flex items-center gap-1.5 justify-self-end text-xs whitespace-nowrap tabular-nums text-muted-foreground"
               data-testid="lane-state"
               title={t("records.laneIdleHint")}
             >
-              {outcome ? (
-                <StatusBadge
-                  tone={
-                    outcome === "cancelled" ? "neutral" : statusTone(outcome)
-                  }
-                >
-                  {statusLabel(outcome)}
-                </StatusBadge>
-              ) : null}
+              <StatusBadge
+                tone={outcome === "cancelled" ? "neutral" : statusTone(outcome)}
+              >
+                {statusLabel(outcome)}
+              </StatusBadge>
               {t("records.laneIdle", {
                 duration: `${Math.max(0, Math.floor((nowMs - since) / 1000))} s`,
               })}
@@ -3088,6 +3083,126 @@ const SessionLane = memo(function SessionLane({
     </DataRow>
   );
 });
+
+/**
+ * What a lane says its conversation is doing and for how long: a running
+ * call counts tenths of a second, a wait between calls whole seconds.
+ */
+function LaneActionLabel({
+  action,
+  calls,
+  elapsedMs,
+}: {
+  action: LaneAction;
+  calls: number;
+  elapsedMs: number;
+}) {
+  const t = useT();
+  const running =
+    action.kind === "waiting" ||
+    action.kind === "thinking" ||
+    action.kind === "writing" ||
+    action.kind === "calling";
+  const duration = running
+    ? formatDuration(Math.max(0, elapsedMs))
+    : `${Math.max(0, Math.floor(elapsedMs / 1000))} s`;
+  const iconClass = "size-3.5 shrink-0";
+  let icon: ReactNode = null;
+  let label: string;
+  let hint: string | undefined;
+  switch (action.kind) {
+    case "waiting":
+      icon = (
+        <LoaderCircle
+          animateOnHover={false}
+          aria-hidden="true"
+          className={cn(iconClass, "motion-safe:animate-spin")}
+        />
+      );
+      label = t("records.laneWaiting", { duration });
+      break;
+    case "thinking":
+      icon = (
+        <Brain
+          animateOnHover={false}
+          aria-hidden="true"
+          className={iconClass}
+        />
+      );
+      label = t("records.laneThinking", { duration });
+      break;
+    case "writing":
+      icon = (
+        <SquarePen
+          animateOnHover={false}
+          aria-hidden="true"
+          className={iconClass}
+        />
+      );
+      label = t("records.laneWriting", { duration });
+      break;
+    case "calling":
+      icon = <ToolKindIcon className={iconClass} name={action.tool} />;
+      label = action.tool
+        ? t("records.laneCallingTool", { tool: action.tool, duration })
+        : t("records.laneCallingAnyTool", { duration });
+      break;
+    case "running": {
+      // The conversation view joins tool names the same way.
+      const shown = action.tools.slice(0, 2);
+      const names = shown.join(" · ");
+      icon = <ToolKindIcon className={iconClass} name={action.tools[0]} />;
+      label = t("records.laneRunningTools", {
+        tools:
+          action.tools.length > shown.length
+            ? `${names} +${action.tools.length - shown.length}`
+            : names,
+        duration,
+      });
+      hint = t("records.laneRunningToolsHint");
+      break;
+    }
+    case "replied":
+      icon = (
+        <MessageSquare
+          animateOnHover={false}
+          aria-hidden="true"
+          className={iconClass}
+        />
+      );
+      label = t("records.laneReplied", { duration });
+      hint = t("records.laneRepliedHint");
+      break;
+    case "idle":
+      label = t("records.laneIdle", { duration });
+      hint = t("records.laneIdleHint");
+      break;
+  }
+  if (running && calls > 1) {
+    label = t("records.laneCallingMany", { count: calls, duration });
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1.5 justify-self-end text-xs whitespace-nowrap tabular-nums",
+        running ? "font-medium text-primary" : "text-muted-foreground",
+      )}
+      data-action={action.kind}
+      data-testid="lane-state"
+      title={hint}
+    >
+      {icon}
+      <span
+        className={cn(
+          "min-w-0 truncate",
+          running && "shimmer motion-reduce:shimmer-none",
+        )}
+      >
+        {label}
+      </span>
+    </span>
+  );
+}
 
 function RecordDetail({
   serviceNames,
