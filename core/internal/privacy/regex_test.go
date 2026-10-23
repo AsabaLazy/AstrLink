@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -239,5 +240,60 @@ func TestBuiltinRegexRulesExportMatchesCatalog(t *testing.T) {
 		if err := rule.Validate(); err != nil {
 			t.Fatalf("rule[%d]: %v", index, err)
 		}
+	}
+}
+
+// regexFindingTexts runs detector on text and returns each finding as
+// kind:matched text, in span order.
+func regexFindingTexts(t *testing.T, detector *RegexDetector, text string) []string {
+	t.Helper()
+	findings, err := detector.Detect(t.Context(), DetectInput{
+		Segments: []Segment{{Path: "/input", Value: text}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		texts = append(texts, string(finding.Kind)+":"+text[finding.Start:finding.End])
+	}
+	return texts
+}
+
+func TestCustomRegexRulesReportTheValueGroupWhenTheyHaveOne(t *testing.T) {
+	const text = "user=alice@example.com session=fict-session-0001"
+	whole := []string{"common_secret:session=fict-session-0001"}
+	value := []string{"common_secret:fict-session-0001"}
+	for _, test := range []struct {
+		name    string
+		pattern string
+		want    []string
+	}{
+		{"no group", `session=[a-z0-9-]+`, whole},
+		{"unnamed group", `session=([a-z0-9-]+)`, whole},
+		{"group with another name", `session=(?P<secret>[a-z0-9-]+)`, whole},
+		{"value group", `session=(?P<value>[a-z0-9-]+)`, value},
+		{"value group in the short syntax", `session=(?<value>[a-z0-9-]+)`, value},
+		{
+			"a value group in each alternative",
+			`user=(?P<value>\S+)|session=(?P<value>\S+)`,
+			[]string{"common_secret:alice@example.com", "common_secret:fict-session-0001"},
+		},
+		{"value group that took no part", `session=fict-(?P<value>x+)?session`, nil},
+		{"empty value group", `session=(?P<value>z*)`, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rule := contract.PolicyRegexRule{Kind: string(KindCommonSecret), Pattern: test.pattern}
+			if err := rule.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			detector, err := NewCustomRegexDetector([]contract.PolicyRegexRule{rule})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := regexFindingTexts(t, detector, text); !slices.Equal(got, test.want) {
+				t.Fatalf("findings = %q, want %q", got, test.want)
+			}
+		})
 	}
 }

@@ -5630,7 +5630,13 @@ components:
           type: string
           minLength: 1
           maxLength: 512
-          description: Go RE2 regular expression; compiled by Core on save and inspect.
+          description: >
+            Go RE2 regular expression; compiled by Core on save and inspect.
+            Each match is replaced as a whole unless the pattern has a capture
+            group named value, as in `token=(?P<value>[A-Za-z0-9_-]{12,})`;
+            then only the first value group that took part in the match is
+            replaced, and a match whose value group is empty is not a finding.
+            Other capture groups do not change what is replaced.
       additionalProperties: false
     PolicyRegexBuiltinRulesResponse:
       type: object

@@ -13,11 +13,63 @@ import (
 	"github.com/QuantumNous/astrlink/core/contract"
 )
 
+// regexValueGroup names the capture group that narrows a finding to part of
+// a match. A rule such as token=(?P<value>...) then replaces the credential
+// and leaves the key name readable. Other groups, named or not, do not change
+// the span.
+const regexValueGroup = "value"
+
 type regexSpec struct {
-	kind     Kind
-	pattern  *regexp.Regexp
+	kind    Kind
+	pattern *regexp.Regexp
+	// values lists the groups named regexValueGroup, leftmost first. Empty
+	// when the whole match is the finding.
+	values []int
+	// validate and boundary see the reported span: the value group when the
+	// pattern has one, otherwise the whole match.
 	validate func(string) bool
 	boundary func(string, int, int) bool
+}
+
+func newRegexSpec(
+	kind Kind,
+	pattern *regexp.Regexp,
+	validate func(string) bool,
+	boundary func(string, int, int) bool,
+) regexSpec {
+	spec := regexSpec{kind: kind, pattern: pattern, validate: validate, boundary: boundary}
+	for index, name := range pattern.SubexpNames() {
+		if name == regexValueGroup {
+			spec.values = append(spec.values, index)
+		}
+	}
+	return spec
+}
+
+// spans returns the reported byte range of every match in text. A pattern
+// with a value group reports the first such group that took part in the
+// match, so alternatives can each name their own value. A match whose value
+// group is empty or did not take part holds nothing to replace and reports
+// nothing.
+func (spec regexSpec) spans(text string) [][]int {
+	if len(spec.values) == 0 {
+		return spec.pattern.FindAllStringIndex(text, -1)
+	}
+	matches := spec.pattern.FindAllStringSubmatchIndex(text, -1)
+	spans := make([][]int, 0, len(matches))
+	for _, match := range matches {
+		for _, group := range spec.values {
+			start, end := match[2*group], match[2*group+1]
+			if start < 0 {
+				continue
+			}
+			if end > start {
+				spans = append(spans, match[2*group:2*group+2])
+			}
+			break
+		}
+	}
+	return spans
 }
 
 type builtinRegexDefinition struct {
@@ -94,7 +146,8 @@ func builtinRegexDefinitions() []builtinRegexDefinition {
 }
 
 // BuiltinRegexRules returns the fixed Regex catalog as kind/pattern pairs for
-// control-plane seeding. Built-in validators are not included.
+// control-plane seeding. Built-in validators and boundary checks are not
+// included; value groups are part of the pattern and carry over.
 func BuiltinRegexRules() []contract.PolicyRegexRule {
 	definitions := builtinRegexDefinitions()
 	rules := make([]contract.PolicyRegexRule, 0, len(definitions))
@@ -111,18 +164,19 @@ func NewRegexDetector() *RegexDetector {
 	definitions := builtinRegexDefinitions()
 	specs := make([]regexSpec, 0, len(definitions))
 	for _, definition := range definitions {
-		specs = append(specs, regexSpec{
-			kind:     definition.kind,
-			pattern:  regexp.MustCompile(definition.pattern),
-			validate: definition.validate,
-			boundary: definition.boundary,
-		})
+		specs = append(specs, newRegexSpec(
+			definition.kind,
+			regexp.MustCompile(definition.pattern),
+			definition.validate,
+			definition.boundary,
+		))
 	}
 	return &RegexDetector{specs: specs}
 }
 
 // NewCustomRegexDetector compiles user-authored rules without built-in
-// validators or boundary helpers.
+// validators or boundary helpers. A rule with a group named value reports
+// only that group; any other rule reports its whole match.
 func NewCustomRegexDetector(rules []contract.PolicyRegexRule) (*RegexDetector, error) {
 	if len(rules) == 0 {
 		return nil, fmt.Errorf("custom regex rules are required")
@@ -136,10 +190,7 @@ func NewCustomRegexDetector(rules []contract.PolicyRegexRule) (*RegexDetector, e
 		if err != nil {
 			return nil, fmt.Errorf("custom regex rule %d: %w", index, err)
 		}
-		specs = append(specs, regexSpec{
-			kind:    Kind(rule.Kind),
-			pattern: compiled,
-		})
+		specs = append(specs, newRegexSpec(Kind(rule.Kind), compiled, nil, nil))
 	}
 	return &RegexDetector{specs: specs}, nil
 }
@@ -154,7 +205,7 @@ func (detector *RegexDetector) Detect(ctx context.Context, input DetectInput) ([
 			return nil, err
 		}
 		for _, spec := range detector.specs {
-			for _, location := range spec.pattern.FindAllStringIndex(segment.Value, -1) {
+			for _, location := range spec.spans(segment.Value) {
 				if spec.boundary != nil &&
 					!spec.boundary(segment.Value, location[0], location[1]) {
 					continue
