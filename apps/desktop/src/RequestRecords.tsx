@@ -2106,7 +2106,7 @@ export function RequestRecords({
                       <PopoverTrigger asChild>
                         <Button
                           aria-label={t("records.moreFilters")}
-                          className="h-8 min-w-0"
+                          className="min-w-0"
                           ref={moreFiltersTriggerRef}
                           size="sm"
                           type="button"
