@@ -2177,6 +2177,24 @@ func TestInferencePlaneRecordsBoundaryAndClassifyErrors(t *testing.T) {
 		}
 	})
 
+	// Codex Desktop probes /v1/responses with a token-less HEAD.
+	t.Run("HEAD probe is answered but not recorded", func(t *testing.T) {
+		store := &memoryRequestRecordStore{}
+		for _, check := range []struct {
+			handler *Handler
+			status  int
+		}{
+			{NewWithDependencies(Dependencies{AccessTokenAuthenticator: rejectToken, RequestRecords: store}), http.StatusUnauthorized},
+			{NewWithDependencies(Dependencies{RequestRecords: store}), http.StatusMethodNotAllowed},
+		} {
+			response := httptest.NewRecorder()
+			check.handler.ServeHTTP(response, httptest.NewRequest(http.MethodHead, "/v1/responses", nil))
+			if response.Code != check.status || len(store.records) != 0 {
+				t.Fatalf("status=%d records=%#v", response.Code, store.records)
+			}
+		}
+	})
+
 	t.Run("captures error response when audit is enabled", func(t *testing.T) {
 		store := &memoryRequestRecordStore{}
 		blobs := &memoryAuditBlobs{}

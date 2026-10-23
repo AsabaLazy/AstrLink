@@ -969,6 +969,7 @@ func (handler *Handler) writeBoundaryError(writer http.ResponseWriter, request *
 // writeRecordedInferenceError writes a local inference-plane error and, when
 // the path maps to a known protocol, persists a failed request record so
 // boundary failures such as invalid_access_token appear in the operator list.
+// A HEAD request only probes the endpoint, so it gets the answer unrecorded.
 func (handler *Handler) writeRecordedInferenceError(
 	writer http.ResponseWriter,
 	request *http.Request,
@@ -978,7 +979,7 @@ func (handler *Handler) writeRecordedInferenceError(
 	details []errorDetail,
 ) {
 	classified, ok := classifyFromPath(request)
-	if !ok {
+	if !ok || request.Method == http.MethodHead {
 		writeInferenceError(writer, status, code, message, retryable, details)
 		return
 	}
