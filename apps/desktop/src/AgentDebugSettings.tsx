@@ -42,11 +42,11 @@ import { i18n, useT } from "./i18n";
 import { notify } from "./notify";
 import { PageHeader } from "./PageHeader";
 
-const toolIds = ["cursor", "claude", "codex", "grok", "pi"] as const;
+const toolIds = ["cursor", "claude", "codex", "grok", "pi", "dsh"] as const;
 
-// Codex and Pi both read ~/.agents/skills, so installing for one installs for
-// the other in the same home.
-const sharedSkillTools: readonly AgentToolId[] = ["codex", "pi"];
+// Codex, Pi, and DeepSeek Harness all read ~/.agents/skills, so installing for
+// one installs for the others in the same home.
+const sharedSkillTools: readonly AgentToolId[] = ["codex", "pi", "dsh"];
 
 /** Identifies a tool by where it runs: this computer or a WSL distribution. */
 type ToolKey = string;
@@ -278,8 +278,9 @@ export function AgentDebugSettings({
   const sharesSkills = detected.some(
     (tool) => sharedGroup(toolKey(tool)).length > 1,
   );
+  // A shared group shows once, on its first detected tool.
   const installRows = rows.filter(
-    (row) => row.id !== "pi" || sharedGroup(toolKey(row)).length === 1,
+    (row) => sharedGroup(toolKey(row))[0] === toolKey(row),
   );
   const toolStatusLabel = (tool: AgentToolStatus | undefined): string =>
     t(
@@ -663,7 +664,10 @@ export function AgentDebugSettings({
                     const tool = toolAt(row);
                     const group = sharedGroup(key);
                     const shared = group.length > 1;
-                    const inputId = `agent-install-${row.wsl === null ? "" : `wsl-${row.wsl}-`}${shared ? "codex-pi" : id}`;
+                    const members = detected.filter((item) =>
+                      group.includes(toolKey(item)),
+                    );
+                    const inputId = `agent-install-${row.wsl === null ? "" : `wsl-${row.wsl}-`}${shared ? members.map((item) => item.id).join("-") : id}`;
                     return (
                       <Label
                         className="min-w-0 items-start gap-2"
@@ -681,7 +685,13 @@ export function AgentDebugSettings({
                         <span className="grid min-w-0 gap-0.5">
                           <span className="text-foreground">
                             {shared
-                              ? t("agentDebug.sharedTools")
+                              ? t("agentDebug.sharedTools", {
+                                  names: members
+                                    .map((item) =>
+                                      t(`agentDebug.tools.${item.id}`),
+                                    )
+                                    .join(" / "),
+                                })
                               : t(`agentDebug.tools.${id}`)}
                             {row.wsl !== null ? (
                               <span className="ml-1.5 text-xs font-normal text-muted-foreground">
@@ -691,16 +701,12 @@ export function AgentDebugSettings({
                           </span>
                           <span className="flex flex-wrap gap-x-2 gap-y-0.5 text-xs font-normal text-muted-foreground">
                             {shared
-                              ? detected
-                                  .filter((item) =>
-                                    group.includes(toolKey(item)),
-                                  )
-                                  .map((item) => (
-                                    <span key={toolKey(item)}>
-                                      {t(`agentDebug.tools.${item.id}`)} ·{" "}
-                                      {toolStatusLabel(item)}
-                                    </span>
-                                  ))
+                              ? members.map((item) => (
+                                  <span key={toolKey(item)}>
+                                    {t(`agentDebug.tools.${item.id}`)} ·{" "}
+                                    {toolStatusLabel(item)}
+                                  </span>
+                                ))
                               : toolStatusLabel(tool)}
                           </span>
                         </span>

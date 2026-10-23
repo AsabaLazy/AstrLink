@@ -535,8 +535,8 @@
     "selectSkills": "Skill",
     "selectTools": "安装到",
     "installSelected": "安装所选工具（{{count}}）",
-    "sharedTools": "Codex / Pi（共享 Skill）",
-    "sharedSkills": "Codex 和 Pi 共用 ~/.agents/skills，将一起安装或更新。",
+    "sharedTools": "{{names}}（共享 Skill）",
+    "sharedSkills": "Codex、Pi 和 DeepSeek Harness 共用 ~/.agents/skills，将一起安装或更新。",
     "selectionHint": "至少选择一个 Skill 和一个工具。取消勾选不会卸载已有配置。",
     "removeTitle": "卸载 Agent Skill 与工具？",
     "removeBody": "将从所有工具中移除 AstrLink 管理的 Skill、命令放行规则、访问限制条目和命令行工具。你自己的规则不受影响。",
@@ -567,8 +567,8 @@
     "installScopeShort": "安装 Skill 与命令行工具",
     "installScopeTitle": "安装内容与范围",
     "installScopeBody": "AstrLink 调试 Skill 提供排查方法，命令行工具让 Agent 读取本机记录；隐私脱敏 Skill 只教 Agent 处理被隐私保护替换的内容，不需要命令行工具。安装时可选择 Skill 和一个或多个已检测到的工具；重新安装可补全缺失文件，并清理旧版的 MCP 配置。WSL 里的工具装在对应发行版的用户目录，并调用这台电脑上的 AstrLink 命令行工具。",
-    "installScopeHosts": "调试 Skill 还会按工具写入规则。Claude Code：放行 astrlink 命令，并拦截内置读文件工具、cat / head / tail / sed / tee 与 sqlite3 读取 AstrLink 数据目录和会话文件；不拦截 Python、Node 等脚本自行读取。Codex：让 astrlink 命令在沙箱外运行，因为沙箱会拦截 AstrLink 的本地连接；并在 ~/.codex/AGENTS.md 写入说明段落，仅作为提示词，不强制执行。Cursor、Grok Build 首次运行命令时由工具询问你，Pi 运行任何命令都不询问；这三者没有可核实的全局拒绝位置，只依靠 Skill 说明。卸载时只移除 AstrLink 写入的条目。",
-    "noTools": "暂未检测到支持的工具。请先安装并启动一次 Cursor、Claude Code、Codex、Grok Build 或 Pi，再重新检测。",
+    "installScopeHosts": "调试 Skill 还会按工具写入规则。Claude Code：放行 astrlink 命令，并拦截内置读文件工具、cat / head / tail / sed / tee 与 sqlite3 读取 AstrLink 数据目录和会话文件；不拦截 Python、Node 等脚本自行读取。Codex：让 astrlink 命令在沙箱外运行，因为沙箱会拦截 AstrLink 的本地连接；并在 ~/.codex/AGENTS.md 写入说明段落，仅作为提示词，不强制执行。Cursor、Grok Build 首次运行命令时由工具询问你，Pi 运行任何命令都不询问。DeepSeek Harness 也不询问，它的沙箱拦截写文件，astrlink 只读取记录，可以照常运行。这四者没有可核实的全局拒绝位置，只依靠 Skill 说明。卸载时只移除 AstrLink 写入的条目。",
+    "noTools": "暂未检测到支持的工具。请先安装并启动一次 Cursor、Claude Code、Codex、Grok Build、Pi 或 DeepSeek Harness，再重新检测。",
     "missingRuntime": "AstrLink 命令行工具缺失，请重新安装后再使用。",
     "promptTitle": "试着这样问",
     "copyPrompt": "复制示例",
@@ -616,7 +616,8 @@
       "claude": "Claude Code",
       "codex": "Codex",
       "grok": "Grok Build",
-      "pi": "Pi"
+      "pi": "Pi",
+      "dsh": "DeepSeek Harness"
     }
   },
   "today": {

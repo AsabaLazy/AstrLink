@@ -535,8 +535,8 @@
     "selectSkills": "Skills",
     "selectTools": "Install for",
     "installSelected": "Install selected tools ({{count}})",
-    "sharedTools": "Codex / Pi (shared skills)",
-    "sharedSkills": "Codex and Pi share ~/.agents/skills and are installed or updated together.",
+    "sharedTools": "{{names}} (shared skills)",
+    "sharedSkills": "Codex, Pi, and DeepSeek Harness share ~/.agents/skills and are installed or updated together.",
     "selectionHint": "Select at least one skill and one tool. Unchecking keeps the existing setup.",
     "removeTitle": "Uninstall agent skills and tools?",
     "removeBody": "Remove the AstrLink-managed skills, command permissions, access-limit entries, and CLI from all tools. Your own rules are kept.",
@@ -567,8 +567,8 @@
     "installScopeShort": "Includes skills + CLI",
     "installScopeTitle": "What gets installed",
     "installScopeBody": "The AstrLink debugging skill provides debugging guidance, and the CLI lets agents read local records. The privacy redaction skill only teaches agents how to handle content replaced by privacy protection and needs no CLI. Choose skills and one or more detected tools during setup. Reinstalling restores missing files and removes the old MCP setup. Tools in WSL get the skill in that distribution’s home and run the AstrLink CLI on this computer.",
-    "installScopeHosts": "The debugging skill also writes host rules. Claude Code: allows the astrlink command, and blocks its built-in file tools, cat / head / tail / sed / tee, and sqlite3 from reading AstrLink's data directory and session file; scripts such as Python or Node that open files themselves are not blocked. Codex: runs the astrlink command outside the sandbox, which blocks AstrLink's local connection, and adds a section to ~/.codex/AGENTS.md that is prompt guidance only and is not enforced. Cursor and Grok Build ask you the first time an agent runs a command, and Pi never asks; these three have no verifiable global deny location, so only the skill text applies. Uninstalling removes only the entries AstrLink added.",
-    "noTools": "No supported tools detected. Install and launch Cursor, Claude Code, Codex, Grok Build, or Pi once, then check again.",
+    "installScopeHosts": "The debugging skill also writes host rules. Claude Code: allows the astrlink command, and blocks its built-in file tools, cat / head / tail / sed / tee, and sqlite3 from reading AstrLink's data directory and session file; scripts such as Python or Node that open files themselves are not blocked. Codex: runs the astrlink command outside the sandbox, which blocks AstrLink's local connection, and adds a section to ~/.codex/AGENTS.md that is prompt guidance only and is not enforced. Cursor and Grok Build ask you the first time an agent runs a command, and Pi never asks. DeepSeek Harness never asks either. Its sandbox blocks file writes, and the astrlink command only reads records, so it runs as usual. These four have no verifiable global deny location, so only the skill text applies. Uninstalling removes only the entries AstrLink added.",
+    "noTools": "No supported tools detected. Install and launch Cursor, Claude Code, Codex, Grok Build, Pi, or DeepSeek Harness once, then check again.",
     "missingRuntime": "The AstrLink CLI is missing. Reinstall before using it.",
     "promptTitle": "Try asking your agent",
     "copyPrompt": "Copy example",
@@ -616,7 +616,8 @@
       "claude": "Claude Code",
       "codex": "Codex",
       "grok": "Grok Build",
-      "pi": "Pi"
+      "pi": "Pi",
+      "dsh": "DeepSeek Harness"
     }
   },
   "today": {

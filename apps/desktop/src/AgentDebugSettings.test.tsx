@@ -104,6 +104,16 @@ const status = {
       guard: "skill_only" as const,
       guard_installed: false,
     },
+    {
+      id: "dsh" as const,
+      wsl: null,
+      detected: false,
+      skills: skills("/tmp/.agents/skills", {}),
+      cli_access: "unrestricted" as const,
+      cli_access_installed: false,
+      guard: "skill_only" as const,
+      guard_installed: false,
+    },
   ],
   shared_paths: ["/tmp/.astrlink/agent-installs.json"],
   wsl_unchecked: [],
@@ -432,7 +442,7 @@ describe("AgentDebugSettings", () => {
       "Codex / Pi（共享 Skill）Codex · 部分安装Pi · 已安装",
     );
     expect(dialog.textContent).toContain(
-      "Codex 和 Pi 共用 ~/.agents/skills，将一起安装或更新。",
+      "Codex、Pi 和 DeepSeek Harness 共用 ~/.agents/skills，将一起安装或更新。",
     );
     expect(dialog.textContent).toContain("/tmp/.codex/rules/astrlink.rules");
     expect(
@@ -479,6 +489,62 @@ describe("AgentDebugSettings", () => {
     );
   });
 
+  it("adds DeepSeek Harness to the option it shares with Codex and Pi", async () => {
+    const bothSkills = { debug: true, placeholder: true };
+    bridge.getAgentDebugStatus.mockResolvedValue({
+      ...status,
+      tools: status.tools.map((tool) =>
+        ["codex", "pi", "dsh"].includes(tool.id)
+          ? withSkills({ ...tool, detected: true }, bothSkills)
+          : tool,
+      ),
+    });
+    await act(async () => root.render(<AgentDebugSettings />));
+    expect(container.textContent).toContain("DeepSeek Harness");
+    await act(async () => button("安装 / 更新").click());
+    const dialog = document.querySelector("[role='alertdialog']")!;
+    const shared = checkbox("codex-pi-dsh");
+    expect(shared.getAttribute("aria-checked")).toBe("true");
+    for (const id of ["codex", "pi", "dsh"]) {
+      expect(dialog.querySelector(`#agent-install-${id}`)).toBeNull();
+    }
+    expect(shared.closest("label")?.textContent).toBe(
+      "Codex / Pi / DeepSeek Harness（共享 Skill）Codex · 已安装Pi · 已安装DeepSeek Harness · 已安装",
+    );
+    await act(async () => button("安装所选工具（3）", dialog).click());
+    expect(bridge.installAgentDebug).toHaveBeenCalledExactlyOnceWith(
+      ["astrlink-debug", "redaction-placeholders"],
+      local("codex", "pi", "dsh"),
+    );
+  });
+
+  it("shows the shared option on Pi when Codex is not detected", async () => {
+    bridge.getAgentDebugStatus.mockResolvedValue({
+      ...status,
+      tools: status.tools.map((tool) => ({
+        ...withSkills(tool, {}),
+        detected: tool.id === "pi" || tool.id === "dsh",
+        cli_access_installed: false,
+      })),
+    });
+    await act(async () => root.render(<AgentDebugSettings />));
+    await act(async () => button("安装工具").click());
+    const dialog = document.querySelector("[role='alertdialog']")!;
+    expect(checkbox("codex").disabled).toBe(true);
+    expect(dialog.querySelector("#agent-install-pi")).toBeNull();
+    expect(dialog.querySelector("#agent-install-dsh")).toBeNull();
+    const shared = checkbox("pi-dsh");
+    expect(shared.closest("label")?.textContent).toBe(
+      "Pi / DeepSeek Harness（共享 Skill）Pi · 已检测到DeepSeek Harness · 已检测到",
+    );
+    await act(async () => shared.click());
+    await act(async () => button("安装所选工具（2）", dialog).click());
+    expect(bridge.installAgentDebug).toHaveBeenCalledExactlyOnceWith(
+      ["astrlink-debug", "redaction-placeholders"],
+      local("pi", "dsh"),
+    );
+  });
+
   it("lists WSL tools beside this computer's and installs them by distribution", async () => {
     const wslRoot = String.raw`\\wsl$\Ubuntu\home\me`;
     const inUbuntu = (tool: ToolFixture, root: string): ToolFixture => ({
@@ -503,12 +569,12 @@ describe("AgentDebugSettings", () => {
     const rows = [...container.querySelectorAll("tbody tr")].map(
       (row) => row.querySelector("td")?.textContent ?? "",
     );
-    expect(rows).toHaveLength(8);
+    expect(rows).toHaveLength(9);
     ["Claude Code", "Codex", "Pi"].forEach((name, index) => {
-      expect(rows[5 + index]).toContain(name);
-      expect(rows[5 + index]?.endsWith("WSL · Ubuntu")).toBe(true);
+      expect(rows[6 + index]).toContain(name);
+      expect(rows[6 + index]?.endsWith("WSL · Ubuntu")).toBe(true);
     });
-    expect(rows.slice(0, 5).some((row) => row.includes("WSL"))).toBe(false);
+    expect(rows.slice(0, 6).some((row) => row.includes("WSL"))).toBe(false);
     expect(container.textContent).toContain("0 / 6");
     expect(container.textContent).toContain(
       "Debian 未运行，没有检测其中的工具。启动后点「重新检测」。",

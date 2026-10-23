@@ -535,8 +535,8 @@
     "selectSkills": "Skill",
     "selectTools": "インストール先",
     "installSelected": "選択したツールをインストール（{{count}}）",
-    "sharedTools": "Codex / Pi（共有 Skill）",
-    "sharedSkills": "Codex と Pi は ~/.agents/skills を共有し、一緒にインストール・更新されます。",
+    "sharedTools": "{{names}}（共有 Skill）",
+    "sharedSkills": "Codex、Pi、DeepSeek Harness は ~/.agents/skills を共有し、一緒にインストール・更新されます。",
     "selectionHint": "Skill とツールを、少なくとも 1 つずつ選んでください。チェックを外しても、今のセットアップは残ります。",
     "removeTitle": "Agent の Skill とツールをアンインストールしますか？",
     "removeBody": "すべてのツールから、AstrLink が管理する Skill、コマンド権限、アクセス制限の項目、CLI を取り除きます。ご自身のルールはそのまま残ります。",
@@ -567,8 +567,8 @@
     "installScopeShort": "Skill と CLI を含む",
     "installScopeTitle": "インストールされるもの",
     "installScopeBody": "AstrLink デバッグ Skill は調査の手順を提供し、CLI で Agent がローカルのリクエストを読み取れます。プライバシーマスキングの Skill は、プライバシー保護で置き換えられた内容の扱いだけを教え、CLI は不要です。セットアップでは、Skill と検出されたツールを 1 つ以上選びます。再インストールすると、欠けているファイルが戻り、古い MCP の設定が取り除かれます。WSL 内のツールには、そのディストリビューションのホームに Skill が入り、このコンピューター上の AstrLink CLI を実行します。",
-    "installScopeHosts": "デバッグ Skill は、ホスト側のルールも書き込みます。Claude Code では astrlink コマンドを許可し、組み込みのファイルツール、cat / head / tail / sed / tee、sqlite3 が AstrLink のデータディレクトリとセッションファイルを読むことをブロックします。Python や Node のように、自分でファイルを開くスクリプトはブロックしません。Codex では、サンドボックスが AstrLink のローカル接続をブロックするため、astrlink コマンドをサンドボックスの外で実行します。また ~/.codex/AGENTS.md に節を追加しますが、これはプロンプトの案内のみで、強制されません。Cursor と Grok Build は、Agent が初めてコマンドを実行するときに確認し、Pi は確認しません。この 3 つには、確認できるグローバルな拒否の場所がないため、Skill の本文だけが適用されます。アンインストールで取り除かれるのは、AstrLink が追加した項目だけです。",
-    "noTools": "対応するツールは検出されませんでした。Cursor、Claude Code、Codex、Grok Build、または Pi をインストールして一度起動してから、もう一度確認してください。",
+    "installScopeHosts": "デバッグ Skill は、ホスト側のルールも書き込みます。Claude Code では astrlink コマンドを許可し、組み込みのファイルツール、cat / head / tail / sed / tee、sqlite3 が AstrLink のデータディレクトリとセッションファイルを読むことをブロックします。Python や Node のように、自分でファイルを開くスクリプトはブロックしません。Codex では、サンドボックスが AstrLink のローカル接続をブロックするため、astrlink コマンドをサンドボックスの外で実行します。また ~/.codex/AGENTS.md に節を追加しますが、これはプロンプトの案内のみで、強制されません。Cursor と Grok Build は、Agent が初めてコマンドを実行するときに確認し、Pi は確認しません。DeepSeek Harness も確認しません。そのサンドボックスはファイルの書き込みをブロックしますが、astrlink コマンドは記録を読むだけなので、そのまま実行できます。この 4 つには、確認できるグローバルな拒否の場所がないため、Skill の本文だけが適用されます。アンインストールで取り除かれるのは、AstrLink が追加した項目だけです。",
+    "noTools": "対応するツールは検出されませんでした。Cursor、Claude Code、Codex、Grok Build、Pi、または DeepSeek Harness をインストールして一度起動してから、もう一度確認してください。",
     "missingRuntime": "AstrLink の CLI がありません。使う前に再インストールしてください。",
     "promptTitle": "Agent への質問例",
     "copyPrompt": "例をコピー",
@@ -616,7 +616,8 @@
       "claude": "Claude Code",
       "codex": "Codex",
       "grok": "Grok Build",
-      "pi": "Pi"
+      "pi": "Pi",
+      "dsh": "DeepSeek Harness"
     }
   },
   "today": {

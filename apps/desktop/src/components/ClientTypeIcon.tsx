@@ -4,6 +4,7 @@ import {
   ClineMono,
   CodeBuddyColor,
   CursorMono,
+  DeepSeekHarnessMono,
   GithubCopilotMono,
   KiloCodeMono,
   OpenClawColor,
@@ -16,10 +17,9 @@ import { cn } from "@/lib/utils";
 import { i18n, useT } from "../i18n";
 import type { ClientType } from "../request-record-model";
 
-// Clients named after a vendor draw that vendor's mark from `vendorMarks` so
-// they match the vendor's models and provider kinds. Clients without a
-// published mark get a monogram so they stay distinct from the unknown-client
-// fallback in icon-only rows.
+// Clients with their own product artwork use it; the rest draw their vendor's
+// mark from `vendorMarks`. Clients without a published mark get a monogram so
+// they stay distinct from the unknown-client fallback in icon-only rows.
 const clients: Record<
   Exclude<ClientType, "unknown">,
   { name: string; Mark?: typeof CursorMono }
@@ -33,7 +33,7 @@ const clients: Record<
   openclaw: { name: "OpenClaw", Mark: OpenClawColor },
   cline: { name: "Cline", Mark: ClineMono },
   pi: { name: "Pi", Mark: PiColor },
-  deepseek_harness: { name: "DeepSeek Harness", Mark: vendorMarks.deepseek },
+  deepseek_harness: { name: "DeepSeek Harness", Mark: DeepSeekHarnessMono },
   codewhale: { name: "Codewhale" },
   reasonix: { name: "Reasonix" },
   qwen_code: { name: "Qwen Code", Mark: vendorMarks.qwen },
