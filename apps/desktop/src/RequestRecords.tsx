@@ -187,6 +187,7 @@ import {
   USAGE_RANGE_PRESETS,
   type UsageRange,
 } from "./usage-range";
+import type { ConversationContentCache } from "./use-conversation-content";
 
 const PAGE_LIMIT = 50;
 const POLL_INTERVAL_MS = 1000;
@@ -496,6 +497,8 @@ export function RequestRecords({
   const listGenerationRef = useRef(0);
   const auditGenerationRef = useRef(0);
   const auditCacheRef = useRef<Map<string, AuditContent>>(new Map());
+  // Goes wherever the audit cache goes: both hold what was decrypted.
+  const conversationCacheRef = useRef<ConversationContentCache>(new Map());
   const pollInFlightRef = useRef(false);
   const pollFailureRef = useRef(0);
   const manualPollRef = useRef<(() => void) | null>(null);
@@ -722,6 +725,7 @@ export function RequestRecords({
     generationRef.current = generation;
     auditGenerationRef.current += 1;
     auditCacheRef.current.clear();
+    conversationCacheRef.current.clear();
     pollFailureRef.current = 0;
     pollInFlightRef.current = false;
     atTopRef.current = true;
@@ -961,6 +965,7 @@ export function RequestRecords({
     () => () => {
       auditGenerationRef.current += 1;
       auditCacheRef.current.clear();
+      conversationCacheRef.current.clear();
     },
     [],
   );
@@ -1193,6 +1198,7 @@ export function RequestRecords({
 
   const clearDecrypted = () => {
     auditCacheRef.current.clear();
+    conversationCacheRef.current.clear();
     auditGenerationRef.current += 1;
     setAuditContent(null);
     setAuditError(null);
@@ -1290,6 +1296,7 @@ export function RequestRecords({
       return;
     }
     auditCacheRef.current.delete(requestId);
+    conversationCacheRef.current.clear();
     setOverlayRecords((current) =>
       Object.fromEntries(
         Object.entries(current).filter(
@@ -1378,6 +1385,7 @@ export function RequestRecords({
       else setError(message);
     } finally {
       auditCacheRef.current.clear();
+      conversationCacheRef.current.clear();
       setDeleting(false);
     }
   };
@@ -1439,6 +1447,7 @@ export function RequestRecords({
     try {
       const result = await purgeRequestRecords(input);
       auditCacheRef.current.clear();
+      conversationCacheRef.current.clear();
       setPurgeOpen(false);
       notify.success(
         i18n.t("records.purged", {
@@ -1568,6 +1577,7 @@ export function RequestRecords({
 
   const reloadAudit = () => {
     auditCacheRef.current.clear();
+    conversationCacheRef.current.clear();
     auditGenerationRef.current += 1;
     // The detail view fetches the content again. Away from it nothing would,
     // and reopening it would paint the old raw parts before that fetch.
@@ -2370,6 +2380,7 @@ export function RequestRecords({
             auditError={auditError}
             auditLoading={auditLoading}
             auditSettings={settings}
+            conversationCache={conversationCacheRef.current}
             deleting={deleting}
             initialTab={initialDetailTab}
             newerAvailable={
@@ -3206,6 +3217,7 @@ function RecordDetail({
   auditLoading,
   auditError,
   auditSettings,
+  conversationCache,
   deleting,
   rawSealing,
   initialTab,
@@ -3231,6 +3243,7 @@ function RecordDetail({
   auditLoading: boolean;
   auditError: string | null;
   auditSettings: AuditSettings | null;
+  conversationCache: ConversationContentCache;
   deleting: boolean;
   rawSealing: RawSealingState | null;
   initialTab: "conversation" | "trajectory";
@@ -3812,6 +3825,7 @@ function RecordDetail({
               auditError={auditError}
               auditLoading={auditLoading}
               childrenByRoot={childrenByRoot}
+              contentCache={conversationCache}
               copyFeedback={copyFeedback}
               onSelectRequest={onSelectTurn}
               onUnlockRaw={onUnlockRaw}

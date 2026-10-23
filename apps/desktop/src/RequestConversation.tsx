@@ -95,7 +95,10 @@ import {
 } from "./request-trajectory-model";
 import { TrajectoryInspector } from "./TrajectoryInspector";
 import { useDetachedInspector } from "./trajectory-inspector-window";
-import { useConversationContent } from "./use-conversation-content";
+import {
+  useConversationContent,
+  type ConversationContentCache,
+} from "./use-conversation-content";
 import { toolCallSummary, type ToolSummaryKind } from "./tool-call-summary";
 
 const NO_SERVICES: RequestServiceMap = {};
@@ -126,6 +129,7 @@ export function RequestConversation({
   rawSealing,
   onUnlockRaw,
   outlineOpen,
+  contentCache,
 }: {
   session: RequestSession;
   turns: RequestRecord[];
@@ -140,6 +144,8 @@ export function RequestConversation({
   rawSealing: RawSealingState | null;
   onUnlockRaw?: () => void;
   outlineOpen: boolean;
+  /** What earlier views read, so reopening paints it at once. */
+  contentCache?: ConversationContentCache;
 }) {
   const t = useT();
   const sessionPending =
@@ -147,6 +153,7 @@ export function RequestConversation({
   const nowMs = useLiveClock(sessionPending, 1000);
   const content = useConversationContent(
     `${session.id}:${rawSealing?.unlocked ? "unlocked" : "locked"}`,
+    contentCache,
   );
   const model = useMemo(
     () => conversationTurns(turns, childrenByRoot, content.parsed, nowMs),
@@ -154,10 +161,12 @@ export function RequestConversation({
   );
   const latestTurnId = model[model.length - 1]?.id ?? null;
 
-  // A session paints once the turn on screen has its words. Its user text,
-  // reply and tool rows arrive a moment after the turns, and painting the
-  // turns first made them pop in as the view opened. A slow read holds the
-  // view back only briefly; once shown, the session stays shown.
+  // A session paints once the turn on screen has its words and every retried
+  // call has its attempts. The user text, reply and tool rows arrive a moment
+  // after the turns, and the attempts add to a turn's calls, failures and
+  // tokens; painting the turns first made all of that change as the view
+  // opened. A slow read holds the view back only briefly; once shown, the
+  // session stays shown.
   const latest = model[model.length - 1];
   const latestRead =
     latest === undefined ||
@@ -166,8 +175,11 @@ export function RequestConversation({
         content.parsed.has(call.record.id) ||
         content.errors.has(call.record.id),
     );
+  const attemptsRead = turns.every(
+    (turn) => turn.child_count === 0 || childrenByRoot[turn.id] !== undefined,
+  );
   const [revealedId, setRevealedId] = useState<string | null>(null);
-  const revealed = revealedId === session.id || latestRead;
+  const revealed = revealedId === session.id || (latestRead && attemptsRead);
   useEffect(() => {
     if (revealed) {
       setRevealedId(session.id);
@@ -256,17 +268,29 @@ export function RequestConversation({
     for (const element of turnRefs.current.values()) observer.observe(element);
   }, [model]);
 
-  // Open turns and folded ones in view read every call; the rest read just
-  // enough for the user text and the reply, which a failed last call leaves
-  // on an earlier one. The latest turn goes first because it is on screen.
+  // Every turn reads enough for the user text and the reply, which a failed
+  // last call leaves on an earlier one; open turns and folded ones in view
+  // read every call. The turns on screen go first, their words before the
+  // rest of their calls, the latest leading: the view opens on it.
   useEffect(() => {
-    const wanted: RequestRecord[] = [];
+    const words: RequestRecord[] = [];
+    const calls: RequestRecord[] = [];
+    const later: RequestRecord[] = [];
     for (const turn of [...model].reverse()) {
       const records = turn.calls.map((call) => call.record);
-      wanted.push(records[0]!, turn.reply.record, records[records.length - 1]!);
-      if (turnOpen(turn) || seenTurns.has(turn.id)) wanted.push(...records);
+      const ends = [
+        records[0]!,
+        turn.reply.record,
+        records[records.length - 1]!,
+      ];
+      if (turnOpen(turn) || seenTurns.has(turn.id)) {
+        words.push(...ends);
+        calls.push(...records);
+      } else {
+        later.push(...ends);
+      }
     }
-    content.request(wanted);
+    content.request([...words, ...calls, ...later]);
   }, [model, turnOpen, seenTurns, content.request]);
 
   // Follow the latest turn while the reader sits at the end, as a terminal
@@ -511,6 +535,8 @@ export function RequestConversation({
             showInspector
               ? "w-[min(100%,26rem)]"
               : "hidden w-60 @min-[880px]/conversation:flex",
+            // The outline counts the same calls and quotes the same words.
+            !revealed && "invisible",
           )}
           data-testid="conversation-pane"
         >
@@ -681,6 +707,10 @@ const TurnView = memo(function TurnView({
     ? turn.calls.map((c) => ({ kind: "call", call: c }))
     : turn.segments;
   const userCopyKey = `conversation-user:${turn.id}`;
+  // A finished turn shows its tools once every call has been read: a count
+  // that grew with each read made history look like a turn still running.
+  // A running turn counts as it goes.
+  const toolsKnown = unread === 0 || turn.stats.pending;
   // Every call has been read, so the tools can be named rather than counted.
   const toolsNamed =
     !turn.stats.toolCallsPartial && turn.stats.tools.length > 0;
@@ -747,7 +777,7 @@ const TurnView = memo(function TurnView({
                     {t("conversation.calls", { count: turn.stats.calls })}
                   </span>,
                   // A turn that called no tools leaves the count out.
-                  !turn.stats.toolCalls ? null : toolsNamed ? (
+                  !toolsKnown || !turn.stats.toolCalls ? null : toolsNamed ? (
                     <span key="tools" title={toolCountLabel(turn.stats.tools)}>
                       {toolsLabel(turn.stats.tools)}
                     </span>
@@ -1054,6 +1084,9 @@ const RunRow = memo(function RunRow({
   const t = useT();
   const first = segment.calls[0]!;
   const last = segment.calls[segment.calls.length - 1]!;
+  // Its calls have all finished, so the tools wait for every read rather
+  // than counting up as the reads land.
+  const read = segment.calls.every((call) => call.parsed !== null);
   return (
     <li data-testid="conversation-run">
       <div className="sticky top-0 z-10 flex items-center gap-1 bg-background">
@@ -1076,7 +1109,7 @@ const RunRow = memo(function RunRow({
                 to: last.index,
               })}
             </span>
-            {segment.toolCounts.length > 0 ? (
+            {!read ? null : segment.toolCounts.length > 0 ? (
               <span className="hidden truncate font-mono text-micro @min-[560px]/conversation:inline">
                 {toolCountLabel(segment.toolCounts)}
               </span>
