@@ -247,6 +247,19 @@ export function TrajectoryFlowList({
   const lockFrame = useRef<number | null>(null);
   // The reader is at the end, so growth below keeps them there.
   const stick = useRef(false);
+  // Where the list last stood, its length unknown until the first scroll. A
+  // call folding shortens the list and the browser pulls the offset up, but
+  // that scroll event lands after the next call has grown and looks like the
+  // reader leaving. A move up is theirs only over a list of the same length,
+  // or while they hold the list.
+  const mark = useRef({ top: 0, height: Infinity });
+  // The reader holds the scrollbar or touches the list; their moves count
+  // even while the windowed list measures new rows under them.
+  const held = useRef(false);
+  /** The reader scrolls up; a list with no room above stays at its end. */
+  const leaveEnd = (list: HTMLElement) => {
+    if (list.scrollTop > 0) stick.current = false;
+  };
   const lockState = useRef({ entryIndex, virtualized, virtualizer });
   lockState.current = { entryIndex, virtualized, virtualizer };
 
@@ -340,6 +353,23 @@ export function TrajectoryFlowList({
     holdLock();
   };
   useEffect(() => releaseLock, []);
+  // A hold ends a frame after the release, since a drag's last scroll
+  // events can arrive after it.
+  useEffect(() => {
+    let frame = 0;
+    const release = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        held.current = false;
+      });
+    };
+    const ends = ["pointerup", "touchend", "touchcancel"] as const;
+    for (const type of ends) window.addEventListener(type, release);
+    return () => {
+      cancelAnimationFrame(frame);
+      for (const type of ends) window.removeEventListener(type, release);
+    };
+  }, []);
 
   const scrollToIndex = (index: number, align: "start" | "end") => {
     if (virtualized) {
@@ -386,8 +416,12 @@ export function TrajectoryFlowList({
     },
     scrollToOffset: (offset) => {
       releaseLock();
+      const list = scrollRef.current;
+      if (list) {
+        stick.current = offset >= list.scrollHeight - list.clientHeight - 2;
+      }
       if (virtualized) virtualizer.scrollToOffset(offset, { align: "start" });
-      else if (scrollRef.current) scrollRef.current.scrollTop = offset;
+      else if (list) list.scrollTop = offset;
     },
     measurements: () =>
       virtualized
@@ -415,19 +449,22 @@ export function TrajectoryFlowList({
     revealing: () => Boolean(lock.current?.quiet),
   }));
 
-  // Growth below the reader keeps them at the end only while they are there.
+  // Growth below the reader, or a lower viewport, keeps them at the end only
+  // while they are there.
   const contentRef = useRef<HTMLOListElement>(null);
   useEffect(() => {
     const list = scrollRef.current;
     const content = contentRef.current;
     if (!list || !content || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (!stick.current || lock.current) return;
+      if (!stick.current || lock.current || list.clientHeight === 0) return;
       const range = list.scrollHeight - list.clientHeight;
-      if (list.clientHeight === 0 || range <= 0) return;
       if (range - list.scrollTop > 1) list.scrollTop = range;
+      // The scroll event this raises is the list's own, not the reader's.
+      mark.current = { top: list.scrollTop, height: list.scrollHeight };
     });
     observer.observe(content);
+    observer.observe(list);
     return () => observer.disconnect();
   }, [scrollRef, entries.length > 0]);
 
@@ -567,33 +604,60 @@ export function TrajectoryFlowList({
       className="relative min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]"
       onScroll={() => {
         const list = scrollRef.current;
-        if (list && !lock.current) {
-          const range = list.scrollHeight - list.clientHeight;
-          if (list.clientHeight > 0 && range > 0) {
-            stick.current = range - list.scrollTop <= 2;
+        if (list && list.clientHeight > 0) {
+          const top = list.scrollTop;
+          const height = list.scrollHeight;
+          const last = mark.current;
+          mark.current = { top, height };
+          // A scroll that changed nothing since the last look is the list
+          // being pinned to its end; it says nothing about the reader.
+          if (!lock.current && (top !== last.top || height !== last.height)) {
+            // At the end, or down to where it was before the list grew.
+            if (
+              height - list.clientHeight - top <= 2 ||
+              (top > last.top && top >= last.height - list.clientHeight - 2)
+            ) {
+              stick.current = true;
+            } else if (
+              top < last.top &&
+              (held.current || height === last.height)
+            ) {
+              stick.current = false;
+            }
           }
         }
         if (!lock.current?.quiet) onScroll();
       }}
-      // Anything the reader does to scroll ends a lock at once.
-      onWheel={releaseLock}
-      onTouchStart={releaseLock}
+      // Anything the reader does to scroll ends a lock at once. The wheel and
+      // the keys say where the reader is heading before the list can move.
+      onWheel={(event) => {
+        releaseLock();
+        const list = event.currentTarget;
+        if (event.deltaY < 0) leaveEnd(list);
+        else if (
+          list.scrollTop + list.clientHeight + event.deltaY >=
+          list.scrollHeight - 2
+        ) {
+          stick.current = true;
+        }
+      }}
+      onTouchStart={() => {
+        releaseLock();
+        held.current = true;
+      }}
       onPointerDown={(event) => {
-        if (event.target === event.currentTarget) releaseLock();
+        if (event.target !== event.currentTarget) return;
+        releaseLock();
+        held.current = true;
       }}
       onKeyDownCapture={(event) => {
-        if (
-          [
-            "PageUp",
-            "PageDown",
-            "Home",
-            "End",
-            "ArrowUp",
-            "ArrowDown",
-            " ",
-          ].includes(event.key)
-        ) {
+        const up =
+          ["PageUp", "Home", "ArrowUp"].includes(event.key) ||
+          (event.key === " " && event.shiftKey);
+        if (up || ["PageDown", "End", "ArrowDown", " "].includes(event.key)) {
           releaseLock();
+          if (up) leaveEnd(event.currentTarget);
+          else if (event.key === "End") stick.current = true;
         }
       }}
     >

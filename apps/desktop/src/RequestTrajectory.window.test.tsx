@@ -131,6 +131,7 @@ describe("RequestTrajectory in a window host", () => {
     act(() => root.unmount());
     container.remove();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
     delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     delete (window as { __ASTRLINK_DESKTOP_PLATFORM__?: string })
@@ -640,6 +641,119 @@ describe("RequestTrajectory in a window host", () => {
     await renderTrajectory([{ ...record, latency_ms: 240 }]);
     await act(async () => vi.advanceTimersByTimeAsync(1000));
     expect(list.scrollTop).toBe(160);
+  });
+
+  /**
+   * Lays the list out as WebKit does: 400 px of viewport over the rows, the
+   * offset clamped the moment the rows change, and resize observers told only
+   * once layout settles, after the scroll event the clamp raised.
+   */
+  const layOutList = async () => {
+    const observers: { notify: () => void; nodes: Set<Element> }[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        private readonly nodes = new Set<Element>();
+        constructor(notify: () => void) {
+          observers.push({ notify, nodes: this.nodes });
+        }
+        observe(node: Element) {
+          this.nodes.add(node);
+        }
+        unobserve(node: Element) {
+          this.nodes.delete(node);
+        }
+        disconnect() {
+          this.nodes.clear();
+        }
+      },
+    );
+    await renderTrajectory();
+    const list = container.querySelector<HTMLElement>(
+      '[data-testid="trajectory-list"]',
+    )!;
+    let height = 1000;
+    let top = 0;
+    const clamp = (value: number) => Math.max(0, Math.min(value, height - 400));
+    Object.defineProperties(list, {
+      clientHeight: { configurable: true, get: () => 400 },
+      scrollHeight: { configurable: true, get: () => height },
+      scrollTop: {
+        configurable: true,
+        get: () => top,
+        set: (value: number) => {
+          top = clamp(value);
+        },
+      },
+    });
+    const settle = () =>
+      act(async () => {
+        for (const { notify, nodes } of observers) if (nodes.size) notify();
+      });
+    // The session opens at its end once the list has a height.
+    await settle();
+    return {
+      top: () => top,
+      moveTo: (next: number) => {
+        top = clamp(next);
+      },
+      resize: (next: number) => {
+        height = next;
+        top = clamp(top);
+      },
+      settle,
+      scroll: () =>
+        act(async () => {
+          list.dispatchEvent(new Event("scroll"));
+        }),
+      wheel: (deltaY: number) =>
+        act(async () => {
+          list.dispatchEvent(
+            new WheelEvent("wheel", { deltaY, bubbles: true }),
+          );
+        }),
+    };
+  };
+
+  it("keeps following the end when a folding call pulls the offset up before the next call grows", async () => {
+    const list = await layOutList();
+    expect(list.top()).toBe(600);
+
+    // The open call folds and the browser clamps; the next call has grown
+    // by the time that scroll event arrives, 50 px short of the end.
+    list.resize(850);
+    list.resize(900);
+    await list.scroll();
+    expect(list.top()).toBe(450);
+    await list.settle();
+    expect(list.top()).toBe(500);
+  });
+
+  it("leaves a reader who scrolled up in place and follows again once they are back at the end", async () => {
+    const list = await layOutList();
+
+    await list.wheel(-120);
+    list.moveTo(480);
+    await list.scroll();
+    list.resize(1100);
+    await list.settle();
+    expect(list.top()).toBe(480);
+
+    // A wheel down to the end follows, though the list grew before the
+    // scroll event arrived.
+    await list.wheel(1000);
+    list.moveTo(700);
+    list.resize(1150);
+    await list.scroll();
+    await list.settle();
+    expect(list.top()).toBe(750);
+
+    // A drag up over rows that kept their length leaves the end too.
+    list.moveTo(300);
+    await list.scroll();
+    list.resize(1200);
+    await list.settle();
+    expect(list.top()).toBe(300);
   });
 
   it("opens another call on the phase being read and folds the open call from its line", async () => {
