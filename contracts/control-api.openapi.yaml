@@ -1780,7 +1780,10 @@ paths:
         Returns the fixed kind and pattern pairs used by the builtin Regex
         detector. Intended to seed custom_regex_rules; the catalog itself is
         not editable. Custom mode compiles patterns only and does not reuse
-        built-in validators such as Luhn or IBAN checks.
+        built-in validators such as Luhn or IBAN checks, or boundary checks
+        such as the one that keeps a local access token from matching inside
+        a longer base64url run. Value groups are part of the patterns and
+        apply in custom mode too.
       responses:
         "200":
           description: Built-in Regex rules.

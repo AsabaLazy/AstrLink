@@ -90,8 +90,30 @@ func builtinRegexDefinitions() []builtinRegexDefinition {
 			pattern: `\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b`,
 		},
 		{
-			kind:    KindCommonSecret,
-			pattern: `(?i)\b(?:api[_-]?key|access[_-]?token|secret|password)\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{12,}`,
+			kind: KindCommonSecret,
+			// accesstoken.Manager mints a local access token as astr_ and 43
+			// base64url characters. A token can end in - or _, where \b does
+			// not hold, so the boundary check rejects a match that is part of
+			// a longer base64url run instead, on both sides. Leaving \b out
+			// also keeps the literal prefix that lets this rule skip text
+			// quickly.
+			pattern:  `astr_[A-Za-z0-9_-]{43}`,
+			boundary: validBase64URLRunBoundary,
+		},
+		{
+			kind: KindCommonSecret,
+			// An HTTP bearer credential (RFC 6750 b64token, which covers
+			// JWTs). Only the token is replaced; "Bearer" stays.
+			pattern: `(?i)\bbearer[ \t]+(?P<value>[A-Za-z0-9._~+/-]{16,}=*)`,
+		},
+		{
+			kind: KindCommonSecret,
+			// A credential assigned to a key in prose, code, env files, YAML,
+			// JSON (the key's closing quote comes before the colon), query
+			// strings, and headers such as X-API-Key. Only the value is
+			// replaced, so the key name stays readable. \b keeps compound
+			// keys such as max_tokens= and prompt_tokens out.
+			pattern: `(?i)\b(?:api[_-]?key|(?:(?:access|auth|refresh)[_-]?)?token|secret|password)["']?\s*[:=]\s*["']?(?P<value>[A-Za-z0-9_./+=-]{12,})`,
 		},
 		{
 			kind:     KindPaymentCard,
@@ -408,6 +430,20 @@ func validIPv6Address(value string) bool {
 	// corrupting code under the default redact action.
 	return strings.ContainsAny(value, "0123456789") ||
 		strings.Count(value, ":") >= 4
+}
+
+// validBase64URLRunBoundary accepts a match only when it is the whole run of
+// base64url characters around it.
+func validBase64URLRunBoundary(value string, start, end int) bool {
+	return (start == 0 || !isBase64URLByte(value[start-1])) &&
+		(end == len(value) || !isBase64URLByte(value[end]))
+}
+
+func isBase64URLByte(value byte) bool {
+	return value == '-' || value == '_' ||
+		value >= '0' && value <= '9' ||
+		value >= 'A' && value <= 'Z' ||
+		value >= 'a' && value <= 'z'
 }
 
 func validIPv6Boundary(value string, start, end int) bool {

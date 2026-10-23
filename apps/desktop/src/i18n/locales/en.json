@@ -1916,7 +1916,7 @@
     "builtinFixed": "Fixed and not editable",
     "customListOnly": "Uses the list below only",
     "listJoin": ", ",
-    "builtinCoverage": "Built-in rules cover {{kinds}}. After you switch to custom, you can fill them in as a starting point. Custom mode is regex-only and does not include extra checks such as Luhn/IBAN.",
+    "builtinCoverage": "Built-in rules cover {{kinds}}. After you switch to custom, you can fill them in as a starting point. Custom mode is regex-only and does not include extra checks such as Luhn/IBAN. A named group (?P<value>…) replaces only that part of a match; the built-in rules use it to keep key names such as token= and Bearer.",
     "addRule": "Add rule",
     "noCustomRules": "No custom rules yet. Add a rule, or fill in the built-in rules.",
     "minConfidenceHint": "Model candidates below this score are suppressed; Regex is not affected",

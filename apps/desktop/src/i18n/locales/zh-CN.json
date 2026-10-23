@@ -1916,7 +1916,7 @@
     "builtinFixed": "固定且不可编辑",
     "customListOnly": "仅使用下方列表",
     "listJoin": "、",
-    "builtinCoverage": "内置规则覆盖{{kinds}}。切换到自定义后可用一键填入作为起点；自定义模式为纯正则匹配，不含 Luhn/IBAN 等额外校验。",
+    "builtinCoverage": "内置规则覆盖{{kinds}}。切换到自定义后可用一键填入作为起点；自定义模式为纯正则匹配，不含 Luhn/IBAN 等额外校验。命名分组 (?P<value>…) 只替换匹配中的这一部分，内置规则借此保留 token=、Bearer 等字段名。",
     "addRule": "添加规则",
     "noCustomRules": "尚无自定义规则。可添加规则，或一键填入内置规则。",
     "minConfidenceHint": "低于此分数的模型候选会被抑制；Regex 不受此门槛影响",

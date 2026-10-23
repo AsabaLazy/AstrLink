@@ -297,3 +297,185 @@ func TestCustomRegexRulesReportTheValueGroupWhenTheyHaveOne(t *testing.T) {
 		})
 	}
 }
+
+// Fictional local access tokens ending in each character after which \b does
+// not hold. testLocalToken (astrlink_identifier_test.go) ends in a digit.
+const (
+	testDashLocalToken       = "astr_Fx9qFx9qFx9qFx9qFx9qFx9qFx9qFx9qFx9qFx9qZ0-"
+	testUnderscoreLocalToken = "astr_Fx9qFx9qFx9qFx9qFx9qFx9qFx9qFx9qFx9qFx9qZ0_"
+)
+
+func TestRegexDetectorFindsAstrLinkLocalAccessTokens(t *testing.T) {
+	detector := NewRegexDetector()
+	for _, token := range []string{testLocalToken, testDashLocalToken, testUnderscoreLocalToken} {
+		if len(token) != len("astr_")+43 {
+			t.Fatalf("fixture %q is not astr_ and 43 characters", token)
+		}
+		for _, form := range []string{
+			"%s",
+			"my AstrLink token is %s, keep it safe",
+			"(%s)",
+			"token=%s",
+			"TOKEN=%s\n",
+			"ASTRLINK_TOKEN=%s\n",
+			"access_token: %s",
+			"Authorization: Bearer %s",
+			"curl -s -H 'authorization: bearer %s'",
+			`{"token": "%s"}`,
+			`{"headers":{"Authorization":"Bearer %s"}}`,
+			"astrlink:\n  token: %s\n",
+			"https://gateway.example/v1/records?token=%s&limit=5",
+		} {
+			text := fmt.Sprintf(form, token)
+			t.Run(text, func(t *testing.T) {
+				got := regexFindingTexts(t, detector, text)
+				if want := []string{"common_secret:" + token}; !slices.Equal(got, want) {
+					t.Fatalf("findings = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+}
+
+func TestRegexDetectorIgnoresAstrLinkTokenShapesInsideLongerRuns(t *testing.T) {
+	short := "astr_" + strings.Repeat("Qx7", 14)
+	for _, text := range []string{
+		"blob QUJD" + testLocalToken + " end",
+		"blob " + testLocalToken + "RA end",
+		"blob " + testDashLocalToken + "Qx end",
+		"blob " + testDashLocalToken + "- end",
+		"blob " + testUnderscoreLocalToken + "_ end",
+		"blob x-" + testLocalToken + " end",
+		"blob _" + testLocalToken + " end",
+		"blob " + short + " end",
+		"blob " + short + "Qx end",
+	} {
+		t.Run(text, func(t *testing.T) {
+			if got := regexFindingTexts(t, NewRegexDetector(), text); len(got) != 0 {
+				t.Fatalf("findings = %q", got)
+			}
+		})
+	}
+}
+
+func TestRegexDetectorReplacesOnlyTheAssignedValue(t *testing.T) {
+	const (
+		value = "fictional0Secret0value42"
+		jwt   = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaWN0aW9uYWwifQ.c2lnbmF0dXJl"
+	)
+	tests := []struct {
+		text string
+		want string
+	}{
+		{"api_key=" + value, value},
+		{"API-KEY: " + value, value},
+		{"X-API-Key: " + value, value},
+		{"apiKey = '" + value + "'", value},
+		{"access_token=" + value, value},
+		{"accessToken: " + value, value},
+		{"auth_token=" + value, value},
+		{"X-Auth-Token: " + value, value},
+		{"refresh-token=" + value, value},
+		{"refreshToken: " + value, value},
+		{"token=" + value, value},
+		{"TOKEN=" + value + "\n", value},
+		{"secret: " + value, value},
+		{`password = "` + value + `"`, value},
+		{`{"password":"` + value + `"}`, value},
+		{`{"token": "` + value + `", "max_tokens": 4096}`, value},
+		{"service:\n  api_key: " + value + "\n", value},
+		{"/v1/items?token=" + value + "&page=2", value},
+		{"curl -H 'Authorization: Bearer " + value + "'", value},
+		{"Authorization: bearer " + jwt, jwt},
+		{"Authorization: Bearer YWxhZGRpbjpvcGVuc2VzYW1l==", "YWxhZGRpbjpvcGVuc2VzYW1l=="},
+		// A value of digits only is still a credential after one of these
+		// keys: counts use plural or compound keys such as max_tokens, which
+		// never match, and do not reach twelve digits.
+		{"token: 123456789012", "123456789012"},
+		{`{"token": 123456789012}`, "123456789012"},
+	}
+	detector := NewRegexDetector()
+	for _, test := range tests {
+		t.Run(test.text, func(t *testing.T) {
+			got := regexFindingTexts(t, detector, test.text)
+			if want := []string{"common_secret:" + test.want}; !slices.Equal(got, want) {
+				t.Fatalf("findings = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRegexDetectorIgnoresTokenCountsAndShortValues(t *testing.T) {
+	for _, text := range []string{
+		"max_tokens=4096",
+		"max_tokens: 123456789012345",
+		`{"max_tokens": 4096, "max_completion_tokens": 8192}`,
+		"prompt_tokens=123456789012 completion_tokens=123456789012",
+		"token_count: 123456789012",
+		"tokens: abcdefghijklmnop",
+		"tokenizer=cl100k_base_tokenizer",
+		"token=short-value",
+		"password: hunter2",
+		"Authorization: Bearer short-token",
+		"bearer tokens travel in the Authorization header",
+		"Authorization: Bearer $OPENAI_API_KEY",
+		"Authorization: Bearer <token>",
+		"Authorization: Bearer {{access_token}}",
+	} {
+		t.Run(text, func(t *testing.T) {
+			if got := regexFindingTexts(t, NewRegexDetector(), text); len(got) != 0 {
+				t.Fatalf("findings = %q", got)
+			}
+		})
+	}
+}
+
+func TestRegexKeepsAstrLinkTokenIDsAndRedactsLocalAccessTokens(t *testing.T) {
+	engine, err := New(PolicyProviderFunc(func(context.Context, Scope) (Policy, error) {
+		return Policy{}, nil
+	}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"messages":[{"role":"user","content":"access_token=` + testAccessTokenID +
+		` access_token=` + testLocalToken + `"}]}`
+	result, err := engine.Inspect(context.Background(), Policy{
+		Enabled: true, Mode: ModeRegex, Action: ActionRedact,
+	}, contract.ProtocolOpenAIChat, []byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted := string(result.Body)
+	if result.Decision != DecisionRedact || strings.Contains(redacted, testLocalToken) {
+		t.Fatalf("the local access token was not redacted: %q %s", result.Decision, redacted)
+	}
+	if !strings.Contains(redacted, "access_token="+testAccessTokenID+" access_token=") {
+		t.Fatalf("the token id or a key name was redacted: %s", redacted)
+	}
+	if len(result.Redactions) != 1 || result.Redactions[0].Value != testLocalToken {
+		t.Fatalf("redactions = %#v", result.Redactions)
+	}
+	if len(result.SuppressedFindings) != 1 ||
+		result.SuppressedFindings[0].Suppression != SuppressionAstrLinkIdentifier {
+		t.Fatalf("suppressed = %#v", result.SuppressedFindings)
+	}
+}
+
+func TestBuiltinRegexRulesKeepValueGroupsInCustomMode(t *testing.T) {
+	// The catalog seeds custom rules without the built-in boundary checks;
+	// the value groups are part of the patterns and still apply.
+	detector, err := NewCustomRegexDetector(BuiltinRegexRules())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{
+		"token=" + testDashLocalToken,
+		"Authorization: Bearer " + testUnderscoreLocalToken,
+		`{"api_key": "fictional0Secret0value42"}`,
+	} {
+		got := regexFindingTexts(t, detector, text)
+		if len(got) != 1 || strings.ContainsAny(got[0][len("common_secret:"):], `:="' `) {
+			t.Fatalf("%q findings = %q, want the value only", text, got)
+		}
+	}
+}
