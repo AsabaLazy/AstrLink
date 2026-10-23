@@ -5,6 +5,7 @@ import { LiveTrendChart } from "@/components/LiveTrendChart";
 import { Metric, MetricGroup } from "@/components/Metric";
 import { Panel } from "@/components/Panel";
 import { ValueTransition } from "@/components/ValueTransition";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { listLiveRequestSessions } from "./bridge";
@@ -187,17 +188,18 @@ export function RequestActivityBoard({
           size="sm"
           value={
             failures > 0 ? (
-              <button
+              <Button
                 aria-label={t("records.activityShowFailures", {
                   count: failures,
                 })}
-                className="rounded-sm text-destructive underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
+                className="h-auto rounded-sm p-0 text-lg leading-6 font-semibold text-destructive"
                 data-testid="activity-failures"
                 onClick={onShowFailures}
                 type="button"
+                variant="link"
               >
                 {failures}
-              </button>
+              </Button>
             ) : (
               <span data-testid="activity-failures">{snapshot ? 0 : "—"}</span>
             )
