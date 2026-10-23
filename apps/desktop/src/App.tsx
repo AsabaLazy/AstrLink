@@ -43,7 +43,8 @@ import {
   type AccessTokenCatalog,
 } from "./AccessTokenManager";
 import type { AccessTokenSummary } from "./access-token-model";
-import astrlinkLogo from "./assets/astrlink-logo.svg";
+import { getAppBranding } from "./app-branding";
+import { DevelopmentBadge } from "./components/DevelopmentBadge";
 import {
   failedSnapshot,
   phaseLabel,
@@ -305,6 +306,7 @@ function NavButton({
 
 export default function App() {
   const t = useT();
+  const branding = getAppBranding();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const updates = useAppUpdates();
   const notifiedUpdate = useRef<string | null>(null);
@@ -851,18 +853,26 @@ export default function App() {
       sidebarCollapsed={sidebarCollapsed}
       sidebar={
         <aside className="flex h-full min-h-0 flex-col px-4 pt-[var(--sidebar-top)] pb-4 sidebar-collapsed:px-2 sidebar-collapsed:pb-2.5">
-          <div className="flex shrink-0 items-center gap-3 px-3 pb-6 sidebar-collapsed:justify-center sidebar-collapsed:px-0">
+          <div
+            className="flex shrink-0 items-center gap-3 px-3 pb-6 sidebar-collapsed:justify-center sidebar-collapsed:px-0"
+            data-slot="app-brand"
+            aria-label={branding.name}
+            title={branding.name}
+          >
             <img
               className="block size-8 shrink-0"
-              src={astrlinkLogo}
+              src={branding.logo}
               alt=""
               width={32}
               height={32}
               aria-hidden="true"
             />
-            <span className="overflow-hidden text-lg font-semibold tracking-tight whitespace-nowrap sidebar-collapsed:hidden">
-              AstrLink
-            </span>
+            <div className="flex min-w-0 flex-col items-start sidebar-collapsed:hidden">
+              <span className="text-lg leading-tight font-semibold tracking-tight whitespace-nowrap">
+                AstrLink
+              </span>
+              {branding.development ? <DevelopmentBadge /> : null}
+            </div>
           </div>
 
           <nav

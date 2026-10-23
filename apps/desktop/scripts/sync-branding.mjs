@@ -20,6 +20,7 @@ const brandingLogo = join(
   "../../assets/branding/astrlink-logo.svg",
 );
 const uiLogo = join(desktopDir, "src/assets/astrlink-logo.svg");
+const uiDevLogo = join(desktopDir, "src/assets/astrlink-dev-logo.svg");
 const iconsDir = join(desktopDir, "src-tauri/icons");
 
 // The tray icon carries gateway state, so each source gets three variants:
@@ -208,6 +209,7 @@ const appIconNames = [
 ];
 mkdirSync(dirname(uiLogo), { recursive: true });
 copyFileSync(brandingLogo, uiLogo);
+writeFileSync(uiDevLogo, developmentIcon(svg));
 
 function renderAppIcons(sourcePath, directory) {
   const result = spawnSync(

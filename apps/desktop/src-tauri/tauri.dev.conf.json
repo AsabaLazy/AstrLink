@@ -1,4 +1,5 @@
 {
+  "productName": "AstrLink Dev",
   "identifier": "com.astrlink.desktop.isolated",
   "bundle": {
     "icon": [
