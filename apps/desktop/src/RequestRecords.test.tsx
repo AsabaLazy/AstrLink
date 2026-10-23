@@ -4058,9 +4058,10 @@ describe("RequestRecords", () => {
     const trigger = (label: string) =>
       document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
     expect(trigger("时间筛选").textContent).toBe("时间近 7 天");
-    expect(document.querySelector('[aria-label="模型筛选"]')).toBeNull();
+    expect(trigger("模型筛选").textContent).toBe("模型gpt-4.1");
+    expect(trigger("更多筛选").textContent).toBe("更多筛选2");
     await openMoreFilters();
-    expect(trigger("模型筛选").textContent).toContain("gpt-4.1");
+    expect(document.querySelector('[data-filter-group="models"]')).toBeNull();
     expect(trigger("提供商筛选").textContent).toContain("Primary gateway");
     expect(trigger("令牌筛选").textContent).toContain("VS Code");
     await escapeFilterLayer();
@@ -4092,7 +4093,6 @@ describe("RequestRecords", () => {
     });
 
     // Models only clear: selecting every listed name would read no differently.
-    await openMoreFilters();
     await act(async () => trigger("模型筛选").click());
     expect(() => exactButton("全选")).toThrow();
     const modelOption = () =>
@@ -4107,18 +4107,32 @@ describe("RequestRecords", () => {
     });
     await act(async () => modelOption().click());
     await escapeFilterLayer();
-    expect(document.querySelector('[data-slot="filter-menu"]')).not.toBeNull();
+    expect(document.querySelector('[data-slot="filter-menu"]')).toBeNull();
     expect(document.activeElement).toBe(trigger("模型筛选"));
+
+    // Clearing the menu's secondary filters leaves the toolbar's model alone.
+    await openMoreFilters();
+    await act(async () =>
+      exactButton(
+        "清除筛选",
+        document.querySelector<HTMLElement>('[data-slot="filter-menu"]')!,
+      ).click(),
+    );
+    expect(trigger("模型筛选").textContent).toBe("模型gpt-4.1");
+    expect(trigger("更多筛选").textContent).toBe("更多筛选");
+    expect(bridgeMocks.listRequestSessions).toHaveBeenLastCalledWith({
+      limit: 50,
+      kind: "inference",
+      models: ["gpt-4.1"],
+    });
     await escapeFilterLayer();
 
     // Model discovery names no model, so its tab drops the model filter.
     await act(async () => exactButton("模型获取").focus());
-    await openMoreFilters();
     expect(trigger("模型筛选").disabled).toBe(true);
     expect(bridgeMocks.listRequestSessions).toHaveBeenCalledWith({
       limit: 50,
       kind: "discovery",
-      local_access_token_ids: ["token_01"],
     });
   });
 
@@ -4336,7 +4350,6 @@ describe("RequestRecords", () => {
       }),
     );
     await renderRecords();
-    await openMoreFilters();
 
     await act(async () =>
       document

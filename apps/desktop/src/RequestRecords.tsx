@@ -1701,7 +1701,6 @@ export function RequestRecords({
   };
   const advancedFilterCount =
     Number(Boolean(filters.serviceId)) +
-    models.length +
     Number(Boolean(filters.protocol)) +
     filters.localAccessTokenIds.length;
   const activeChips: FilterChip[] = [];
@@ -2039,13 +2038,13 @@ export function RequestRecords({
                   </FormMessage>
                 ) : null}
                 <div className="w-full min-w-0 border-b bg-background py-2">
-                  <div className="grid min-w-0 grid-cols-2 gap-2 @[560px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <div className="grid min-w-0 grid-cols-6 gap-2 @[640px]:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
                     {/* Keep the common scopes available while secondary filters live in the menu. */}
                     <FilterSelect
                       ariaLabel={t("records.filter", {
                         label: t("records.client"),
                       })}
-                      className="w-full"
+                      className="col-span-3 w-full @[640px]:col-span-1"
                       label={t("records.client")}
                       onChange={(clientType) =>
                         setFilters((current) => ({
@@ -2075,13 +2074,31 @@ export function RequestRecords({
                       value={filters.clientType}
                       variant="filled"
                     />
+                    <MultiFilterSelect
+                      allLabel={t("common.all")}
+                      ariaLabel={t("records.filter", {
+                        label: t("records.model"),
+                      })}
+                      className="col-span-3 w-full @[640px]:col-span-1"
+                      clearLabel={t("records.clearModelFilter")}
+                      disabled={!isReady || kind === "discovery"}
+                      emptyMessage={t("records.noModelResults")}
+                      label={t("records.model")}
+                      onChange={setModels}
+                      options={modelOptions}
+                      searchPlaceholder={t("records.searchModels")}
+                      selectedCountLabel={(count) =>
+                        t("records.selectedModels", { count })
+                      }
+                      value={models}
+                    />
                     <UsageRangePicker
                       align="start"
                       ariaLabel={t("records.filter", {
                         label: t("records.time"),
                       })}
                       allLabel={t("common.all")}
-                      className="w-full"
+                      className="col-span-2 w-full @[640px]:col-span-1"
                       label={t("records.time")}
                       onChange={(next) => setDateRange(next)}
                       presets={USAGE_RANGE_PRESETS}
@@ -2091,7 +2108,7 @@ export function RequestRecords({
                       ariaLabel={t("records.filter", {
                         label: t("records.status"),
                       })}
-                      className="w-full"
+                      className="col-span-2 w-full @[640px]:col-span-1"
                       label={t("records.status")}
                       onChange={(status) =>
                         setFilters((current) => ({
@@ -2112,7 +2129,7 @@ export function RequestRecords({
                       <PopoverTrigger asChild>
                         <Button
                           aria-label={t("records.moreFilters")}
-                          className="min-w-0"
+                          className="col-span-2 min-w-0 @[640px]:col-span-1"
                           ref={moreFiltersTriggerRef}
                           size="sm"
                           type="button"
@@ -2147,7 +2164,6 @@ export function RequestRecords({
                               protocol: "",
                               localAccessTokenIds: [],
                             }));
-                            setModels([]);
                           }}
                           selectedCountLabel={(count) =>
                             t("records.filterCount", { count })
@@ -2174,31 +2190,6 @@ export function RequestRecords({
                                   allLabel={t("common.all")}
                                   services={services}
                                   value={filters.serviceId}
-                                />
-                              ),
-                            },
-                            {
-                              id: "models",
-                              label: t("records.model"),
-                              count: models.length,
-                              content: (
-                                <MultiFilterSelect
-                                  allLabel={t("common.all")}
-                                  ariaLabel={t("records.filter", {
-                                    label: t("records.model"),
-                                  })}
-                                  className="w-full"
-                                  clearLabel={t("records.clearModelFilter")}
-                                  disabled={!isReady || kind === "discovery"}
-                                  emptyMessage={t("records.noModelResults")}
-                                  label=""
-                                  onChange={setModels}
-                                  options={modelOptions}
-                                  searchPlaceholder={t("records.searchModels")}
-                                  selectedCountLabel={(count) =>
-                                    t("records.selectedModels", { count })
-                                  }
-                                  value={models}
                                 />
                               ),
                             },
