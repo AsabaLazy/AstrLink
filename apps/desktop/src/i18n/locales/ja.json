@@ -1616,7 +1616,8 @@
       "kind_disabled": "この情報の種類は無効なため、一致は無視されます。",
       "allowlisted": "許可リストに一致するため、この一致は無視されます。",
       "placeholder": "すでにプレースホルダーのため、これ以上の置換は不要です。",
-      "unrepresentable": "使える置換を生成できないため、一致は無視されます。"
+      "unrepresentable": "使える置換を生成できないため、一致は無視されます。",
+      "astrlink_identifier": "AstrLink 自身が生成した ID（アクセストークン ID など）です。アクセス権を与えないため、この一致は無視されます。"
     },
     "testAction": {
       "allow": "現在のポリシーはリクエストを許可し、原文を保持します。",
@@ -2655,7 +2656,8 @@
     "policyIgnoredReasons": {
       "low_confidence": "しきい値未満",
       "allowlisted": "許可リスト",
-      "kind_disabled": "種類オフ"
+      "kind_disabled": "種類オフ",
+      "astrlink_identifier": "AstrLink の ID"
     },
     "policyAllowHint": "ポリシーはリクエストを変更していません。本文は「クライアント」にあります。",
     "policyTrustedHint": "このプロバイダーは信頼済みのため、ポリシーはリクエストを検査せず、そのままアップストリームへ送りました。本文は「クライアント」にあります。",

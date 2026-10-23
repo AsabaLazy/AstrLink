@@ -3207,6 +3207,7 @@ describe("RequestRecords", () => {
           confidence: { min: 0.41, max: 0.6234, threshold: 0.7 },
         },
         { kind: "email", reason: "allowlisted", count: 1 },
+        { kind: "common_secret", reason: "astrlink_identifier", count: 2 },
       ],
       events: [
         {
@@ -3279,15 +3280,23 @@ describe("RequestRecords", () => {
     if (!table) throw new Error("Missing policy kind table");
     expect(
       [...table.querySelectorAll("th")].map((th) => th.textContent),
-    ).toEqual(["类型", "命中", "低于门槛", "免脱敏名单", "类型已关闭"]);
+    ).toEqual([
+      "类型",
+      "命中",
+      "低于门槛",
+      "免脱敏名单",
+      "类型已关闭",
+      "AstrLink 自有 ID",
+    ]);
     expect(
       [...table.querySelectorAll("tbody tr")].map((row) =>
         [...row.querySelectorAll("td")].map((cell) => cell.textContent),
       ),
     ).toEqual([
-      ["邮箱", "3", "81%–99.87%", "", "", "1", ""],
-      ["人名", "1", "88%", "2", "41%–62.34%", "", ""],
-      ["URL", "", "", "", "", "", "5"],
+      ["邮箱", "3", "81%–99.87%", "", "", "1", "", ""],
+      ["人名", "1", "88%", "2", "41%–62.34%", "", "", ""],
+      ["URL", "", "", "", "", "", "5", ""],
+      ["常见密钥", "", "", "", "", "", "", "2"],
     ]);
     // Without a body the table is the content, so it does not fold.
     expect(

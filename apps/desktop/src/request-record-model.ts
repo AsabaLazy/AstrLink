@@ -122,7 +122,8 @@ export interface PrivacyConfidence {
 export type PrivacyIgnoreReason =
   | "kind_disabled"
   | "low_confidence"
-  | "allowlisted";
+  | "allowlisted"
+  | "astrlink_identifier";
 
 /** Matches of one kind the policy left in the request for one reason. */
 export interface PrivacyIgnored {
@@ -844,6 +845,7 @@ const privacyIgnoreReasons = new Set<PrivacyIgnoreReason>([
   "kind_disabled",
   "low_confidence",
   "allowlisted",
+  "astrlink_identifier",
 ]);
 
 function optionalPrivacyIgnored(

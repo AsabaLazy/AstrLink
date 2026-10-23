@@ -1616,7 +1616,8 @@
       "kind_disabled": "该信息类型已关闭，因此忽略。",
       "allowlisted": "匹配免脱敏名单，因此忽略。",
       "placeholder": "识别为已有占位符，无需重复替换。",
-      "unrepresentable": "此内容无法生成可用的替换值，因此忽略。"
+      "unrepresentable": "此内容无法生成可用的替换值，因此忽略。",
+      "astrlink_identifier": "这是 AstrLink 自己生成的 ID（如访问令牌 ID），不能用来访问任何内容，因此忽略。"
     },
     "testAction": {
       "allow": "当前策略允许请求，保留原文。",
@@ -2655,7 +2656,8 @@
     "policyIgnoredReasons": {
       "low_confidence": "低于门槛",
       "allowlisted": "免脱敏名单",
-      "kind_disabled": "类型已关闭"
+      "kind_disabled": "类型已关闭",
+      "astrlink_identifier": "AstrLink 自有 ID"
     },
     "policyAllowHint": "策略没有改动请求内容，请求体见「客户端」。",
     "policyTrustedHint": "此提供商已被信任，策略没有检查这次请求，按原文发往上游。请求体见「客户端」。",

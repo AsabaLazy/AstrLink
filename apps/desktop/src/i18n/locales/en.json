@@ -1616,7 +1616,8 @@
       "kind_disabled": "This information type is disabled, so the match is ignored.",
       "allowlisted": "Matches the allowlist, so the match is ignored.",
       "placeholder": "Already a placeholder; no further replacement is needed.",
-      "unrepresentable": "No usable replacement can be generated, so the match is ignored."
+      "unrepresentable": "No usable replacement can be generated, so the match is ignored.",
+      "astrlink_identifier": "An ID AstrLink generated itself, such as an access token ID. It grants no access, so the match is ignored."
     },
     "testAction": {
       "allow": "The current policy allows the request and keeps the original.",
@@ -2655,7 +2656,8 @@
     "policyIgnoredReasons": {
       "low_confidence": "Below threshold",
       "allowlisted": "Allowlisted",
-      "kind_disabled": "Type off"
+      "kind_disabled": "Type off",
+      "astrlink_identifier": "AstrLink ID"
     },
     "policyAllowHint": "The policy left the request unchanged; the body is under Client.",
     "policyTrustedHint": "This provider is trusted, so the policy did not check the request and it went upstream as written. The body is under Client.",
