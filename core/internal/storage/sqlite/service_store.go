@@ -28,7 +28,7 @@ func (store *Store) CreateService(
 	if err != nil {
 		return record, fmt.Errorf("%w: %v", storagecontract.ErrInvalidArgument, err)
 	}
-	if service.Kind == contract.ServiceKindVertex && credential.Present && len(credential.Secret) > 0 {
+	if service.Kind == contract.ServiceKindVertex && service.HTTP != nil && service.HTTP.Auth.Scheme == contract.AuthSchemeGoogleServiceAccount && credential.Present && len(credential.Secret) > 0 {
 		credential.Secret, err = vertexauth.Compact(credential.Secret)
 		if err != nil {
 			return record, fmt.Errorf("%w: %v", storagecontract.ErrInvalidArgument, err)
@@ -171,13 +171,16 @@ func (store *Store) UpdateService(
 	if current.Service.Kind != service.Kind {
 		return record, fmt.Errorf("%w: service kind is immutable", storagecontract.ErrInvalidArgument)
 	}
+	if service.Kind == contract.ServiceKindVertex && service.HTTP != nil && current.Service.HTTP.Auth.Scheme != service.HTTP.Auth.Scheme && !credential.Present {
+		return record, fmt.Errorf("%w: changing Vertex authentication requires a new credential", storagecontract.ErrInvalidArgument)
+	}
 	service.CreatedAt = current.Service.CreatedAt
 	service.UpdatedAt = store.now().UTC()
 	service, err = normalizeServiceModels(service)
 	if err != nil {
 		return record, fmt.Errorf("%w: %v", storagecontract.ErrInvalidArgument, err)
 	}
-	if service.Kind == contract.ServiceKindVertex && credential.Present && len(credential.Secret) > 0 {
+	if service.Kind == contract.ServiceKindVertex && service.HTTP != nil && service.HTTP.Auth.Scheme == contract.AuthSchemeGoogleServiceAccount && credential.Present && len(credential.Secret) > 0 {
 		credential.Secret, err = vertexauth.Compact(credential.Secret)
 		if err != nil {
 			return record, fmt.Errorf("%w: %v", storagecontract.ErrInvalidArgument, err)

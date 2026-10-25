@@ -35,7 +35,7 @@ export function testableCapabilities(
 ) {
   if (service.kind === "vertex") {
     const preferred = vertexTestProtocol(service, model);
-    return serviceModelFormats(service.kind)
+    return serviceModelFormats(service.kind, service.http?.auth.scheme)
       .map((protocol) => ({
         protocol,
         mode: "native" as const,
@@ -63,10 +63,13 @@ export function vertexTestProtocol(
     (entry) => entry.model === model,
   )?.protocol;
   if (explicit)
-    return serviceModelFormats("vertex").includes(explicit)
+    return serviceModelFormats("vertex", service.http?.auth.scheme).includes(
+      explicit,
+    )
       ? explicit
       : undefined;
   if (/^gemini-[A-Za-z0-9._@-]+$/.test(model)) return "google.generate_content";
+  if (service.http?.auth.scheme === "google_api_key") return undefined;
   if (/^claude-[A-Za-z0-9._@-]+$/.test(model)) return "anthropic.messages";
   if (/^[A-Za-z0-9][A-Za-z0-9._@-]*\/[A-Za-z0-9][A-Za-z0-9._@-]*$/.test(model))
     return "openai.chat";

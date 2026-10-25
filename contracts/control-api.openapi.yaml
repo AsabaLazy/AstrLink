@@ -4853,20 +4853,21 @@ components:
         - custom
       description: >
         Product-level service type. Codex, Claude and Grok subscriptions use OAuth.
-        Coding plans and other HTTP services use provider-issued API keys; Vertex uses service account JSON.
+        Coding plans and other HTTP services use provider-issued API keys; Vertex uses service account JSON or an Express API key.
     VertexConnection:
       type: object
       required: [project_id, location]
       properties:
         project_id:
           type: string
-          pattern: "^(?:[a-z][a-z0-9-]{4,28}[a-z0-9]|[0-9]{1,20})$"
+          maxLength: 254
+          pattern: "^(?:(?:[a-z0-9.-]+:)?[a-z][a-z0-9-]{4,28}[a-z0-9]|[0-9]{1,20})$"
         location:
           type: string
           maxLength: 64
           pattern: "^(?:global|us|eu|[a-z]+-[a-z]+[0-9]+)$"
       additionalProperties: false
-      description: Vertex-only configuration. Requires google_service_account auth and the official base_url for this location. Vertex upstream protocols are Gemini, Messages and Chat; Responses entries must specify convert_to to one of these formats. Credentials stay in the existing secret store.
+      description: Project and location for Vertex service account authentication, with the official base_url for this location. Omit for Express API keys. Saved service account connections without this object infer the project from the key and the location from base_url. Service accounts support Gemini, Messages and Chat; Express supports Gemini. Responses entries require conversion to a supported upstream format.
     HTTPServiceConnection:
       type: object
       required: [base_url, auth]
@@ -5181,7 +5182,10 @@ components:
           not:
             pattern: "^https?://[^/]*@"
         vertex:
-          $ref: "#/components/schemas/VertexConnection"
+          oneOf:
+            - $ref: "#/components/schemas/VertexConnection"
+            - type: "null"
+              description: Clear the project and region when switching to an Express API key.
         auth:
           $ref: ./protocol-capabilities.schema.json#/$defs/ServiceAuth
         credential:
@@ -5246,7 +5250,7 @@ components:
           minLength: 1
           maxLength: 16384
           writeOnly: true
-          description: Stored through CredentialStore and never returned or logged. For Vertex, supply service_account JSON (multiline accepted); it is validated and compacted before storage. Other providers retain API key validation.
+          description: Stored through CredentialStore and never returned or logged. For Vertex google_service_account authentication, supply service_account JSON (multiline accepted); it is validated and compacted before storage. Vertex google_api_key authentication takes an Express API key. Changing the authentication scheme requires a replacement credential.
       additionalProperties: false
     ServiceModels:
       type: array
@@ -8340,7 +8344,7 @@ components:
           google.generate_content,
         ]
     ServiceTestRequest:
-      description: Native connectivity test without entry conversion, routing or failover. Vertex accepts only Gemini, Messages and Chat, independently of enabled entry capabilities.
+      description: Native connectivity test without entry conversion, routing or failover. Vertex service accounts accept Gemini, Messages and Chat, independently of enabled entry capabilities. Vertex Express accepts Gemini.
       type: object
       additionalProperties: false
       required: [protocol, model]

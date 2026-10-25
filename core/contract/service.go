@@ -129,8 +129,6 @@ func (connection HTTPConnection) Validate(serviceID ServiceID) error {
 		if connection.BaseURL != connection.Vertex.BaseURL() || connection.Auth.Scheme != AuthSchemeGoogleServiceAccount {
 			return fmt.Errorf("vertex requires its official regional base_url and service account authentication")
 		}
-	} else if connection.Auth.Scheme == AuthSchemeGoogleServiceAccount {
-		return fmt.Errorf("google_service_account requires vertex configuration")
 	}
 	if err := connection.Auth.Validate(); err != nil {
 		return fmt.Errorf("auth: %w", err)
@@ -342,8 +340,12 @@ func (service Service) Validate() error {
 		if err := service.HTTP.Validate(service.ID); err != nil {
 			return fmt.Errorf("http: %w", err)
 		}
-		if (service.Kind == ServiceKindVertex) != (service.HTTP.Vertex != nil) {
-			return fmt.Errorf("http.vertex is required only for vertex services")
+		if service.Kind == ServiceKindVertex {
+			if service.HTTP.Auth.Scheme != AuthSchemeGoogleServiceAccount && service.HTTP.Auth.Scheme != AuthSchemeGoogleAPIKey {
+				return fmt.Errorf("vertex requires a service account or Express API key")
+			}
+		} else if service.HTTP.Vertex != nil || service.HTTP.Auth.Scheme == AuthSchemeGoogleServiceAccount {
+			return fmt.Errorf("vertex configuration and service accounts require a vertex service")
 		}
 		if service.HTTP.ModelListPath != "" && service.Kind != ServiceKindCustom {
 			return fmt.Errorf("http: model_list_path is only supported for custom services")
@@ -371,6 +373,13 @@ func (service Service) Validate() error {
 	if err := ValidateModelProtocols(service.Kind, service.ModelProtocols); err != nil {
 		return err
 	}
+	if service.VertexExpress() {
+		for _, model := range service.ModelProtocols {
+			if model.Protocol != ProtocolGoogleGenerateContent {
+				return fmt.Errorf("Vertex Express only supports Gemini upstream models")
+			}
+		}
+	}
 	if service.Kind.IsSubscription() {
 		if err := service.Kind.SubscriptionProvider().ValidateCapabilities(service.Capabilities); err != nil {
 			return err
@@ -379,6 +388,15 @@ func (service Service) Validate() error {
 	seen := make(map[string]struct{}, len(service.Capabilities))
 	for index, capability := range service.Capabilities {
 		if service.Kind == ServiceKindVertex {
+			if service.VertexExpress() && capability.Protocol.IsModelFormat() {
+				upstream := capability.Protocol
+				if capability.ConvertTo != "" {
+					upstream = capability.ConvertTo
+				}
+				if upstream != ProtocolGoogleGenerateContent {
+					return fmt.Errorf("Vertex Express entries must use or convert to Gemini")
+				}
+			}
 			if capability.Protocol == ProtocolOpenAIResponses && capability.ConvertTo == "" {
 				return fmt.Errorf("Vertex Responses entry requires a conversion target")
 			}

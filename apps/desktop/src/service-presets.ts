@@ -607,6 +607,37 @@ export function protocolLabel(protocolID: string): string {
   return protocolLabels[protocolID] ?? protocolID;
 }
 
+export function vertexExpressCapabilities(
+  engine?: ConversionEngineSnapshot | null,
+): ServiceCapability[] {
+  const capabilities: ServiceCapability[] = [
+    { protocol: "google.generate_content", mode: "native", streaming: true },
+  ];
+  if (engine?.available) {
+    for (const protocol of [
+      "openai.responses",
+      "anthropic.messages",
+      "openai.chat",
+    ] as const) {
+      if (
+        engine.edges.some(
+          (edge) =>
+            edge.from === protocol &&
+            edge.to === "google.generate_content" &&
+            edge.streaming,
+        )
+      )
+        capabilities.push({
+          protocol,
+          mode: "native",
+          streaming: true,
+          convert_to: "google.generate_content",
+        });
+    }
+  }
+  return capabilities;
+}
+
 export function httpServicePreset(
   profileID: HTTPServicePresetID,
   discovered: readonly ProtocolDescriptor[] = [],

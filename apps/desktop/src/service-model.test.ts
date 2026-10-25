@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   vertexBaseURL,
+  vertexLocation,
   validVertexConnection,
   activeServiceRisk,
   bestConversionTarget,
@@ -28,6 +29,58 @@ import {
 const createdAt = "2026-07-28T12:00:00Z";
 
 describe("service model", () => {
+  it("reads saved Vertex providers with an implicit project or Express key", () => {
+    for (const scheme of [
+      "google_service_account",
+      "google_api_key",
+    ] as const) {
+      const value = {
+        id: "service_vertex",
+        name: "Vertex",
+        kind: "vertex",
+        enabled: true,
+        http: {
+          base_url: "https://us-east5-aiplatform.googleapis.com",
+          auth: { scheme },
+          credential_ref: "local://service/service_vertex",
+        },
+        models: ["gemini-test"],
+        capabilities: [
+          {
+            protocol: "google.generate_content",
+            mode: "native",
+            streaming: true,
+          },
+          {
+            protocol: "openai.chat",
+            mode: "native",
+            streaming: true,
+            convert_to: "google.generate_content",
+          },
+        ],
+        created_at: createdAt,
+        updated_at: createdAt,
+      };
+      expect(parseService(value).http).toEqual(value.http);
+      if (scheme === "google_api_key") {
+        expect(() =>
+          parseService({
+            ...value,
+            capabilities: [
+              { protocol: "openai.chat", mode: "native", streaming: true },
+            ],
+          }),
+        ).toThrow("unsupported Vertex");
+        expect(serviceModelFormats("vertex", scheme)).toEqual([
+          "google.generate_content",
+        ]);
+      }
+    }
+    expect(
+      vertexLocation("https://us-east5-aiplatform.googleapis.com/v1"),
+    ).toBe("us-east5");
+    expect(vertexLocation(vertexBaseURL("eu"))).toBe("eu");
+  });
   it("round trips Vertex configuration and restricts upstream formats", () => {
     const value = {
       id: "service_vertex",

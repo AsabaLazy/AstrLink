@@ -1260,12 +1260,19 @@
     "vertexLocationHint": "global、us、eu または us-central1 などのリージョンを指定します。選択した場所で利用可能なモデルが必要です。別の場所には自動切替しません。",
     "vertexCredential": "サービスアカウント JSON",
     "vertexCredentialHint": "Google Cloud のサービスアカウントキー JSON を貼り付けてください。保存後は再表示されません。",
-    "vertexCredentialKeep": "サービスアカウントは保存済みです。空欄なら保持、新しい JSON を入力すると置換します。",
+    "vertexCredentialKeep": "保存済みのキーを使用します。「変更」で新しい JSON キーを入力できます。",
     "vertexInvalidConfig": "有効な Google Cloud プロジェクト ID とロケーションを入力してください。",
     "vertexInvalidCredential": "project_id、client_email、private_key を含む service_account JSON を入力してください。",
     "vertexRemoveCredential": "保存済みのサービスアカウント認証情報を削除",
     "vertexModelsHelp": "Vertex モデル設定の説明",
-    "vertexCatalogHint": "公式カタログから識別可能な対話モデルを取得します。一覧への掲載は利用権限を保証しません。不足するモデルは公式 ID を手動入力し、選択した場所での利用可否をテストしてください。"
+    "vertexCatalogHint": "公式カタログから識別可能な対話モデルを取得します。一覧への掲載は利用権限を保証しません。不足するモデルは公式 ID を手動入力し、選択した場所での利用可否をテストしてください。",
+    "vertexServiceAccount": "サービスアカウント",
+    "vertexExpressHint": "Vertex AI Express API Key で Gemini を呼び出します。プロジェクトとリージョンの指定は不要です。モデル ID は手動で追加してください。",
+    "vertexUseServiceAccount": "サービスアカウントの JSON です。認証方式をサービスアカウントに切り替えてください。",
+    "keyFileChoose": "JSON ファイルを選択",
+    "keyFileReplace": "変更",
+    "vertexKeyProject": "キーのプロジェクト: {{project}}",
+    "vertexCredentialSaved": "サービスアカウントキーを保存済み"
   },
   "models": {
     "deleteNamed": "{{label}} を削除",
@@ -1469,7 +1476,7 @@
     "minimaxDescription": "従量課金の MiniMax プラットフォーム APIキーです。プラットフォームの APIキーを使ってください。",
     "doubaoDescription": "従量課金の Volcengine Ark APIキーです。既定は北京です。有効なモデル ID または推論エンドポイント ID（ep-…）を追加してください。",
     "xaiDescription": "従量課金の xAI プラットフォーム APIキーです。Grok Chat、Responses、モデル検出に対応しています。",
-    "vertexDescription": "Google Cloud サービスアカウントで Gemini、Claude、OpenAI 互換の対話モデルを使用します。"
+    "vertexDescription": "サービスアカウントで Gemini、Claude などのモデルに接続するか、Express API Key で Gemini を呼び出します。"
   },
   "usage": {
     "allLimits": "すべての利用枠",

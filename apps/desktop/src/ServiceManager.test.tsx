@@ -4546,11 +4546,105 @@ describe("ServiceManager", () => {
     ).toBe(false);
   });
 
-  it("creates Vertex with a pasted service account and a generated regional URL", async () => {
-    bridgeMocks.createService.mockResolvedValue({
-      service: vertexService,
-      etag,
-    });
+  it.each(["paste", "file"])(
+    "creates Vertex with a service account from %s and a generated regional URL",
+    async (source) => {
+      bridgeMocks.createService.mockResolvedValue({
+        service: vertexService,
+        etag,
+      });
+      await act(async () =>
+        root.render(
+          <ServiceManager
+            catalogError={null}
+            catalogStatus="ready"
+            isReady
+            protocols={[]}
+            services={[]}
+            view={{ kind: "create", serviceKind: "vertex" }}
+            onDirtyChange={() => {}}
+            onRefresh={() => {}}
+            onServiceRemoved={() => {}}
+            onServiceSaved={() => {}}
+            onViewChange={() => {}}
+          />,
+        ),
+      );
+      await openEditorTab("connection");
+      expect(container.querySelector('input[type="url"]')).toBeNull();
+      const secret = container.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="服务账号 JSON"]',
+      )!;
+      await typeInto(secret, "{broken");
+      await submitServiceForm();
+      expect(bridgeMocks.createService).not.toHaveBeenCalled();
+      if (source === "paste") {
+        await typeInto(secret, vertexJSON);
+      } else {
+        const fileInput =
+          container.querySelector<HTMLInputElement>('input[type="file"]')!;
+        Object.defineProperty(fileInput, "files", {
+          value: [
+            new File([vertexJSON], "service-account.json", {
+              type: "application/json",
+            }),
+          ],
+        });
+        await act(async () => {
+          fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      }
+      expect(
+        container.querySelector('textarea[aria-label="服务账号 JSON"]'),
+      ).toBeNull();
+      expect(container.textContent).toContain(
+        "test@vertex-test.iam.gserviceaccount.com",
+      );
+      expect(container.textContent).not.toContain("synthetic-key-for-ui-only");
+      expect(
+        container.querySelector<HTMLInputElement>(
+          'input[aria-label="Google Cloud 项目 ID"]',
+        )!.value,
+      ).toBe("vertex-test");
+      await typeInto(
+        container.querySelector<HTMLInputElement>('input[aria-label="地区"]')!,
+        "eu",
+      );
+      await openEditorTab("models");
+      expect(
+        container.querySelector('[aria-label="Vertex 模型配置说明"]'),
+      ).not.toBeNull();
+      await addModelsByHand([
+        "gemini-test",
+        "claude-test@20250101",
+        "meta/llama-test-maas",
+      ]);
+      await submitServiceForm();
+      expect(bridgeMocks.createService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: "vertex",
+          http: {
+            base_url: "https://aiplatform.eu.rep.googleapis.com",
+            auth: { scheme: "google_service_account" },
+            vertex: { project_id: "vertex-test", location: "eu" },
+            credential: { secret: vertexJSON },
+          },
+        }),
+      );
+    },
+  );
+
+  it("keeps the URL and implicit project when editing a saved Vertex proxy", async () => {
+    const legacy: Service = {
+      ...vertexService,
+      http: {
+        base_url: "https://proxy.example/vertex",
+        auth: { scheme: "google_service_account" },
+        credential_ref: "local://service/service_gateway",
+      },
+    };
+    bridgeMocks.getService.mockResolvedValue({ service: legacy, etag });
+    bridgeMocks.updateService.mockResolvedValue({ service: legacy, etag });
     await act(async () =>
       root.render(
         <ServiceManager
@@ -4558,8 +4652,8 @@ describe("ServiceManager", () => {
           catalogStatus="ready"
           isReady
           protocols={[]}
-          services={[]}
-          view={{ kind: "create", serviceKind: "vertex" }}
+          services={[legacy]}
+          view={{ kind: "edit", serviceId: legacy.id }}
           onDirtyChange={() => {}}
           onRefresh={() => {}}
           onServiceRemoved={() => {}}
@@ -4569,45 +4663,128 @@ describe("ServiceManager", () => {
       ),
     );
     await openEditorTab("connection");
-    expect(container.querySelector('input[type="url"]')).toBeNull();
-    const secret = container.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="服务账号 JSON"]',
-    )!;
-    await typeInto(secret, "{broken");
-    await submitServiceForm();
-    expect(bridgeMocks.createService).not.toHaveBeenCalled();
-    await typeInto(secret, vertexJSON);
     expect(
-      container.querySelector<HTMLInputElement>(
-        'input[aria-label="Google Cloud 项目 ID"]',
-      )!.value,
-    ).toBe("vertex-test");
-    await typeInto(
-      container.querySelector<HTMLInputElement>('input[aria-label="地区"]')!,
-      "eu",
-    );
-    await openEditorTab("models");
+      container.querySelector<HTMLInputElement>('input[type="url"]')!.value,
+    ).toBe("https://proxy.example/vertex");
     expect(
-      container.querySelector('[aria-label="Vertex 模型配置说明"]'),
-    ).not.toBeNull();
-    await addModelsByHand([
-      "gemini-test",
-      "claude-test@20250101",
-      "meta/llama-test-maas",
-    ]);
+      container.querySelector('[aria-label="Google Cloud 项目 ID"]'),
+    ).toBeNull();
     await submitServiceForm();
-    expect(bridgeMocks.createService).toHaveBeenCalledWith(
+    expect(bridgeMocks.updateService).toHaveBeenCalledWith(
+      legacy.id,
+      etag,
       expect.objectContaining({
-        kind: "vertex",
         http: {
-          base_url: "https://aiplatform.eu.rep.googleapis.com",
+          base_url: "https://proxy.example/vertex",
           auth: { scheme: "google_service_account" },
-          vertex: { project_id: "vertex-test", location: "eu" },
-          credential: { secret: vertexJSON },
         },
       }),
     );
   });
+
+  it.each(["create", "edit"] as const)(
+    "%s Express providers require a new key and use Gemini conversions",
+    async (mode) => {
+      bridgeMocks.getService.mockResolvedValue({
+        service: vertexService,
+        etag,
+      });
+      bridgeMocks.updateService.mockResolvedValue({
+        service: vertexService,
+        etag,
+      });
+      bridgeMocks.createService.mockResolvedValue({
+        service: vertexService,
+        etag,
+      });
+      await act(async () =>
+        root.render(
+          <ServiceManager
+            catalogError={null}
+            catalogStatus="ready"
+            isReady
+            protocols={[]}
+            conversionEngine={{
+              name: "relaykit",
+              version: null,
+              available: true,
+              edges: [
+                {
+                  from: "openai.responses",
+                  to: "google.generate_content",
+                  quality: "good",
+                  streaming: true,
+                },
+                {
+                  from: "openai.chat",
+                  to: "google.generate_content",
+                  quality: "good",
+                  streaming: true,
+                },
+              ],
+            }}
+            services={mode === "edit" ? [vertexService] : []}
+            view={
+              mode === "edit"
+                ? { kind: "edit", serviceId: vertexService.id }
+                : { kind: "create", serviceKind: "vertex" }
+            }
+            onDirtyChange={() => {}}
+            onRefresh={() => {}}
+            onServiceRemoved={() => {}}
+            onServiceSaved={() => {}}
+            onViewChange={() => {}}
+          />,
+        ),
+      );
+      await openEditorTab("connection");
+      await clickButton("Express API Key");
+      expect(
+        container.querySelector('[aria-label="Google Cloud 项目 ID"]'),
+      ).toBeNull();
+      expect(container.querySelector('[aria-label="地区"]')).toBeNull();
+      await submitServiceForm();
+      expect(bridgeMocks.updateService).not.toHaveBeenCalled();
+      expect(bridgeMocks.createService).not.toHaveBeenCalled();
+      await typeInto(
+        container.querySelector<HTMLInputElement>('input[type="password"]')!,
+        "express-test-key",
+      );
+      await openEditorTab("models");
+      expect(container.textContent).not.toContain("获取模型列表");
+      if (mode === "create") await addModelsByHand(["gemini-test"]);
+      await submitServiceForm();
+      const payload =
+        mode === "edit"
+          ? bridgeMocks.updateService.mock.calls[0]?.[2]
+          : bridgeMocks.createService.mock.calls[0]?.[0];
+      expect(payload.http).toEqual({
+        base_url: "https://aiplatform.googleapis.com",
+        auth: { scheme: "google_api_key" },
+        credential: { secret: "express-test-key" },
+        ...(mode === "edit" ? { vertex: null } : {}),
+      });
+      expect(payload.capabilities).toEqual([
+        {
+          protocol: "google.generate_content",
+          mode: "native",
+          streaming: true,
+        },
+        {
+          protocol: "openai.responses",
+          mode: "native",
+          streaming: true,
+          convert_to: "google.generate_content",
+        },
+        {
+          protocol: "openai.chat",
+          mode: "native",
+          streaming: true,
+          convert_to: "google.generate_content",
+        },
+      ]);
+    },
+  );
 
   it("discovers Vertex models with saved credentials and edits or removes them without exposing JSON", async () => {
     bridgeMocks.getService.mockResolvedValue({ service: vertexService, etag });
@@ -4639,10 +4816,9 @@ describe("ServiceManager", () => {
     });
     await openEditorTab("connection");
     expect(
-      container.querySelector<HTMLTextAreaElement>(
-        'textarea[aria-label="服务账号 JSON"]',
-      )!.value,
-    ).toBe("");
+      container.querySelector('textarea[aria-label="服务账号 JSON"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain("已保存服务账号密钥");
     await typeInto(
       container.querySelector<HTMLInputElement>('input[aria-label="地区"]')!,
       "us-east5",
@@ -4750,6 +4926,7 @@ describe("ServiceManager", () => {
           .querySelector<HTMLButtonElement>('[role="checkbox"]')!;
         await act(async () => removal.click());
       } else {
+        if (changed === "replace") await clickButton("更换");
         const label =
           changed === "project"
             ? "Google Cloud 项目 ID"

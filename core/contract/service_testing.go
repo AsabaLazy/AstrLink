@@ -30,6 +30,9 @@ func (input ServiceTestRequest) Validate(service Service) error {
 		return fmt.Errorf("Codex subscription tests require streaming")
 	}
 	if service.Kind == ServiceKindVertex {
+		if service.VertexExpress() && input.Protocol != ProtocolGoogleGenerateContent {
+			return fmt.Errorf("Vertex Express tests require the native Gemini protocol")
+		}
 		if !slices.Contains(service.Kind.ModelFormats(), input.Protocol) {
 			return fmt.Errorf("Vertex tests require a native Gemini, Messages or Chat protocol")
 		}

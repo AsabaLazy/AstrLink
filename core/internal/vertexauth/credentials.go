@@ -18,6 +18,19 @@ const cloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform"
 
 var ErrCredential = errors.New("invalid Google service account JSON: check type, project_id, client_email, and RSA private_key")
 
+// ProjectID reads project_id from service account JSON. Token exchange
+// validates the complete key.
+func ProjectID(secret []byte) string {
+	var account struct {
+		Type      string `json:"type"`
+		ProjectID string `json:"project_id"`
+	}
+	if len(secret) > 16_384 || json.Unmarshal(secret, &account) != nil || account.Type != "service_account" {
+		return ""
+	}
+	return account.ProjectID
+}
+
 // Compact validates before storage without weakening API-key header validation.
 func Compact(secret []byte) ([]byte, error) {
 	if _, err := config(secret); err != nil {

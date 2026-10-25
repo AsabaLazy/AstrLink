@@ -1260,12 +1260,19 @@
     "vertexLocationHint": "Use global, us, eu, or a region such as us-central1. The model must be available there; requests never fall back to another location.",
     "vertexCredential": "Service account JSON",
     "vertexCredentialHint": "Paste a Google Cloud service account key JSON. Saved credentials are never shown again.",
-    "vertexCredentialKeep": "Service account saved. Leave empty to keep it, or paste new JSON to replace it.",
+    "vertexCredentialKeep": "Using the saved service account key. Choose Replace to load a new JSON key.",
     "vertexInvalidConfig": "Enter a valid Google Cloud project ID and location.",
     "vertexInvalidCredential": "Provide service_account JSON containing project_id, client_email, and private_key.",
     "vertexRemoveCredential": "Remove the saved service account credentials",
     "vertexModelsHelp": "Vertex model configuration help",
-    "vertexCatalogHint": "Fetch identifiable chat models from the official catalog. Listing does not confirm project access. Enter official IDs manually for missing models, and test availability in the selected location."
+    "vertexCatalogHint": "Fetch identifiable chat models from the official catalog. Listing does not confirm project access. Enter official IDs manually for missing models, and test availability in the selected location.",
+    "vertexServiceAccount": "Service account",
+    "vertexExpressHint": "Use a Vertex AI Express API key to call Gemini without a project or region. Add model IDs manually.",
+    "vertexUseServiceAccount": "This is service account JSON. Switch to service account authentication.",
+    "keyFileChoose": "Choose JSON file",
+    "keyFileReplace": "Replace",
+    "vertexKeyProject": "Key project: {{project}}",
+    "vertexCredentialSaved": "Saved service account key"
   },
   "models": {
     "deleteNamed": "Delete {{label}}",
@@ -1469,7 +1476,7 @@
     "minimaxDescription": "MiniMax platform API key with usage-based billing. Use your platform API key.",
     "doubaoDescription": "Volcengine Ark API key with usage-based billing. Defaults to Beijing; add an enabled model ID or inference endpoint ID (ep-…).",
     "xaiDescription": "xAI platform API key with usage-based billing; supports Grok Chat, Responses, and model discovery.",
-    "vertexDescription": "Use a Google Cloud service account for Gemini, Claude, and OpenAI-compatible chat models."
+    "vertexDescription": "Use a service account for Gemini, Claude and compatible chat models, or an Express API key for Gemini."
   },
   "usage": {
     "allLimits": "All quotas",

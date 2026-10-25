@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/astrlink/core/contract"
 	"github.com/QuantumNous/astrlink/core/internal/endpoint"
 	"github.com/QuantumNous/astrlink/core/internal/networkproxy"
 	"github.com/QuantumNous/astrlink/core/internal/relaykitbridge"
@@ -172,5 +173,72 @@ func TestVertexCredentialLifecycleAndDraftDiscovery(t *testing.T) {
 	}
 	if _, err := authorizer.Headers(ctx, ep, nil); err == nil {
 		t.Fatal("inference reused deleted credentials")
+	}
+}
+
+func TestVertexImplicitProjectCanBeReadAndSwitchedToExpress(t *testing.T) {
+	store, handler := newServiceHandler(t, "service_vertex")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, _ := json.Marshal(map[string]string{"type": "service_account", "project_id": "key-project", "client_email": "test@key-project.iam.gserviceaccount.com", "private_key": string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))})
+	secret, _ := json.Marshal(string(account))
+	created := serviceRequestForTest(t, handler, http.MethodPost, ServicesPath, "application/json", `{"name":"Vertex","kind":"vertex","http":{"base_url":"https://us-east5-aiplatform.googleapis.com","auth":{"scheme":"google_service_account"},"credential":{"secret":`+string(secret)+`}},"models":["gemini-test"],"capabilities":[{"protocol":"google.generate_content","mode":"native","streaming":true}]}`, "")
+	if created.Code != 201 {
+		t.Fatalf("create implicit project: %d %s", created.Code, created.Body)
+	}
+	path := ServicesPath + "/service_vertex"
+	detail := serviceRequestForTest(t, handler, http.MethodGet, path, "", "", "")
+	if detail.Code != 200 || !strings.Contains(detail.Body.String(), `"vertex":{"project_id":"key-project","location":"us-east5"}`) || strings.Contains(detail.Body.String(), "PRIVATE KEY") || strings.Contains(detail.Body.String(), "client_email") {
+		t.Fatalf("detail: %d %s", detail.Code, detail.Body)
+	}
+	record, err := store.GetService(t.Context(), "service_vertex")
+	if err != nil || record.Service.HTTP.Vertex != nil {
+		t.Fatalf("read rewrote stored connection: %v", err)
+	}
+	manager := vertexauth.New(&http.Client{Transport: controlRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"access_token":"google-token","token_type":"Bearer","expires_in":3600}`))}, nil
+	})})
+	ep, err := record.Service.EndpointView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers, err := endpoint.NewServiceAuthorizer(store, nil).WithVertexTokens(manager).Headers(t.Context(), ep, nil)
+	if err != nil || headers.Get("X-AstrLink-Vertex-Project") != "key-project" {
+		t.Fatalf("implicit project auth: %v", err)
+	}
+	patch := `{"http":{"base_url":"https://aiplatform.googleapis.com","auth":{"scheme":"google_api_key"},"vertex":null}}`
+	invalid := serviceRequestForTest(t, handler, http.MethodPatch, path, "application/merge-patch+json", patch, detail.Header().Get("ETag"))
+	if invalid.Code != 422 {
+		t.Fatalf("switched with stored JSON: %d %s", invalid.Code, invalid.Body)
+	}
+	patch = `{"http":{"base_url":"https://aiplatform.googleapis.com","auth":{"scheme":"google_api_key"},"vertex":null,"credential":{"secret":"express-test-key"}}}`
+	updated := serviceRequestForTest(t, handler, http.MethodPatch, path, "application/merge-patch+json", patch, detail.Header().Get("ETag"))
+	if updated.Code != 200 {
+		t.Fatalf("switch to Express: %d %s", updated.Code, updated.Body)
+	}
+	record, err = store.GetService(t.Context(), "service_vertex")
+	if err != nil || !record.Service.VertexExpress() {
+		t.Fatalf("Express record: %v", err)
+	}
+	ep, err = record.Service.EndpointView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	headers, err = endpoint.NewServiceAuthorizer(store, nil).Headers(t.Context(), ep, nil)
+	if err != nil || headers.Get("X-Goog-Api-Key") != "express-test-key" {
+		t.Fatalf("Express auth: %v", err)
+	}
+	if err := (contract.ServiceTestRequest{Model: "claude-test", Protocol: contract.ProtocolAnthropicMessages}).Validate(record.Service); err == nil {
+		t.Fatal("Express accepted a Claude test")
+	}
+	invalid = serviceRequestForTest(t, handler, http.MethodPatch, path, "application/merge-patch+json", `{"http":{"auth":{"scheme":"google_service_account"},"vertex":{"project_id":"key-project","location":"global"}}}`, updated.Header().Get("ETag"))
+	if invalid.Code != 422 {
+		t.Fatalf("switched with stored API key: %d %s", invalid.Code, invalid.Body)
 	}
 }

@@ -19,10 +19,12 @@ import (
 	"github.com/QuantumNous/astrlink/core/contract"
 	"github.com/QuantumNous/astrlink/core/internal/accountauth"
 	"github.com/QuantumNous/astrlink/core/internal/codingplan"
+	"github.com/QuantumNous/astrlink/core/internal/providerapi"
 	"github.com/QuantumNous/astrlink/core/internal/secretstore"
 	"github.com/QuantumNous/astrlink/core/internal/servicemodel"
 	"github.com/QuantumNous/astrlink/core/internal/storage"
 	"github.com/QuantumNous/astrlink/core/internal/subscription"
+	"github.com/QuantumNous/astrlink/core/internal/vertexauth"
 )
 
 type ServiceModelProber interface {
@@ -83,7 +85,10 @@ type serviceHTTPDetail struct {
 
 func (handler *Handler) serviceDetail(request *http.Request, service contract.Service) any {
 	service = handler.publicService(service)
-	if requestRole(request) < RoleOperator || service.HTTP == nil || service.HTTP.CredentialRef == "" || service.HTTP.Auth.Scheme == contract.AuthSchemeGoogleServiceAccount {
+	if requestRole(request) < RoleOperator || service.HTTP == nil || service.HTTP.CredentialRef == "" {
+		return service
+	}
+	if service.HTTP.Auth.Scheme == contract.AuthSchemeGoogleServiceAccount && service.HTTP.Vertex != nil {
 		return service
 	}
 	secrets, ok := handler.serviceStore.(secretstore.SecretStore)
@@ -93,6 +98,16 @@ func (handler *Handler) serviceDetail(request *http.Request, service contract.Se
 	secret, err := secrets.Get(request.Context(), secretstore.Ref(service.HTTP.CredentialRef))
 	defer clear(secret)
 	if err != nil {
+		return service
+	}
+	if service.Kind == contract.ServiceKindVertex && service.HTTP.Auth.Scheme == contract.AuthSchemeGoogleServiceAccount {
+		vertex := &contract.VertexConnection{ProjectID: vertexauth.ProjectID(secret), Location: contract.VertexLocation(service.HTTP.BaseURL)}
+		base, _ := url.Parse(service.HTTP.BaseURL)
+		if base != nil && vertex.Validate() == nil && strings.TrimRight(providerapi.BaseURL(service.Kind, contract.ProtocolGoogleGenerateContent, base).String(), "/") == vertex.BaseURL() {
+			connection := *service.HTTP
+			connection.Vertex, connection.BaseURL = vertex, vertex.BaseURL()
+			service.HTTP = &connection
+		}
 		return service
 	}
 	hint := credentialHint(secret)
@@ -1250,7 +1265,9 @@ func applyServicePatch(
 			service.HTTP.Auth = auth
 		}
 		if value, ok := fields["vertex"]; ok {
-			if isJSONNull(value) || strictUnmarshal(value, &service.HTTP.Vertex) != nil {
+			if isJSONNull(value) {
+				service.HTTP.Vertex = nil
+			} else if strictUnmarshal(value, &service.HTTP.Vertex) != nil {
 				return service, credential, fmt.Errorf("invalid vertex configuration")
 			}
 		}

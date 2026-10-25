@@ -62,3 +62,25 @@ func TestVertexEntryCapabilities(t *testing.T) {
 		})
 	}
 }
+
+func TestVertexExpressRequiresGeminiUpstreams(t *testing.T) {
+	service := Service{ID: "service_vertex", Name: "Vertex", Kind: ServiceKindVertex,
+		HTTP: &HTTPConnection{BaseURL: "https://aiplatform.googleapis.com", Auth: ServiceAuth{Scheme: AuthSchemeGoogleAPIKey}}}
+	for _, protocol := range []ProtocolID{ProtocolOpenAIResponses, ProtocolOpenAIChat, ProtocolAnthropicMessages} {
+		service.Capabilities = []Capability{{Protocol: protocol, Mode: CapabilityModeNative}}
+		if service.Validate() == nil {
+			t.Fatalf("accepted %s upstream in Express mode", protocol)
+		}
+		service.Capabilities[0].ConvertTo = ProtocolGoogleGenerateContent
+		if err := service.Validate(); err != nil {
+			t.Fatalf("Gemini conversion: %v", err)
+		}
+	}
+	service.ModelProtocols = []ModelProtocol{{Model: "claude-test", Protocol: ProtocolAnthropicMessages}}
+	if service.Validate() == nil {
+		t.Fatal("accepted a Claude model override in Express mode")
+	}
+	if err := (VertexConnection{ProjectID: "example.com:key-project", Location: "global"}).Validate(); err != nil {
+		t.Fatalf("domain-scoped project: %v", err)
+	}
+}

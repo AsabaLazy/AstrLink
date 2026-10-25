@@ -110,7 +110,10 @@ func (prober *Prober) ProbeHTTP(
 	if err := connection.Validate(serviceID); err != nil {
 		return Discovery{}, fmt.Errorf("%w: invalid HTTP connection", ErrUnsupported)
 	}
-	if (kind == contract.ServiceKindVertex) != (connection.Vertex != nil) {
+	if kind != contract.ServiceKindVertex && (connection.Vertex != nil || connection.Auth.Scheme == contract.AuthSchemeGoogleServiceAccount) {
+		return Discovery{}, ErrUnsupported
+	}
+	if kind == contract.ServiceKindVertex && connection.Auth.Scheme != contract.AuthSchemeGoogleServiceAccount {
 		return Discovery{}, ErrUnsupported
 	}
 	secret := append([]byte(nil), credential...)
@@ -132,6 +135,14 @@ func (prober *Prober) ProbeHTTP(
 		}
 	}
 	if kind == contract.ServiceKindVertex {
+		if connection.Vertex == nil {
+			connection.Vertex = &contract.VertexConnection{ProjectID: vertexauth.ProjectID(secret), Location: contract.VertexLocation(connection.BaseURL)}
+			if err := connection.Vertex.Validate(); err != nil {
+				return Discovery{}, ErrCredentialUnavailable
+			}
+			base, _ := url.Parse(connection.BaseURL)
+			connection.BaseURL = providerapi.BaseURL(kind, protocol, base).String()
+		}
 		token, err := prober.vertex.AccessToken(probeContext, serviceID, secret)
 		if err != nil {
 			return Discovery{}, fmt.Errorf("%w: %w", ErrCredentialUnavailable, err)

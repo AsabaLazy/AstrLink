@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/astrlink/core/contract"
 	"github.com/QuantumNous/astrlink/core/internal/accountauth"
+	"github.com/QuantumNous/astrlink/core/internal/providerapi"
 	"github.com/QuantumNous/astrlink/core/internal/secretstore"
 	"github.com/QuantumNous/astrlink/core/internal/storage"
 	"github.com/QuantumNous/astrlink/core/internal/vertexauth"
@@ -174,6 +175,7 @@ func (authorizer *SecretAuthorizer) Headers(ctx context.Context, endpoint contra
 		}
 		headers := make(http.Header)
 		headers.Set("Authorization", "Bearer "+token)
+		headers.Set(providerapi.VertexProjectHeader, vertexauth.ProjectID(secret))
 		return headers, nil
 	}
 	if !validHeaderSecret(secret) {
