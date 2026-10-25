@@ -463,14 +463,33 @@ export async function resetServiceUsage(
   );
 }
 
+export {
+  SERVICE_TEST_CANCELLED_ERROR,
+  SERVICE_TEST_ALREADY_RUNNING_ERROR,
+  SERVICE_TEST_INVALID_ID_ERROR,
+} from "./service-test-cancellation";
+
 export async function testService(
   serviceId: string,
   input: ServiceTestInput,
+  testId?: string,
 ): Promise<ServiceTestResult> {
   requireNativeBridge();
   return parseServiceTestResult(
-    await invoke<unknown>("test_service", { serviceId, input }),
+    await invoke<unknown>("test_service", {
+      serviceId,
+      input,
+      ...(testId ? { testId } : {}),
+    }),
   );
+}
+
+export async function cancelServiceTest(
+  serviceId: string,
+  testId: string,
+): Promise<boolean> {
+  requireNativeBridge();
+  return invoke<boolean>("cancel_service_test", { serviceId, testId });
 }
 
 export async function probeServiceModels(

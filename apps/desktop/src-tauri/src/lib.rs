@@ -43,7 +43,10 @@ use preferences::{
     TrayPreferences,
 };
 use serde::{Deserialize, Serialize};
-use sidecar::{CoreManager, CoreSnapshot, PolicyRecordResponse, ServiceRecordResponse};
+use sidecar::{
+    CoreManager, CoreSnapshot, PolicyRecordResponse, ServiceRecordResponse, SERVICE_TEST_CANCELLED,
+    SERVICE_TEST_INVALID_ID,
+};
 use tauri::{Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -1445,11 +1448,46 @@ async fn reset_service_usage(
 
 #[tauri::command]
 async fn test_service(
+    window: tauri::WebviewWindow,
     service_id: String,
     input: serde_json::Value,
+    test_id: Option<String>,
     manager: State<'_, Arc<CoreManager>>,
 ) -> Result<serde_json::Value, String> {
-    manager.test_service(&service_id, input).await
+    let manager = Arc::clone(manager.inner());
+    let Some(test_id) = test_id else {
+        return manager.test_service(&service_id, input).await;
+    };
+    if service_id.is_empty() || service_id.len() > 128 || test_id.is_empty() || test_id.len() > 128
+    {
+        return Err(SERVICE_TEST_INVALID_ID.into());
+    }
+    let owner = window.label().to_owned();
+    let mut registration = match manager.register_service_test(&owner, &service_id, &test_id) {
+        Ok(registration) => registration,
+        Err(message) => return Err(message),
+    };
+    // Prefer a finished result if completion and cancellation are both ready.
+    let outcome = tokio::select! {
+        biased;
+        outcome = manager.test_service(&service_id, input) => outcome,
+        _ = registration.receiver() => Err(SERVICE_TEST_CANCELLED.into()),
+    };
+    outcome
+}
+
+#[tauri::command]
+fn cancel_service_test(
+    window: tauri::WebviewWindow,
+    service_id: String,
+    test_id: String,
+    manager: State<'_, Arc<CoreManager>>,
+) -> bool {
+    if service_id.is_empty() || service_id.len() > 128 || test_id.is_empty() || test_id.len() > 128
+    {
+        return false;
+    }
+    manager.cancel_service_test(window.label(), &service_id, &test_id)
 }
 
 #[tauri::command]
@@ -2471,6 +2509,7 @@ pub fn run() {
             sync_config,
             reset_service_usage,
             test_service,
+            cancel_service_test,
             probe_service_models,
             probe_draft_service_models,
             probe_service_proxy,
